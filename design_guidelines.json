@@ -1,0 +1,212 @@
+{
+  "app_name": "OnCampus",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A modern, academic communication platform blending LinkedIn's professional clarity with WhatsApp's functional messaging, rooted in a fresh moss green and terracotta palette.",
+  "color": {
+    "light": {
+      "surface": "#F9F8F6",
+      "onSurface": "#181A19",
+      "surfaceSecondary": "#FFFFFF",
+      "onSurfaceSecondary": "#181A19",
+      "surfaceTertiary": "#F1EFED",
+      "onSurfaceTertiary": "#4A4D4C",
+      "surfaceInverse": "#181A19",
+      "onSurfaceInverse": "#F9F8F6",
+      "brand": "#2E5C4E",
+      "brandPrimary": "#2E5C4E",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#E87A5D",
+      "onBrandSecondary": "#FFFFFF",
+      "brandTertiary": "#E7EFEA",
+      "onBrandTertiary": "#1B382F",
+      "success": "#347D5B",
+      "onSuccess": "#FFFFFF",
+      "warning": "#D9983A",
+      "onWarning": "#181A19",
+      "error": "#D14D4D",
+      "onError": "#FFFFFF",
+      "info": "#4A788C",
+      "onInfo": "#FFFFFF",
+      "border": "#E6E3DF",
+      "borderStrong": "#C2BDB8",
+      "divider": "#E6E3DF"
+    },
+    "dark": {
+      "surface": "#121413",
+      "onSurface": "#F9F8F6",
+      "surfaceSecondary": "#1A1D1C",
+      "onSurfaceSecondary": "#E6E3DF",
+      "surfaceTertiary": "#262A29",
+      "onSurfaceTertiary": "#C2BDB8",
+      "surfaceInverse": "#F9F8F6",
+      "onSurfaceInverse": "#121413",
+      "brand": "#3B7564",
+      "brandPrimary": "#3B7564",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#E87A5D",
+      "onBrandSecondary": "#FFFFFF",
+      "brandTertiary": "#1A2E26",
+      "onBrandTertiary": "#8DC7B3",
+      "success": "#44A377",
+      "onSuccess": "#000000",
+      "warning": "#E8B058",
+      "onWarning": "#000000",
+      "error": "#E36666",
+      "onError": "#000000",
+      "info": "#5B96AE",
+      "onInfo": "#000000",
+      "border": "#2E3331",
+      "borderStrong": "#4A4D4C",
+      "divider": "#2E3331"
+    }
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Maintain strict 8pt grid. Generous horizontal padding (lg/xl) around feed cards. No orphan layout cards.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": 1,
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use translucent frosted glass for the bottom tab bar and sticky headers.",
+      "Apply glass effects on floating action buttons (FAB) layered over a brand tint.",
+      "Use a tinted base beneath blur layers to ensure readability."
+    ],
+    "dont's": [
+      "Do not apply blur to individual feed cards, chat bubbles, or list items.",
+      "Never blur form fields or body text regions."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Splash & Onboarding",
+      "purpose": "Introduce the platform with high-quality academic imagery and fresh messaging.",
+      "states": {
+        "loading": "Centered brand spinner.",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Full-bleed academic/campus hero images. Overlay a top-to-bottom vertical gradient scrim (transparent to 80% surfaceInverse) to guarantee text contrast. Title and primary CTA at the bottom 30% of the screen. CTA is a large 'pill' styled button."
+    },
+    {
+      "name": "Feed",
+      "purpose": "A LinkedIn-style clean public feed displaying campus announcements and group activity.",
+      "states": {
+        "loading": "Skeleton loader with card shapes matching feed items.",
+        "empty": "Illustration of a noticeboard + 'No announcements yet' + CTA to explore groups.",
+        "error": "Readable error message + 'Retry' button."
+      },
+      "layout": "Split header with a compact personalized widget at the top (next class/event), followed by infinite scroll social feed. Cards use 'surfaceSecondary', 'md' radius, and 1px 'border'. Rich media should span full width within cards."
+    },
+    {
+      "name": "Group Chat",
+      "purpose": "WhatsApp-grade usability for real-time institutional communication.",
+      "states": {
+        "loading": "Centered spinner over chat background.",
+        "empty": "Empty state illustration + 'Start the conversation' message.",
+        "error": "Failed to load messages + Retry button."
+      },
+      "layout": "Sticky frosted header showing group identity. Asymmetrical chat flow. Own messages: aligned right, 'brandPrimary' background, 'onBrandPrimary' text. Received: aligned left, 'surfaceSecondary' background. Bottom dock expands gracefully for typing. Include micro-interactions for replies and mentions."
+    },
+    {
+      "name": "Discover (Channels/Groups)",
+      "purpose": "Telegram-style directory for public discovery of clubs and institution channels.",
+      "states": {
+        "loading": "Grid skeleton loader.",
+        "empty": "Search icon + 'No groups match your criteria'.",
+        "error": "Error message + Retry."
+      },
+      "layout": "Horizontal scrollable pill list at the top for filtering categories. Vertical grid (2-column on wider screens, single column list on smaller) below it. Cards feature large top banner imagery, bold group titles, short descriptors, tags, and a prominent 'Join' button."
+    },
+    {
+      "name": "Profile/Settings",
+      "purpose": "Clean, LinkedIn-style profile setup and extensive settings management.",
+      "states": {
+        "loading": "Skeleton loading lines.",
+        "empty": "N/A",
+        "error": "Standard error overlay + Retry."
+      },
+      "layout": "Hero profile section with a tinted background or cover banner. List rows for settings (Notifications, Theme, Privacy, Storage, etc.) utilizing a 56pt tappable height. Feature rows should use a 'brandTertiary' tinted icon container on the left, followed by the setting name, and a chevron on the right."
+    }
+  ],
+  "haptics": {
+    "tab_press": "light",
+    "button_primary": "medium",
+    "message_sent": "success",
+    "switch_toggle": "light",
+    "pull_to_refresh": "medium"
+  },
+  "images": {
+    "onboarding_hero_1": {
+      "url": "https://images.unsplash.com/photo-1562774053-701939374585?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxjb2xsZWdlJTIwY2FtcHVzJTIwd2lkZSUyMHBob3RvZ3JhcGh5fGVufDB8fHx8MTc4MjkxNjIwN3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Wide shot of a college campus building"
+    },
+    "onboarding_hero_2": {
+      "url": "https://images.unsplash.com/photo-1605299670824-00515e81b924?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHw0fHxjb2xsZWdlJTIwY2FtcHVzJTIwd2lkZSUyMHBob3RvZ3JhcGh5fGVufDB8fHx8MTc4MjkxNjIwN3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "College campus building with green grass"
+    },
+    "avatar_student_1": {
+      "url": "https://images.unsplash.com/photo-1633112639964-f8c9d360dc75?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njd8MHwxfHNlYXJjaHwxfHx5b3VuZyUyMGRpdmVyc2UlMjBzdHVkZW50JTIwcG9ydHJhaXQlMjBwaG90b2dyYXBoeXxlbnwwfHx8fDE3ODI5MTYyMDd8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Portrait of a young male student"
+    },
+    "avatar_student_2": {
+      "url": "https://images.unsplash.com/photo-1619431667975-e93b820cde63?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njd8MHwxfHNlYXJjaHwzfHx5b3VuZyUyMGRpdmVyc2UlMjBzdHVkZW50JTIwcG9ydHJhaXQlMjBwaG90b2dyYXBoeXxlbnwwfHx8fDE3ODI5MTYyMDd8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Portrait of a young female student sitting outdoors"
+    },
+    "discover_group_event": {
+      "url": "https://images.pexels.com/photos/8199169/pexels-photo-8199169.jpeg",
+      "alt": "Diverse group of college students interacting indoors"
+    },
+    "discover_group_campus": {
+      "url": "https://images.pexels.com/photos/7683694/pexels-photo-7683694.jpeg",
+      "alt": "Students hanging out outside a modern university building"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Apply the Moss Green (#2E5C4E) and Terracotta (#E87A5D) palette meticulously across components to ensure it feels institutional but modern. Do NOT default to generic blue or purple.",
+    "Enforce a strict 8pt grid system. Maintain generous padding ('lg' or 'xl') around the main content blocks to ensure high readability.",
+    "Implement 'Glassmorphism with a Human Touch' using 'expo-glass-effect' exclusively for bottom tab bars and sticky headers. Body elements and feed cards should remain solid.",
+    "Always apply a top-to-bottom gradient scrim (using 'expo-linear-gradient') beneath text overlaid on hero imagery to guarantee WCAG contrast compliance.",
+    "For the Group Chat interface, prioritize asynchronous text communication. Left align received messages (solid surfaceSecondary background) and right align sent messages (solid brandPrimary background). Include micro-interactions for timestamps and read status.",
+    "Build the Feed screen with a LinkedIn-like polish: use rounded 'md' cards, clear typography scales (Max 500 font weight), and distinctive avatars with role tags.",
+    "Develop a rich 'Discover' tab featuring horizontal scrollable category pills at the top, and a vertical grid of Group Cards below, each utilizing the provided campus/event imagery.",
+    "Ensure 'haptics' are properly wired via 'expo-haptics' using the designated schema in this file."
+  ]
+}
