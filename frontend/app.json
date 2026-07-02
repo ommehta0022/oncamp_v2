@@ -39,7 +39,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "http://localhost:4000/v1"
+      "apiBaseUrl": "https://api-production-4a48d.up.railway.app/v1"
     }
   }
 }

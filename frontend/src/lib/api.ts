@@ -171,16 +171,16 @@ export type GroupDto = {
 export const api = {
   auth: {
     startOtp: (phone: string) =>
-      request<{ success: boolean; message: string; devMode?: boolean; devCode?: string }>("/auth/otp/start", {
+      request<{ challengeId: string; expiresInSeconds: number; message: string }>("/auth/otp/start", {
         method: "POST",
         auth: false,
         body: { phone },
       }),
-    verifyOtp: (phone: string, code: string) =>
-      request<{ accessToken: string; refreshToken: string; user: SessionUser }>("/auth/otp/verify-code", {
+    verifyOtp: (challengeId: string, firebaseIdToken: string) =>
+      request<{ accessToken: string; refreshToken: string; userId: string; isNewUser: boolean; user?: SessionUser }>("/auth/otp/verify", {
         method: "POST",
         auth: false,
-        body: { phone, code, platform: Platform.OS },
+        body: { challengeId, firebaseIdToken },
       }),
     verifyFirebaseIdToken: (firebaseIdToken: string) =>
       request<{ accessToken: string; refreshToken: string; user: SessionUser }>("/auth/otp/verify", {

@@ -8,6 +8,7 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import { api } from "@/src/lib/api";
+import { startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
 
 export default function Login() {
   const { colors } = useTheme();
@@ -23,8 +24,12 @@ export default function Login() {
     setError("");
     const fullPhone = `${cc}${phone.replace(/\D/g, "")}`;
     try {
+      // 1. Get challengeId from backend
       const response = await api.auth.startOtp(fullPhone);
-      router.push({ pathname: "/(auth)/otp", params: { phone: fullPhone } });
+      // 2. Start Firebase phone auth (sends actual SMS)
+      await startFirebasePhoneAuth(fullPhone);
+      // 3. Navigate with both phone and challengeId
+      router.push({ pathname: "/(auth)/otp", params: { phone: fullPhone, challengeId: response.challengeId } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send OTP. Please try again.");
     } finally {

@@ -9,18 +9,20 @@ import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import { api, saveSession } from "@/src/lib/api";
 import { useRole } from "@/src/context/RoleProvider";
+import { confirmFirebasePhoneCode, startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
 
 export default function Otp() {
   const { colors } = useTheme();
   const { refreshUser } = useRole();
   const router = useRouter();
-  const { phone } = useLocalSearchParams<{ phone: string }>();
+  const { phone, challengeId } = useLocalSearchParams<{ phone: string; challengeId: string }>();
   const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [seconds, setSeconds] = useState(30);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const inputs = useRef<(TextInput | null)[]>([]);
+  const currentChallengeId = useRef<string>(challengeId ?? "");
 
   const boxSize = Math.floor((width - spacing.xl * 2 - spacing.sm * 5) / 6);
 
@@ -50,15 +52,25 @@ export default function Otp() {
     setError("");
     const code = digits.join("");
     try {
-      if (!phone) {
-        throw new Error("Phone number is required");
+      if (!currentChallengeId.current) {
+        throw new Error("Session expired. Please go back and retry.");
       }
-      const session = await api.auth.verifyOtp(phone, code);
+      // Step 1: Confirm OTP with Firebase → get Firebase ID token
+      const firebaseIdToken = await confirmFirebasePhoneCode(code);
+      // Step 2: Verify with NestJS backend using challengeId + Firebase token
+      const session = await api.auth.verifyOtp(currentChallengeId.current, firebaseIdToken);
       await saveSession(session.accessToken, session.refreshToken);
-      await AsyncStorage.setItem("oncampus.user", JSON.stringify(session.user));
+      // Build user cache — NestJS returns userId + optional user fields
+      const userCache = session.user ?? { id: session.userId };
+      await AsyncStorage.setItem("oncampus.user", JSON.stringify(userCache));
       await AsyncStorage.setItem("oncampus.authed", "true");
       await refreshUser();
-      router.replace("/(auth)/profile-setup");
+      // isNewUser → profile setup, else → home feed
+      if (session.isNewUser) {
+        router.replace("/(auth)/profile-setup");
+      } else {
+        router.replace("/(tabs)/feed");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not verify OTP.");
     } finally {
@@ -70,7 +82,9 @@ export default function Otp() {
     if (!phone || seconds > 0) return;
     setError("");
     try {
-      await api.auth.startOtp(phone);
+      const response = await api.auth.startOtp(phone);
+      currentChallengeId.current = response.challengeId;
+      await startFirebasePhoneAuth(phone);
       setSeconds(30);
       setDigits(["", "", "", "", "", ""]);
       inputs.current[0]?.focus();
@@ -84,20 +98,16 @@ export default function Otp() {
       <Header title="" onBack={() => router.back()} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
+          {Platform.OS === "web" && <View nativeID="firebase-recaptcha" style={styles.recaptcha} />}
           <Text style={[styles.h1, { color: colors.onSurface }]}>Verify your number</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
             Enter the 6-digit code sent to {phone || "+91 98765 43210"}
-          </Text>
-          <Text style={[styles.devHint, { color: colors.brandPrimary }]}>
-            💡 Development Mode: Use OTP 123456
           </Text>
           <View style={styles.otpRow}>
             {digits.map((d, i) => (
               <TextInput
                 key={i}
-                ref={(r) => {
-                  inputs.current[i] = r;
-                }}
+                ref={(r) => { inputs.current[i] = r; }}
                 testID={`otp-digit-${i}`}
                 value={d}
                 onChangeText={(v) => setDigit(i, v)}
@@ -148,10 +158,7 @@ const styles = StyleSheet.create({
   wrap: { padding: spacing.xl, flexGrow: 1 },
   h1: { fontSize: 28, fontWeight: "500", letterSpacing: -0.5 },
   h2: { fontSize: font.base, marginTop: spacing.sm, lineHeight: 20 },
-  devHint: { fontSize: font.sm, marginTop: spacing.md, fontWeight: "500" },
   otpRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing["2xl"], gap: spacing.sm },
-  otpBox: {
-    borderWidth: 1, borderRadius: radius.md,
-    textAlign: "center", fontSize: 22, fontWeight: "500",
-  },
+  otpBox: { borderWidth: 1, borderRadius: radius.md, textAlign: "center", fontSize: 22, fontWeight: "500" },
+  recaptcha: { width: 1, height: 1, opacity: 0, overflow: "hidden" },
 });

@@ -128,7 +128,7 @@ module.exports = () => {
     extra: {
       ...config.extra,
       firebase: firebaseWebConfig(),
-      apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000/v1",
+      apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || "https://api-production-4a48d.up.railway.app/v1",
     },
   };
 };
