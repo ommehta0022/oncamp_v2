@@ -10,9 +10,11 @@ import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
 import Avatar from "@/src/components/Avatar";
 import { currentUser } from "@/src/data/mock";
+import { useRole, ROLE_LABELS, Role } from "@/src/context/RoleProvider";
 
 export default function Settings() {
   const { colors, isDark, mode, setMode } = useTheme();
+  const { role, setRole } = useRole();
   const router = useRouter();
 
   const logout = async () => {
@@ -69,6 +71,47 @@ export default function Settings() {
           <SettingsRow icon="help-circle-outline" title="Help & support" onPress={() => router.push("/settings/help")} />
           <Divider />
           <SettingsRow icon="information-circle-outline" title="About" onPress={() => router.push("/settings/about")} />
+        </Section>
+
+        <Section title="Demo · switch role">
+          <View style={{ padding: spacing.md }}>
+            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, lineHeight: 18, marginBottom: spacing.md }}>
+              For preview only. In production, roles are assigned server-side after verification.
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
+                <Pressable
+                  key={r}
+                  onPress={() => setRole(r)}
+                  style={{
+                    paddingHorizontal: spacing.md, height: 34, borderRadius: radius.pill,
+                    borderWidth: 1,
+                    backgroundColor: role === r ? colors.brandPrimary : "transparent",
+                    borderColor: role === r ? colors.brandPrimary : colors.borderStrong,
+                    alignItems: "center", justifyContent: "center",
+                  }}
+                  testID={`role-${r}`}
+                >
+                  <Text style={{ color: role === r ? colors.onBrandPrimary : colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>
+                    {ROLE_LABELS[r]}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {role === "institution_admin" && (
+              <Pressable
+                onPress={() => router.push("/institution/dashboard")}
+                style={{
+                  marginTop: spacing.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                  backgroundColor: colors.brandTertiary, height: 40, borderRadius: radius.pill,
+                }}
+                testID="open-institution-dashboard-btn"
+              >
+                <Ionicons name="business" size={16} color={colors.onBrandTertiary} />
+                <Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "500" }}>Open institution dashboard</Text>
+              </Pressable>
+            )}
+          </View>
         </Section>
 
         <View style={{ padding: spacing.lg }}>

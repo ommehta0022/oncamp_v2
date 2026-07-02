@@ -7,12 +7,14 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { groups, Group } from "@/src/data/mock";
+import { useRole } from "@/src/context/RoleProvider";
 
 const FILTERS = ["All", "Unread", "Batch", "Clubs", "Official"];
 
 export default function Groups() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { canCreateGroups } = useRole();
   const [filter, setFilter] = useState("All");
   const [query, setQuery] = useState("");
 
@@ -32,9 +34,11 @@ export default function Groups() {
           <Pressable style={styles.iconBtn} testID="groups-search-btn" onPress={() => router.push("/search")}>
             <Ionicons name="search" size={22} color={colors.onSurface} />
           </Pressable>
-          <Pressable style={styles.iconBtn} testID="new-group-btn" onPress={() => router.push("/create-group")}>
-            <Ionicons name="add-circle-outline" size={26} color={colors.brandPrimary} />
-          </Pressable>
+          {canCreateGroups && (
+            <Pressable style={styles.iconBtn} testID="new-group-btn" onPress={() => router.push("/create-group")}>
+              <Ionicons name="add-circle-outline" size={26} color={colors.brandPrimary} />
+            </Pressable>
+          )}
         </View>
       </View>
 

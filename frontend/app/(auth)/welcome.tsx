@@ -88,6 +88,16 @@ export default function Welcome() {
               <Text style={{ fontWeight: "500", color: "#fff" }}>Log in</Text>
             </Text>
           </Pressable>
+          <Pressable
+            onPress={() => router.push("/(auth)/register-institution")}
+            style={{ marginTop: spacing.md, alignItems: "center" }}
+            testID="welcome-register-institution-btn"
+          >
+            <Text style={{ color: "#ffffffcc", fontSize: font.sm }}>
+              Represent a school or college?{" "}
+              <Text style={{ fontWeight: "500", color: "#fff" }}>Register your institution →</Text>
+            </Text>
+          </Pressable>
         </View>
       </View>
     </View>

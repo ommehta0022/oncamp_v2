@@ -7,6 +7,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider, useTheme } from "@/src/theme/ThemeProvider";
+import { RoleProvider } from "@/src/context/RoleProvider";
 
 LogBox.ignoreAllLogs(true);
 
@@ -40,7 +41,9 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <ThemedStack />
+        <RoleProvider>
+          <ThemedStack />
+        </RoleProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

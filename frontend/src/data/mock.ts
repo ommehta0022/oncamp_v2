@@ -197,6 +197,119 @@ export const discoverGroups: Group[] = [
   },
 ];
 
+export type DiscoverCategory = "Trending" | "Institution" | "Exam Prep" | "Entrepreneurship" | "Creative" | "Sports" | "Culture";
+
+export type DiscoverCard = {
+  id: string;
+  category: string;
+  title: string;
+  city: string;
+  members: string;
+  image: string;
+  verified?: boolean;
+  section?: DiscoverCategory[];
+};
+
+// Reference cards for the Discover page — matches the reference screenshot exactly
+export const discoverCards: DiscoverCard[] = [
+  {
+    id: "d1", category: "INSTITUTION", title: "IIT Delhi · Class of '27", city: "Delhi", members: "2.4k members",
+    image: "https://images.unsplash.com/photo-1607237138185-eedd9c632b0b?w=800&q=80",
+    verified: true, section: ["Trending", "Institution"],
+  },
+  {
+    id: "d2", category: "INSTITUTION", title: "BITS Pilani · Goa Campus", city: "Goa", members: "4.1k members",
+    image: "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=800&q=80",
+    verified: true, section: ["Trending", "Institution"],
+  },
+  {
+    id: "d3", category: "EXAM PREP", title: "GATE 2027 Aspirants", city: "Pan India", members: "18.3k members",
+    image: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=800&q=80",
+    section: ["Trending", "Exam Prep"],
+  },
+  {
+    id: "d4", category: "ENTREPRENEURSHIP", title: "Startup India · Student", city: "Bengaluru", members: "9.7k members",
+    image: "https://images.unsplash.com/photo-1556761175-b413da4baf72?w=800&q=80",
+    section: ["Trending", "Entrepreneurship"],
+  },
+  {
+    id: "d5", category: "INSTITUTION", title: "IIM Ahmedabad · MBA '26", city: "Ahmedabad", members: "1.2k members",
+    image: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800&q=80",
+    verified: true, section: ["Trending", "Institution"],
+  },
+  {
+    id: "d6", category: "CREATIVE", title: "Design Students India", city: "Mumbai", members: "6.4k members",
+    image: "https://images.unsplash.com/photo-1522542550221-31fd19575a2d?w=800&q=80",
+    section: ["Trending", "Creative"],
+  },
+  {
+    id: "d7", category: "EXAM PREP", title: "JEE 2027 Crash Course", city: "Kota", members: "22.1k members",
+    image: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&q=80",
+    section: ["Trending", "Exam Prep"],
+  },
+  {
+    id: "d8", category: "ENTREPRENEURSHIP", title: "Y-Combinator Aspirants", city: "Bengaluru", members: "3.8k members",
+    image: "https://images.unsplash.com/photo-1517048676732-d65bc937f952?w=800&q=80",
+    verified: true, section: ["Trending", "Entrepreneurship"],
+  },
+];
+
+export const discoverCategories: DiscoverCategory[] = [
+  "Trending", "Institution", "Exam Prep", "Entrepreneurship", "Creative", "Sports", "Culture",
+];
+
+// Group post requests (poster/announcement submissions)
+export type PostRequest = {
+  id: string;
+  title: string;
+  description: string;
+  posterUrl?: string;
+  requesterName: string;
+  requesterAvatar: string;
+  targetGroupId: string;
+  targetGroupName: string;
+  category: string;
+  publishDate: string;
+  expiryDate: string;
+  contactPhone: string;
+  contactEmail: string;
+  status: "pending" | "approved" | "rejected" | "needs_changes" | "scheduled" | "published" | "expired";
+  createdAt: string;
+};
+
+export const postRequests: PostRequest[] = [
+  {
+    id: "pr1", title: "Coding Hackathon 2026 — Poster",
+    description: "Requesting to publish our 48-hour campus-wide hackathon poster. Prize pool ₹5L.",
+    posterUrl: "https://images.unsplash.com/photo-1517048676732-d65bc937f952?w=800&q=80",
+    requesterName: "Kabir Mehta", requesterAvatar: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=200&q=80",
+    targetGroupId: "g2", targetGroupName: "IITB Robotics Club",
+    category: "Event", publishDate: "Feb 10", expiryDate: "Feb 20",
+    contactPhone: "+91 98765 43210", contactEmail: "kabir@iitb.ac.in",
+    status: "pending", createdAt: "2h ago",
+  },
+  {
+    id: "pr2", title: "Guest Lecture · Prof. R. Sundaram",
+    description: "Announcement for guest lecture on Quantum Computing, Thursday 4 PM at LC 101.",
+    posterUrl: "https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=800&q=80",
+    requesterName: "Dr. Ramesh Iyer", requesterAvatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&q=80",
+    targetGroupId: "g2", targetGroupName: "IITB Robotics Club",
+    category: "Announcement", publishDate: "Feb 8", expiryDate: "Feb 15",
+    contactPhone: "+91 98765 11223", contactEmail: "riyer@iitb.ac.in",
+    status: "pending", createdAt: "5h ago",
+  },
+  {
+    id: "pr3", title: "Photography Contest — Golden Hour",
+    description: "Poster for the annual golden-hour photography contest. Open to all campuses.",
+    posterUrl: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=800&q=80",
+    requesterName: "Zara Fernandes", requesterAvatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&q=80",
+    targetGroupId: "g6", targetGroupName: "IITB Photography",
+    category: "Contest", publishDate: "Feb 12", expiryDate: "Mar 12",
+    contactPhone: "+91 98111 55667", contactEmail: "zara@xaviers.edu",
+    status: "approved", createdAt: "1d ago",
+  },
+];
+
 export const messagesByGroup: Record<string, Message[]> = {
   g2: [
     { id: "m1", groupId: "g2", senderId: "u6", senderName: "Rohan Verma", senderAvatar: AV(6), content: "Team, quick sync — the arm prototype v3 shipped this morning 🎉", createdAt: "10:12 AM", pinned: true },

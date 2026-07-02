@@ -10,6 +10,7 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import SettingsRow from "@/src/components/SettingsRow";
 import { getGroup, users } from "@/src/data/mock";
+import { useRole } from "@/src/context/RoleProvider";
 
 export default function GroupInfo() {
   const { colors } = useTheme();
@@ -102,8 +103,31 @@ export default function GroupInfo() {
           <SettingsRow icon="pin" title="Pinned messages" value="3" onPress={() => {}} />
           <SettingsRow icon="images-outline" title="Media, links & docs" value="128" onPress={() => {}} />
           <SettingsRow icon="notifications-outline" title="Notifications" value="On" onPress={() => {}} />
-          <SettingsRow icon="person-add-outline" title="Join requests" value="3" onPress={() => router.push(`/group/requests/${group.id}`)} />
+          {isGroupAdmin && (
+            <SettingsRow icon="person-add-outline" title="Join requests" value="3" onPress={() => router.push(`/group/requests/${group.id}`)} />
+          )}
+          {role === "normal_user" && (
+            <SettingsRow
+              icon="clipboard-outline"
+              title="Submit a post / poster request"
+              subtitle="Ask admins to publish your poster in this group"
+              onPress={() => router.push(`/group/post-request/${group.id}`)}
+              testID="submit-post-request-btn"
+            />
+          )}
         </View>
+
+        {isGroupAdmin && (
+          <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <SettingsRow
+              icon="shield-checkmark-outline"
+              title="Admin panel"
+              subtitle="Manage requests, roles, and content"
+              onPress={() => router.push(`/group/admin/${group.id}`)}
+              testID="open-admin-panel-btn"
+            />
+          </View>
+        )}
 
         <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
           <SettingsRow icon="flag-outline" title="Report group" destructive onPress={() => {}} />

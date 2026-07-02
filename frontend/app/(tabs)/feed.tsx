@@ -8,10 +8,12 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { feed, currentUser, FeedPost } from "@/src/data/mock";
+import { useRole } from "@/src/context/RoleProvider";
 
 export default function Feed() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { canCreatePosts } = useRole();
   const [refreshing, setRefreshing] = useState(false);
   const [posts, setPosts] = useState(feed);
 
@@ -49,7 +51,7 @@ export default function Feed() {
         keyExtractor={(p) => p.id}
         contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
-        ListHeaderComponent={<Composer />}
+        ListHeaderComponent={canCreatePosts ? <Composer /> : null}
         renderItem={({ item }) => <PostCard post={item} onLike={() => toggleLike(item.id)} />}
         ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
       />
