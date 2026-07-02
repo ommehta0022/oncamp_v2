@@ -1,0 +1,98 @@
+import { Tabs } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { View, Text, StyleSheet, Platform } from "react-native";
+import { BlurView } from "expo-blur";
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { spacing } from "@/src/theme/colors";
+
+export default function TabsLayout() {
+  const { colors, isDark } = useTheme();
+
+  return (
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: colors.brandPrimary,
+        tabBarInactiveTintColor: colors.onSurfaceTertiary,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "500", marginTop: -2 },
+        tabBarStyle: {
+          position: "absolute",
+          backgroundColor: Platform.OS === "ios" ? "transparent" : colors.surfaceSecondary,
+          borderTopColor: colors.border,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          height: Platform.OS === "ios" ? 84 : 68,
+          paddingBottom: Platform.OS === "ios" ? 24 : 10,
+          paddingTop: 8,
+        },
+        tabBarBackground: () =>
+          Platform.OS === "ios" ? (
+            <BlurView
+              intensity={80}
+              tint={isDark ? "dark" : "light"}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : null,
+      }}
+    >
+      <Tabs.Screen
+        name="feed"
+        options={{
+          title: "Feed",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "home" : "home-outline"} size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="groups"
+        options={{
+          title: "Groups",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "chatbubbles" : "chatbubbles-outline"} size={24} color={color} />
+          ),
+          tabBarBadge: 39,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.brandSecondary,
+            color: "#fff",
+            fontSize: 10,
+            fontWeight: "500",
+          },
+        }}
+      />
+      <Tabs.Screen
+        name="discover"
+        options={{
+          title: "Discover",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "compass" : "compass-outline"} size={26} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: "Notifs",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "notifications" : "notifications-outline"} size={24} color={color} />
+          ),
+          tabBarBadge: 3,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.brandSecondary,
+            color: "#fff",
+            fontSize: 10,
+            fontWeight: "500",
+          },
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "person" : "person-outline"} size={24} color={color} />
+          ),
+        }}
+      />
+    </Tabs>
+  );
+}
