@@ -57,7 +57,7 @@ export default function Search() {
       </View>
 
       {!query ? (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}>
           <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>RECENT</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md }}>
             {RECENT.map((r) => (

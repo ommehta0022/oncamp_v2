@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Pressable, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Pressable, ScrollView, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -12,9 +12,12 @@ export default function Otp() {
   const { colors } = useTheme();
   const router = useRouter();
   const { phone } = useLocalSearchParams<{ phone: string }>();
+  const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [seconds, setSeconds] = useState(30);
   const inputs = useRef<Array<TextInput | null>>([]);
+
+  const boxSize = Math.floor((width - spacing.xl * 2 - spacing.sm * 5) / 6);
 
   useEffect(() => {
     if (seconds <= 0) return;
@@ -67,6 +70,8 @@ export default function Otp() {
                 style={[
                   styles.otpBox,
                   {
+                    width: boxSize,
+                    height: boxSize + 4,
                     borderColor: d ? colors.brandPrimary : colors.borderStrong,
                     backgroundColor: colors.surfaceSecondary,
                     color: colors.onSurface,
@@ -101,9 +106,9 @@ const styles = StyleSheet.create({
   wrap: { padding: spacing.xl, flexGrow: 1 },
   h1: { fontSize: 28, fontWeight: "500", letterSpacing: -0.5 },
   h2: { fontSize: font.base, marginTop: spacing.sm, lineHeight: 20 },
-  otpRow: { flexDirection: "row", justifyContent: "space-between", marginTop: spacing["2xl"], gap: spacing.sm },
+  otpRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing["2xl"], gap: spacing.sm },
   otpBox: {
-    flex: 1, height: 56, borderWidth: 1, borderRadius: radius.md,
+    borderWidth: 1, borderRadius: radius.md,
     textAlign: "center", fontSize: 22, fontWeight: "500",
   },
 });

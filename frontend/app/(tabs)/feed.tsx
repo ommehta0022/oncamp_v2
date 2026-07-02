@@ -51,7 +51,7 @@ export default function Feed() {
         keyExtractor={(p) => p.id}
         contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
-        ListHeaderComponent={canCreatePosts ? <Composer /> : null}
+        ListHeaderComponent={canCreatePosts ? <Composer /> : <View style={{ height: spacing.md }} />}
         renderItem={({ item }) => <PostCard post={item} onLike={() => toggleLike(item.id)} />}
         ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
       />

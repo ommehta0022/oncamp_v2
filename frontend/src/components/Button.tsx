@@ -62,13 +62,13 @@ export default function Button({
           height: heights[size],
           paddingHorizontal: px[size],
           borderRadius: radius.pill,
-          backgroundColor: bg[variant],
+          backgroundColor: disabled ? colors.surfaceTertiary : bg[variant],
           borderWidth: variant === "outline" ? 1 : 0,
-          borderColor: border,
+          borderColor: disabled ? colors.border : border,
           alignItems: "center",
           justifyContent: "center",
           flexDirection: "row",
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+          opacity: pressed ? 0.85 : 1,
           alignSelf: fullWidth ? "stretch" : "flex-start",
           gap: spacing.sm,
         },
@@ -80,7 +80,7 @@ export default function Button({
       ) : (
         <>
           {leftIcon}
-          <Text style={[{ color: fg[variant], fontSize: fontSize[size], fontWeight: "500" }, textStyle]}>
+          <Text style={[{ color: disabled ? colors.muted : fg[variant], fontSize: fontSize[size], fontWeight: "500" }, textStyle]}>
             {label}
           </Text>
           {rightIcon}

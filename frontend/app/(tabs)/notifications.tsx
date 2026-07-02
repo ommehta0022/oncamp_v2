@@ -32,7 +32,7 @@ export default function Notifications() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="notifications-screen">
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.title, { color: colors.onSurface }]}>Notifications</Text>
+        <Text style={[styles.title, { color: colors.onSurface }]}>Alerts</Text>
         <Pressable onPress={markAll} testID="mark-all-read-btn">
           <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>Mark all read</Text>
         </Pressable>

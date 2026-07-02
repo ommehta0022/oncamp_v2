@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TextInput, Pressable,
   KeyboardAvoidingView, Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -17,6 +17,7 @@ export default function GroupChat() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
   const group = getGroup(id!);
   const initial = messagesByGroup[id!] || [];
   const [messages, setMessages] = useState<Message[]>(initial);
@@ -242,9 +243,8 @@ const styles = StyleSheet.create({
   },
   composer: {
     flexDirection: "row", alignItems: "flex-end", gap: spacing.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md, paddingTop: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingBottom: Platform.OS === "ios" ? spacing.md : spacing.sm,
   },
   attachBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   inputWrap: {

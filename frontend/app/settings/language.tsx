@@ -36,7 +36,9 @@ export default function Language() {
               <Pressable onPress={() => setSelected(l.code)} style={styles.row}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{l.name}</Text>
-                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{l.native}</Text>
+                  {l.native !== l.name && (
+                    <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{l.native}</Text>
+                  )}
                 </View>
                 {selected === l.code && <Ionicons name="checkmark" size={22} color={colors.brandPrimary} />}
               </Pressable>
