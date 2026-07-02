@@ -103,11 +103,15 @@ export default function InstitutionDashboard() {
           <Divider />
           <Row icon="clipboard" title="Post requests" subtitle="7 pending review" color="#4A788C" onPress={() => router.push("/group/admin/post-requests/g2")} badge="7" />
           <Divider />
-          <Row icon="shield-checkmark" title="Verification" subtitle="Verified · Approved Nov 12, 2025" color="#347D5B" onPress={() => {}} />
+          <Row icon="shield-checkmark" title="Verification" subtitle="Verified · Approved Nov 12, 2025" color="#347D5B" onPress={() => router.push("/institution/verification")} />
           <Divider />
-          <Row icon="stats-chart" title="Analytics" subtitle="Reach, engagement, growth" color="#D9983A" onPress={() => {}} />
+          <Row icon="stats-chart" title="Analytics" subtitle="Reach, engagement, growth" color="#D9983A" onPress={() => router.push("/institution/analytics")} />
           <Divider />
-          <Row icon="settings" title="Institution settings" subtitle="Domain, branding, admins" color="#8A8D8B" onPress={() => {}} />
+          <Row icon="color-palette" title="Branding" subtitle="Logo, cover, brand colors" color="#B85E9F" onPress={() => router.push("/institution/branding")} />
+          <Divider />
+          <Row icon="people-circle" title="Institution admins" subtitle="4 admins · manage roles" color="#4A788C" onPress={() => router.push("/institution/admins")} />
+          <Divider />
+          <Row icon="settings" title="Institution settings" subtitle="Domain, controls, billing" color="#8A8D8B" onPress={() => router.push("/institution/settings")} />
         </View>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Recent activity</Text>

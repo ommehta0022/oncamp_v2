@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { View, Text, StyleSheet, Pressable, useWindowDimensions, ScrollView } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -9,8 +10,9 @@ import Button from "@/src/components/Button";
 import { onboardingSlides } from "@/src/data/mock";
 
 export default function Welcome() {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
@@ -20,12 +22,12 @@ export default function Welcome() {
       const next = (index + 1) % onboardingSlides.length;
       scrollRef.current?.scrollTo({ x: next * width, animated: true });
       setIndex(next);
-    }, 4000);
+    }, 4500);
     return () => clearInterval(t);
   }, [index, width]);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.surface }]} testID="welcome-screen">
+    <View style={[styles.container, { backgroundColor: "#000" }]} testID="welcome-screen">
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -35,30 +37,31 @@ export default function Welcome() {
         style={{ flex: 1 }}
       >
         {onboardingSlides.map((slide, i) => (
-          <View key={i} style={{ width, flex: 1 }}>
+          <View key={i} style={{ width, height }}>
             <Image source={{ uri: slide.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
             <LinearGradient
-              colors={["transparent", "rgba(0,0,0,0.3)", "rgba(0,0,0,0.85)"]}
-              locations={[0, 0.5, 1]}
+              colors={["rgba(0,0,0,0.35)", "rgba(0,0,0,0.15)", "rgba(0,0,0,0.85)", "rgba(0,0,0,0.98)"]}
+              locations={[0, 0.35, 0.75, 1]}
               style={StyleSheet.absoluteFill}
             />
-            <View style={styles.slideText}>
-              <Text style={styles.title}>{slide.title}</Text>
-              <Text style={styles.subtitle}>{slide.subtitle}</Text>
-            </View>
           </View>
         ))}
       </ScrollView>
 
-      <View style={styles.overlay} pointerEvents="box-none">
-        <View style={styles.top}>
-          <View style={[styles.logoBadge, { backgroundColor: "#ffffff22" }]}>
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <View style={[styles.top, { paddingTop: insets.top + spacing.md }]}>
+          <View style={[styles.logoBadge, { backgroundColor: "#ffffff22", borderColor: "#ffffff33" }]}>
             <Text style={styles.brand}>OC</Text>
           </View>
           <Text style={styles.brandLabel}>OnCampus</Text>
         </View>
 
-        <View style={styles.bottom}>
+        <View style={styles.slideTextWrap} pointerEvents="none">
+          <Text style={styles.title}>{onboardingSlides[index]?.title}</Text>
+          <Text style={styles.subtitle}>{onboardingSlides[index]?.subtitle}</Text>
+        </View>
+
+        <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom + spacing.md, spacing.xl) }]}>
           <View style={styles.dots}>
             {onboardingSlides.map((_, i) => (
               <View
@@ -80,7 +83,7 @@ export default function Welcome() {
           />
           <Pressable
             onPress={() => router.push("/(auth)/login")}
-            style={{ marginTop: spacing.lg, alignItems: "center" }}
+            style={{ marginTop: spacing.md, alignItems: "center", paddingVertical: 8 }}
             testID="welcome-login-btn"
           >
             <Text style={{ color: "#fff", fontSize: font.base }}>
@@ -90,7 +93,7 @@ export default function Welcome() {
           </Pressable>
           <Pressable
             onPress={() => router.push("/(auth)/register-institution")}
-            style={{ marginTop: spacing.md, alignItems: "center" }}
+            style={{ marginTop: 2, alignItems: "center", paddingVertical: 8 }}
             testID="welcome-register-institution-btn"
           >
             <Text style={{ color: "#ffffffcc", fontSize: font.sm }}>
@@ -106,24 +109,31 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    padding: spacing.xl,
-    justifyContent: "space-between",
+  top: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
   },
-  top: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing["2xl"] },
-  logoBadge: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  logoBadge: {
+    width: 40, height: 40, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1,
+  },
   brand: { color: "#fff", fontWeight: "500", fontSize: font.lg },
-  brandLabel: { color: "#fff", fontSize: font.lg, fontWeight: "500" },
-  bottom: { paddingBottom: spacing.xl },
-  slideText: {
+  brandLabel: { color: "#fff", fontSize: font.lg, fontWeight: "500", letterSpacing: -0.3 },
+  slideTextWrap: {
     position: "absolute",
     left: spacing.xl,
     right: spacing.xl,
-    bottom: 200,
+    bottom: 260,
   },
-  title: { color: "#fff", fontSize: 30, fontWeight: "500", letterSpacing: -0.5, lineHeight: 36 },
-  subtitle: { color: "#ffffffcc", fontSize: font.lg, marginTop: spacing.md, lineHeight: 22 },
+  title: { color: "#fff", fontSize: 32, fontWeight: "500", letterSpacing: -0.6, lineHeight: 38 },
+  subtitle: { color: "#ffffffdd", fontSize: font.lg, marginTop: spacing.sm, lineHeight: 22 },
+  bottom: {
+    position: "absolute", left: 0, right: 0, bottom: 0,
+    paddingHorizontal: spacing.xl,
+  },
   dots: { flexDirection: "row", gap: 6, justifyContent: "center", marginBottom: spacing.xl },
   dot: { height: 6, borderRadius: 3 },
 });
