@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput, RefreshControl } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,7 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { groups, Group } from "@/src/data/mock";
 import { useRole } from "@/src/context/RoleProvider";
+import { api, GroupDto } from "@/src/lib/api";
 
 const FILTERS = ["All", "Unread", "Announcements", "Muted"];
 
@@ -23,24 +24,38 @@ export default function Groups() {
   const [filter, setFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [items, setItems] = useState<Group[]>(groups);
+
+  const loadGroups = useCallback(async () => {
+    try {
+      const response = await api.groups.listMine();
+      if (response.length > 0) setItems(response.map(toGroup));
+    } catch {
+      setItems(groups);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadGroups();
+  }, [loadGroups]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1200);
-  }, []);
+    loadGroups().finally(() => setRefreshing(false));
+  }, [loadGroups]);
 
   const filtered = useMemo(() => {
-    let list = groups;
+    let list = items;
     if (filter === "Unread") list = list.filter((g) => (g.unread || 0) > 0);
     else if (filter === "Announcements") list = list.filter((g) => g.category === "Official");
     else if (filter === "Muted") list = list.filter((g) => g.muted);
     if (query) list = list.filter((g) => g.name.toLowerCase().includes(query.toLowerCase()) || g.institution.toLowerCase().includes(query.toLowerCase()));
     return list;
-  }, [filter, query]);
+  }, [filter, items, query]);
 
   const pinned = filtered.filter((g) => g.pinned);
   const others = filtered.filter((g) => !g.pinned);
-  const totalUnread = groups.reduce((s, g) => s + (g.unread || 0), 0);
+  const totalUnread = items.reduce((s, g) => s + (g.unread || 0), 0);
 
   const data: RowItem[] = [];
   if (pinned.length > 0) {
@@ -60,7 +75,7 @@ export default function Groups() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
             <View style={[styles.livedot, { backgroundColor: totalUnread > 0 ? colors.brandSecondary : colors.muted }]} />
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>
-              {groups.length} joined · {totalUnread} unread
+              {items.length} joined · {totalUnread} unread
             </Text>
           </View>
         </View>
@@ -168,6 +183,33 @@ export default function Groups() {
       )}
     </SafeAreaView>
   );
+}
+
+function toGroup(group: GroupDto): Group {
+  const institution =
+    typeof group.institution === "string"
+      ? group.institution
+      : group.institution?.name || group.city || "OnCampus";
+
+  return {
+    id: group.id,
+    name: group.name,
+    description: group.description || "",
+    image: group.avatarUrl || group.image || "https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=800&q=80",
+    institution,
+    city: group.city || "",
+    category: group.category,
+    visibility: group.visibility,
+    members: group.memberCount || 0,
+    memberLimit: 50000,
+    createdBy: "",
+    createdAt: "",
+    unread: group.unread || 0,
+    lastMessage: group.lastMessage || group.description || "",
+    lastMessageAt: group.lastMessageAt || "",
+    verified: group.official,
+    role: group.role === "owner" || group.role === "admin" || group.role === "member" ? group.role : "member",
+  };
 }
 
 function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -9,6 +9,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import { useRole } from "@/src/context/RoleProvider";
+import { api } from "@/src/lib/api";
 
 const KPIS = [
   { label: "Members", value: "8,420", trend: "+124", icon: "people" as const, color: "#2E5C4E" },
@@ -28,6 +29,23 @@ export default function InstitutionDashboard() {
   const { colors } = useTheme();
   const router = useRouter();
   const { setRole } = useRole();
+  const [dashboard, setDashboard] = useState<any>(null);
+
+  useEffect(() => {
+    api.institutions.dashboard()
+      .then(setDashboard)
+      .catch(() => {});
+  }, []);
+
+  const institutionName = dashboard?.institution?.name || "IIT Bombay";
+  const institutionCity = dashboard?.institution?.city || "Mumbai · Maharashtra · India";
+  const counts = dashboard?.counts || {};
+  const kpis = [
+    KPIS[0],
+    { ...KPIS[1], value: String(counts.groups ?? KPIS[1].value), trend: "" },
+    { ...KPIS[2], label: "Posts", value: String(counts.posts ?? KPIS[2].value), trend: "" },
+    { ...KPIS[3], label: "Requests", value: String(counts.verificationRequests ?? KPIS[3].value), trend: "" },
+  ];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="institution-dashboard-screen">
@@ -50,8 +68,8 @@ export default function InstitutionDashboard() {
                 <Text style={styles.verifiedText}>UNIVERSITY</Text>
               </View>
             </View>
-            <Text style={styles.heroTitle}>IIT Bombay</Text>
-            <Text style={styles.heroSubtitle}>Mumbai · Maharashtra · India</Text>
+            <Text style={styles.heroTitle}>{institutionName}</Text>
+            <Text style={styles.heroSubtitle}>{institutionCity}</Text>
             <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg }}>
               <Pressable style={styles.heroBtnPrimary}>
                 <Text style={{ color: "#fff", fontSize: font.sm, fontWeight: "500" }}>Manage page</Text>
@@ -65,7 +83,7 @@ export default function InstitutionDashboard() {
         </View>
 
         <View style={styles.kpiGrid}>
-          {KPIS.map((k) => (
+          {kpis.map((k) => (
             <View key={k.label} style={[styles.kpi, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <View style={[styles.kpiIcon, { backgroundColor: k.color + "22" }]}>
                 <Ionicons name={k.icon} size={16} color={k.color} />

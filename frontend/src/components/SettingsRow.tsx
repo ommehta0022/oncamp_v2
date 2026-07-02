@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../theme/ThemeProvider";
-import { spacing, font, radius } from "../theme/colors";
+import { spacing, font } from "../theme/colors";
 
 type Props = {
   icon?: keyof typeof Ionicons.glyphMap;

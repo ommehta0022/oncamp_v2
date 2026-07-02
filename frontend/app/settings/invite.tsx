@@ -6,7 +6,6 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
-import Button from "@/src/components/Button";
 
 export default function Invite() {
   const { colors } = useTheme();

@@ -5,13 +5,13 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { font, radius, spacing } from "@/src/theme/colors";
+import { font, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import { onboardingSlides } from "@/src/data/mock";
 
 export default function Welcome() {
   const { width, height } = useWindowDimensions();
-  const { colors } = useTheme();
+  useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);

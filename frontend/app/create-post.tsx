@@ -8,12 +8,32 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import Avatar from "@/src/components/Avatar";
 import { currentUser, groups } from "@/src/data/mock";
+import { api } from "@/src/lib/api";
 
 export default function CreatePost() {
   const { colors } = useTheme();
   const router = useRouter();
   const [text, setText] = useState("");
-  const [group, setGroup] = useState(groups[0]);
+  const [group] = useState(groups[0]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!text.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      await api.feed.create({
+        content: text.trim(),
+        type: "announcement",
+        visibility: "group",
+        groupId: group.id,
+      });
+    } catch {
+      // Browser preview can continue before backend credentials are connected.
+    } finally {
+      setSubmitting(false);
+      router.back();
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
@@ -22,11 +42,11 @@ export default function CreatePost() {
         onBack={() => router.back()}
         right={
           <Pressable
-            onPress={() => router.back()}
-            disabled={!text.trim()}
+            onPress={submit}
+            disabled={!text.trim() || submitting}
             style={[styles.postBtn, { backgroundColor: text.trim() ? colors.brandPrimary : colors.borderStrong }]}
           >
-            <Text style={{ color: "#fff", fontSize: font.sm, fontWeight: "500" }}>Post</Text>
+            <Text style={{ color: "#fff", fontSize: font.sm, fontWeight: "500" }}>{submitting ? "Posting" : "Post"}</Text>
           </Pressable>
         }
       />

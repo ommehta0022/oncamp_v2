@@ -7,12 +7,30 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
+import { startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
 
 export default function Login() {
   const { colors } = useTheme();
   const router = useRouter();
   const [phone, setPhone] = useState("");
-  const [cc, setCc] = useState("+91");
+  const cc = "+91";
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const sendOtp = async () => {
+    if (phone.length < 10 || submitting) return;
+    setSubmitting(true);
+    setError("");
+    const fullPhone = `${cc}${phone.replace(/\D/g, "")}`;
+    try {
+      await startFirebasePhoneAuth(fullPhone);
+      router.push({ pathname: "/(auth)/otp", params: { phone: fullPhone } });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send OTP. Check Firebase phone auth setup.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} testID="login-screen">
@@ -25,6 +43,7 @@ export default function Login() {
           <View style={[styles.iconWrap, { backgroundColor: colors.brandTertiary }]}>
             <Ionicons name="school" size={32} color={colors.onBrandTertiary} />
           </View>
+          {Platform.OS === "web" && <View nativeID="firebase-recaptcha" style={styles.recaptcha} />}
           <Text style={[styles.h1, { color: colors.onSurface }]}>Welcome back</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
             Log in to your campus network. We&apos;ll send you a code.
@@ -56,11 +75,16 @@ export default function Login() {
               label="Send OTP"
               fullWidth
               size="lg"
-              disabled={phone.length < 10}
-              onPress={() => router.push({ pathname: "/(auth)/otp", params: { phone: cc + " " + phone } })}
+              disabled={phone.length < 10 || submitting}
+              onPress={sendOtp}
               testID="send-otp-btn"
             />
           </View>
+          {!!error && (
+            <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.sm }}>
+              {error}
+            </Text>
+          )}
 
           <View style={styles.divider2}>
             <View style={[styles.line, { backgroundColor: colors.border }]} />
@@ -105,4 +129,5 @@ const styles = StyleSheet.create({
     marginTop: spacing["2xl"], marginBottom: spacing.xl,
   },
   line: { flex: 1, height: 1 },
+  recaptcha: { width: 1, height: 1, opacity: 0, overflow: "hidden" },
 });

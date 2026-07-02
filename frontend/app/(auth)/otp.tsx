@@ -7,15 +7,21 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
+import { api, saveSession } from "@/src/lib/api";
+import { useRole } from "@/src/context/RoleProvider";
+import { confirmFirebasePhoneCode, startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
 
 export default function Otp() {
   const { colors } = useTheme();
+  const { refreshUser } = useRole();
   const router = useRouter();
   const { phone } = useLocalSearchParams<{ phone: string }>();
   const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [seconds, setSeconds] = useState(30);
-  const inputs = useRef<Array<TextInput | null>>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const inputs = useRef<(TextInput | null)[]>([]);
 
   const boxSize = Math.floor((width - spacing.xl * 2 - spacing.sm * 5) / 6);
 
@@ -40,8 +46,36 @@ export default function Otp() {
   const filled = digits.every((d) => d !== "");
 
   const verify = async () => {
-    await AsyncStorage.setItem("oncampus.authed", "true");
-    router.replace("/(auth)/profile-setup");
+    if (submitting) return;
+    setSubmitting(true);
+    setError("");
+    const code = digits.join("");
+    try {
+      const firebaseIdToken = await confirmFirebasePhoneCode(code);
+      const session = await api.auth.verifyFirebaseIdToken(firebaseIdToken);
+      await saveSession(session.accessToken, session.refreshToken);
+      await AsyncStorage.setItem("oncampus.user", JSON.stringify(session.user));
+      await AsyncStorage.setItem("oncampus.authed", "true");
+      await refreshUser();
+      router.replace("/(auth)/profile-setup");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not verify OTP.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resend = async () => {
+    if (!phone || seconds > 0) return;
+    setError("");
+    try {
+      await startFirebasePhoneAuth(phone);
+      setSeconds(30);
+      setDigits(["", "", "", "", "", ""]);
+      inputs.current[0]?.focus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not resend OTP.");
+    }
   };
 
   return (
@@ -49,11 +83,11 @@ export default function Otp() {
       <Header title="" onBack={() => router.back()} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
+          {Platform.OS === "web" && <View nativeID="firebase-recaptcha" style={styles.recaptcha} />}
           <Text style={[styles.h1, { color: colors.onSurface }]}>Verify your number</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
             Enter the 6-digit code sent to {phone || "+91 98765 43210"}
           </Text>
-
           <View style={styles.otpRow}>
             {digits.map((d, i) => (
               <TextInput
@@ -87,15 +121,20 @@ export default function Otp() {
                 Resend code in <Text style={{ color: colors.onSurface, fontWeight: "500" }}>{seconds}s</Text>
               </Text>
             ) : (
-              <Pressable onPress={() => setSeconds(30)}>
+              <Pressable onPress={resend}>
                 <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>Resend code</Text>
               </Pressable>
             )}
           </View>
 
           <View style={{ marginTop: spacing["2xl"] }}>
-            <Button label="Verify & Continue" fullWidth size="lg" disabled={!filled} onPress={verify} testID="verify-otp-btn" />
+            <Button label="Verify & Continue" fullWidth size="lg" disabled={!filled || submitting} onPress={verify} testID="verify-otp-btn" />
           </View>
+          {!!error && (
+            <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.sm, textAlign: "center" }}>
+              {error}
+            </Text>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -111,4 +150,5 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: radius.md,
     textAlign: "center", fontSize: 22, fontWeight: "500",
   },
+  recaptcha: { width: 1, height: 1, opacity: 0, overflow: "hidden" },
 });

@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, Text, StyleSheet, ActivityIndicator, StyleProp, ViewStyle, TextStyle } from "react-native";
+import { Pressable, Text, ActivityIndicator, StyleProp, ViewStyle, TextStyle } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../theme/ThemeProvider";
 import { radius, spacing, font } from "../theme/colors";

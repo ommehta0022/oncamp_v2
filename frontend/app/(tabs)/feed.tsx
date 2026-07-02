@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -9,6 +9,7 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { feed, currentUser, FeedPost } from "@/src/data/mock";
 import { useRole } from "@/src/context/RoleProvider";
+import { api, FeedPostDto } from "@/src/lib/api";
 
 export default function Feed() {
   const { colors } = useTheme();
@@ -17,9 +18,24 @@ export default function Feed() {
   const [refreshing, setRefreshing] = useState(false);
   const [posts, setPosts] = useState(feed);
 
-  const onRefresh = () => {
+  const loadPosts = useCallback(async () => {
+    try {
+      const response = await api.feed.list();
+      const apiPosts = response.posts || response.feed || [];
+      if (apiPosts.length > 0) setPosts(apiPosts.map(toFeedPost));
+    } catch {
+      setPosts(feed);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPosts();
+  }, [loadPosts]);
+
+  const onRefresh = async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
+    await loadPosts();
+    setRefreshing(false);
   };
 
   const toggleLike = (id: string) => {
@@ -57,6 +73,32 @@ export default function Feed() {
       />
     </SafeAreaView>
   );
+}
+
+function toFeedPost(post: FeedPostDto): FeedPost {
+  return {
+    id: post.id,
+    author: {
+      id: post.author?.id || "unknown",
+      name: post.author?.name || "OnCampus",
+      handle: "@oncampus",
+      avatar: post.author?.avatarUrl || currentUser.avatar,
+      institution: post.author?.institution || "OnCampus",
+      city: "",
+      bio: "",
+      verified: post.author?.verified,
+      badge: post.author?.badge === "official" ? "official" : undefined,
+    },
+    group: post.group,
+    content: post.content,
+    image: post.imageUrl || post.mediaUrl,
+    createdAt: post.createdAt,
+    likes: post.counts?.reactions || 0,
+    comments: post.counts?.comments || 0,
+    reposts: post.counts?.reposts || 0,
+    pinned: post.pinned,
+    announcement: post.announcement,
+  };
 }
 
 function Composer() {

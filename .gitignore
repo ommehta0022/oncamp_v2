@@ -77,6 +77,10 @@ agenthub/agents/youtube/db
 .cache/
 
 memory/test_credentials.md
+all_info_for_api_referance_only/
+backend/*.log
+frontend/*.log
+frontend/dist-web/
 
 # Mobile development
 android-sdk/

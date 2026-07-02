@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -10,6 +10,7 @@ import Header from "@/src/components/Header";
 import Avatar from "@/src/components/Avatar";
 import EmptyState from "@/src/components/EmptyState";
 import { postRequests, PostRequest } from "@/src/data/mock";
+import { api } from "@/src/lib/api";
 
 const FILTERS = ["Pending", "Approved", "Rejected", "All"] as const;
 
@@ -20,6 +21,19 @@ export default function PostRequestsInbox() {
   const [filter, setFilter] = useState<typeof FILTERS[number]>("Pending");
   const [items, setItems] = useState<PostRequest[]>(postRequests);
 
+  const loadRequests = useCallback(async () => {
+    try {
+      const response = await api.groups.postRequests(id!);
+      if (Array.isArray(response) && response.length > 0) setItems(response.map(toPostRequest));
+    } catch {
+      setItems(postRequests);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    loadRequests();
+  }, [loadRequests]);
+
   const list = items.filter((r) => {
     if (filter === "All") return true;
     if (filter === "Pending") return r.status === "pending" || r.status === "needs_changes";
@@ -28,8 +42,15 @@ export default function PostRequestsInbox() {
     return true;
   });
 
-  const setStatus = (rid: string, status: PostRequest["status"]) =>
+  const setStatus = async (rid: string, status: PostRequest["status"]) => {
     setItems((x) => x.map((r) => (r.id === rid ? { ...r, status } : r)));
+    try {
+      if (status === "approved") await api.groups.approvePostRequest(id!, rid);
+      if (status === "rejected") await api.groups.rejectPostRequest(id!, rid);
+    } catch {
+      loadRequests();
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="post-requests-inbox">
@@ -116,6 +137,26 @@ export default function PostRequestsInbox() {
       )}
     </SafeAreaView>
   );
+}
+
+function toPostRequest(row: any): PostRequest {
+  return {
+    id: row.id,
+    requesterName: row.contact_name || "Requester",
+    requesterAvatar: "https://images.unsplash.com/photo-1633112639964-f8c9d360dc75?w=200&q=80",
+    targetGroupName: row.group_name || "Group",
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    posterUrl: row.poster_url,
+    targetGroupId: row.group_id,
+    publishDate: row.requested_publish_at || "Requested",
+    expiryDate: row.expires_at || "Not set",
+    contactPhone: row.contact_phone || "",
+    contactEmail: row.contact_email || "",
+    status: row.status,
+    createdAt: row.created_at || "",
+  };
 }
 
 function StatusBadge({ status }: { status: PostRequest["status"] }) {

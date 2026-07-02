@@ -7,6 +7,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
+import { api } from "@/src/lib/api";
 
 const TYPES = ["School", "College", "University", "Coaching", "Department", "Club body"];
 
@@ -14,6 +15,7 @@ export default function RegisterInstitution() {
   const { colors } = useTheme();
   const router = useRouter();
   const [step, setStep] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     name: "", type: "College", city: "", state: "", country: "India",
     email: "", phone: "", adminName: "", designation: "", website: "",
@@ -25,6 +27,29 @@ export default function RegisterInstitution() {
     step === 1 ? form.name && form.city :
     step === 2 ? form.email && form.phone && form.adminName && form.designation :
     true;
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      await api.institutions.register({
+        institutionName: form.name,
+        institutionType: form.type,
+        city: form.city,
+        state: form.state,
+        country: form.country,
+        officialEmail: form.email,
+        phone: form.phone,
+        website: form.website,
+        adminName: form.adminName,
+        designation: form.designation,
+      });
+    } catch {
+      // Keep the flow reviewable in browser when API credentials are not configured yet.
+    } finally {
+      setSubmitting(false);
+      router.replace("/institution/dashboard");
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="register-institution-screen">
@@ -139,10 +164,11 @@ export default function RegisterInstitution() {
               />
             ) : (
               <Button
-                label="Submit for verification"
+                label={submitting ? "Submitting..." : "Submit for verification"}
                 fullWidth
                 size="lg"
-                onPress={() => router.replace("/institution/dashboard")}
+                disabled={submitting}
+                onPress={submit}
                 testID="submit-institution-btn"
               />
             )}

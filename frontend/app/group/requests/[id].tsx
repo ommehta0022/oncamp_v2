@@ -1,22 +1,49 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import Header from "@/src/components/Header";
 import EmptyState from "@/src/components/EmptyState";
 import { joinRequests } from "@/src/data/mock";
+import { api } from "@/src/lib/api";
+
+function normalizeJoinRequest(row: any) {
+  return {
+    id: row.id,
+    userId: row.user_id || row.userId || "",
+    name: row.users?.name || row.name || "Student",
+    bio: row.source ? `Source: ${row.source}` : row.bio || "Requested to join this group",
+    avatar: row.avatar,
+    requestedAt: row.created_at ? new Date(row.created_at).toLocaleDateString() : row.requestedAt || "",
+  };
+}
 
 export default function Requests() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const [items, setItems] = useState(joinRequests);
 
-  const handleAction = (id: string) => {
-    setItems((x) => x.filter((r) => r.id !== id));
+  useEffect(() => {
+    if (!id) return;
+    api.groups.joinRequests(id)
+      .then((rows: any) => {
+        if (Array.isArray(rows)) setItems(rows.map(normalizeJoinRequest));
+      })
+      .catch(() => {});
+  }, [id]);
+
+  const handleAction = async (requestId: string, action: "approve" | "reject") => {
+    if (!id) return;
+    setItems((x) => x.filter((r) => r.id !== requestId));
+    try {
+      if (action === "approve") await api.groups.approveJoinRequest(id, requestId);
+      else await api.groups.rejectJoinRequest(id, requestId);
+    } catch {}
   };
 
   return (
@@ -41,14 +68,14 @@ export default function Requests() {
               </View>
               <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
                 <Pressable
-                  onPress={() => handleAction(item.id)}
+                  onPress={() => handleAction(item.id, "reject")}
                   style={[styles.reject, { borderColor: colors.borderStrong }]}
                   testID={`reject-${item.id}`}
                 >
                   <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>Reject</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => handleAction(item.id)}
+                  onPress={() => handleAction(item.id, "approve")}
                   style={[styles.approve, { backgroundColor: colors.brandPrimary }]}
                   testID={`approve-${item.id}`}
                 >

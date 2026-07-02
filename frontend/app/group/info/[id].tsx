@@ -16,6 +16,7 @@ export default function GroupInfo() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { role, isGroupAdmin } = useRole();
   const group = getGroup(id!);
   if (!group) return null;
   const admins = users.slice(1, 4);

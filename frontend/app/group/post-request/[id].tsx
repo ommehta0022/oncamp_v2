@@ -8,6 +8,7 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import { getGroup, groups } from "@/src/data/mock";
+import { api } from "@/src/lib/api";
 
 const CATEGORIES = ["Event", "Announcement", "Contest", "Notice", "Fundraiser", "Recruitment"];
 
@@ -22,9 +23,32 @@ export default function GroupPostRequest() {
     contactName: "", contactPhone: "", contactEmail: "",
     reason: "",
   });
+  const [submitting, setSubmitting] = useState(false);
   const set = (k: string, v: string) => setForm((s) => ({ ...s, [k]: v }));
 
   const canSubmit = form.title && form.description && form.contactName && form.contactPhone;
+
+  const submit = async () => {
+    if (!canSubmit || submitting) return;
+    setSubmitting(true);
+    try {
+      await api.groups.postRequest(group.id, {
+        title: form.title,
+        description: form.description,
+        category: form.category,
+        requestedPublishAt: form.publishDate || undefined,
+        expiresAt: form.expiryDate || undefined,
+        contactName: form.contactName,
+        contactPhone: form.contactPhone,
+        contactEmail: form.contactEmail || undefined,
+      });
+    } catch {
+      // Keep browser review usable until backend credentials are present.
+    } finally {
+      setSubmitting(false);
+      router.back();
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="post-request-screen">
@@ -84,11 +108,11 @@ export default function GroupPostRequest() {
 
           <View style={{ marginTop: spacing["2xl"] }}>
             <Button
-              label="Submit request"
+              label={submitting ? "Submitting..." : "Submit request"}
               fullWidth
               size="lg"
-              disabled={!canSubmit}
-              onPress={() => router.back()}
+              disabled={!canSubmit || submitting}
+              onPress={submit}
               testID="submit-post-request-btn"
             />
           </View>

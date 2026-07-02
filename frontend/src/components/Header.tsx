@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, Pressable, StyleSheet, ViewStyle, StyleProp } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../theme/ThemeProvider";
-import { spacing, radius, font } from "../theme/colors";
+import { spacing, font } from "../theme/colors";
 
 type Props = {
   title?: string;

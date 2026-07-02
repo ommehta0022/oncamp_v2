@@ -2,7 +2,6 @@ import React from "react";
 import { View, Text, StyleSheet, StyleProp, ViewStyle, TextStyle } from "react-native";
 import { Image } from "expo-image";
 import { useTheme } from "../theme/ThemeProvider";
-import { radius } from "../theme/colors";
 
 type Props = {
   uri?: string;

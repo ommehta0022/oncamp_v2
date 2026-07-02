@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -6,6 +6,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { notifications, Notification } from "@/src/data/mock";
+import { api } from "@/src/lib/api";
 
 const TABS = ["All", "Mentions", "Announcements"];
 
@@ -18,10 +19,33 @@ const ICONS: Record<Notification["type"], keyof typeof import("@expo/vector-icon
   post: "chatbubble-ellipses",
 };
 
+function normalizeNotification(row: any): Notification {
+  const type = ["mention", "join", "announcement", "reply", "approved", "post"].includes(row.type)
+    ? row.type
+    : "announcement";
+  return {
+    id: row.id,
+    type,
+    title: row.title,
+    body: row.body,
+    createdAt: row.created_at || row.createdAt || "",
+    read: !!(row.read_at || row.read),
+    avatar: row.avatar || undefined,
+  };
+}
+
 export default function Notifications() {
   const { colors } = useTheme();
   const [tab, setTab] = useState("All");
   const [items, setItems] = useState(notifications);
+
+  useEffect(() => {
+    api.notifications.list()
+      .then((rows: any) => {
+        if (Array.isArray(rows)) setItems(rows.map(normalizeNotification));
+      })
+      .catch(() => {});
+  }, []);
 
   const markAll = () => setItems((n) => n.map((x) => ({ ...x, read: true })));
 

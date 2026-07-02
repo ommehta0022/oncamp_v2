@@ -1,10 +1,9 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, Pressable,
   KeyboardAvoidingView, Platform,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -12,12 +11,29 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { getGroup, messagesByGroup, currentUser, Message } from "@/src/data/mock";
+import { api } from "@/src/lib/api";
+
+function normalizeMessage(row: any, groupId: string): Message {
+  return {
+    id: row.id,
+    groupId,
+    senderId: row.sender_id || row.senderId,
+    senderName: row.users?.name || row.senderName || "Member",
+    senderAvatar: row.senderAvatar || "",
+    content: row.content || "",
+    createdAt: row.created_at
+      ? new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : row.createdAt || "",
+    own: row.own || row.sender_id === currentUser.id,
+    status: "sent",
+  };
+}
 
 export default function GroupChat() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const insets = useSafeAreaInsets();
+  useSafeAreaInsets();
   const group = getGroup(id!);
   const initial = messagesByGroup[id!] || [];
   const [messages, setMessages] = useState<Message[]>(initial);
@@ -25,19 +41,29 @@ export default function GroupChat() {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const listRef = useRef<FlatList>(null);
 
+  useEffect(() => {
+    if (!id) return;
+    api.groups.messages(id)
+      .then((rows: any) => {
+        if (Array.isArray(rows)) setMessages(rows.reverse().map((row) => normalizeMessage(row, id)));
+      })
+      .catch(() => {});
+  }, [id]);
+
   if (!group) return null;
 
   const pinned = messages.find((m) => m.pinned);
 
-  const send = () => {
+  const send = async () => {
     if (!text.trim()) return;
+    const content = text.trim();
     const msg: Message = {
       id: "m" + Date.now(),
       groupId: id!,
       senderId: currentUser.id,
       senderName: currentUser.name,
       senderAvatar: currentUser.avatar,
-      content: text.trim(),
+      content,
       createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       own: true,
       status: "sent",
@@ -46,6 +72,11 @@ export default function GroupChat() {
     setMessages((m) => [...m, msg]);
     setText("");
     setReplyTo(null);
+    api.groups.sendMessage(id!, {
+      content,
+      type: "text",
+      clientMessageId: msg.id,
+    }).catch(() => {});
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
   };
