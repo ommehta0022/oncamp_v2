@@ -122,8 +122,8 @@ module.exports = () => {
     },
     plugins: [
       ...config.plugins,
-      "@react-native-firebase/app",
-      "@react-native-firebase/auth",
+      // NOTE: @react-native-firebase plugins only needed for EAS native builds
+      // Expo Go uses web Firebase SDK (firebasePhoneAuth.native.ts → web SDK)
     ],
     extra: {
       ...config.extra,
