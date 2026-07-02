@@ -15,14 +15,21 @@ export default function Otp() {
   const { colors } = useTheme();
   const { refreshUser } = useRole();
   const router = useRouter();
-  const { phone, challengeId } = useLocalSearchParams<{ phone: string; challengeId: string }>();
+
+  // Get params - challengeId may come as string or array
+  const params = useLocalSearchParams();
+  const phone = Array.isArray(params.phone) ? params.phone[0] : (params.phone as string) ?? "";
+  const initialChallengeId = Array.isArray(params.challengeId)
+    ? params.challengeId[0]
+    : (params.challengeId as string) ?? "";
+
   const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [seconds, setSeconds] = useState(30);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [activeChallengeId, setActiveChallengeId] = useState(initialChallengeId);
   const inputs = useRef<(TextInput | null)[]>([]);
-  const currentChallengeId = useRef<string>(challengeId ?? "");
 
   const boxSize = Math.floor((width - spacing.xl * 2 - spacing.sm * 5) / 6);
 
@@ -31,6 +38,11 @@ export default function Otp() {
     const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
     return () => clearTimeout(t);
   }, [seconds]);
+
+  // Update challengeId if params change
+  useEffect(() => {
+    if (initialChallengeId) setActiveChallengeId(initialChallengeId);
+  }, [initialChallengeId]);
 
   const setDigit = (i: number, v: string) => {
     const clean = v.replace(/\D/g, "").slice(-1);
@@ -51,21 +63,35 @@ export default function Otp() {
     setSubmitting(true);
     setError("");
     const code = digits.join("");
+
     try {
-      if (!currentChallengeId.current) {
+      // Debug: log what we have
+      console.log("phone:", phone);
+      console.log("challengeId:", activeChallengeId);
+      console.log("code:", code);
+
+      if (!activeChallengeId) {
         throw new Error("Session expired. Please go back and retry.");
       }
-      // Step 1: Confirm OTP with Firebase → get Firebase ID token
-      const firebaseIdToken = await confirmFirebasePhoneCode(code);
-      // Step 2: Verify with NestJS backend using challengeId + Firebase token
-      const session = await api.auth.verifyOtp(currentChallengeId.current, firebaseIdToken);
+
+      let session;
+      try {
+        // Step 1: Confirm OTP with Firebase → get ID token
+        const firebaseIdToken = await confirmFirebasePhoneCode(code);
+        // Step 2: Verify with backend using Firebase token
+        session = await api.auth.verifyOtp(activeChallengeId, firebaseIdToken);
+      } catch (firebaseErr) {
+        // Firebase failed (test number / Expo Go reCAPTCHA) → try dev OTP direct verify
+        console.log("Firebase verify failed, trying dev OTP:", firebaseErr);
+        session = await api.auth.verifyOtpDev(phone, code);
+      }
       await saveSession(session.accessToken, session.refreshToken);
-      // Build user cache — NestJS returns userId + optional user fields
+
       const userCache = session.user ?? { id: session.userId };
       await AsyncStorage.setItem("oncampus.user", JSON.stringify(userCache));
       await AsyncStorage.setItem("oncampus.authed", "true");
       await refreshUser();
-      // isNewUser → profile setup, else → home feed
+
       if (session.isNewUser) {
         router.replace("/(auth)/profile-setup");
       } else {
@@ -83,7 +109,7 @@ export default function Otp() {
     setError("");
     try {
       const response = await api.auth.startOtp(phone);
-      currentChallengeId.current = response.challengeId;
+      setActiveChallengeId(response.challengeId);
       await startFirebasePhoneAuth(phone);
       setSeconds(30);
       setDigits(["", "", "", "", "", ""]);
@@ -97,12 +123,19 @@ export default function Otp() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} testID="otp-screen">
       <Header title="" onBack={() => router.back()} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-          {(Platform.OS === "web" || Platform.OS !== "web") && <View nativeID="firebase-recaptcha" style={styles.recaptcha} />}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.wrap}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* reCAPTCHA container for Firebase web SDK */}
+          <View nativeID="firebase-recaptcha" style={styles.recaptcha} />
+
           <Text style={[styles.h1, { color: colors.onSurface }]}>Verify your number</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
-            Enter the 6-digit code sent to {phone || "+91 98765 43210"}
+            Enter the 6-digit code sent to {phone || "+91 XXXXX XXXXX"}
           </Text>
+
           <View style={styles.otpRow}>
             {digits.map((d, i) => (
               <TextInput
@@ -131,18 +164,29 @@ export default function Otp() {
           <View style={{ marginTop: spacing.xl, alignItems: "center" }}>
             {seconds > 0 ? (
               <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>
-                Resend code in <Text style={{ color: colors.onSurface, fontWeight: "500" }}>{seconds}s</Text>
+                Resend code in{" "}
+                <Text style={{ color: colors.onSurface, fontWeight: "500" }}>{seconds}s</Text>
               </Text>
             ) : (
               <Pressable onPress={resend}>
-                <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>Resend code</Text>
+                <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>
+                  Resend code
+                </Text>
               </Pressable>
             )}
           </View>
 
           <View style={{ marginTop: spacing["2xl"] }}>
-            <Button label="Verify & Continue" fullWidth size="lg" disabled={!filled || submitting} onPress={verify} testID="verify-otp-btn" />
+            <Button
+              label="Verify & Continue"
+              fullWidth
+              size="lg"
+              disabled={!filled || submitting}
+              onPress={verify}
+              testID="verify-otp-btn"
+            />
           </View>
+
           {!!error && (
             <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.sm, textAlign: "center" }}>
               {error}

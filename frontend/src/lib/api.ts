@@ -182,6 +182,12 @@ export const api = {
         auth: false,
         body: { challengeId, firebaseIdToken },
       }),
+    verifyOtpDev: (phone: string, code: string) =>
+      request<{ accessToken: string; refreshToken: string; userId: string; isNewUser: boolean; user?: SessionUser }>("/auth/otp/verify-dev", {
+        method: "POST",
+        auth: false,
+        body: { phone, code },
+      }),
     verifyFirebaseIdToken: (firebaseIdToken: string) =>
       request<{ accessToken: string; refreshToken: string; user: SessionUser }>("/auth/otp/verify", {
         method: "POST",
