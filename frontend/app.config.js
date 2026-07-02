@@ -3,7 +3,12 @@ const path = require("path");
 
 const appJson = require("./app.json");
 
-const allSetDir = path.resolve(__dirname, "../all_info_for_api_referance_only/all_set");
+// Support both locations: important/all_set (real) and all_info_for_api_referance_only/all_set (legacy)
+const allSetDirCandidates = [
+  path.resolve(__dirname, "../important/all_set"),
+  path.resolve(__dirname, "../all_info_for_api_referance_only/all_set"),
+];
+const allSetDir = allSetDirCandidates.find(fs.existsSync) || allSetDirCandidates[0];
 
 function readText(name) {
   const file = path.join(allSetDir, name);
@@ -102,8 +107,8 @@ function firebaseWebConfig() {
 
 module.exports = () => {
   const config = appJson.expo;
-  const googleServicesFile = "../all_info_for_api_referance_only/all_set/google-services.json";
-  const googleServiceInfoFile = "../all_info_for_api_referance_only/all_set/GoogleService-Info.plist";
+  const googleServicesFile = "../important/all_set/google-services.json";
+  const googleServiceInfoFile = "../important/all_set/GoogleService-Info.plist";
 
   return {
     ...config,
@@ -123,6 +128,7 @@ module.exports = () => {
     extra: {
       ...config.extra,
       firebase: firebaseWebConfig(),
+      apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000/v1",
     },
   };
 };

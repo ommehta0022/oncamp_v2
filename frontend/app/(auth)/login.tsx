@@ -7,7 +7,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
+import { api } from "@/src/lib/api";
 
 export default function Login() {
   const { colors } = useTheme();
@@ -23,10 +23,10 @@ export default function Login() {
     setError("");
     const fullPhone = `${cc}${phone.replace(/\D/g, "")}`;
     try {
-      await startFirebasePhoneAuth(fullPhone);
+      const response = await api.auth.startOtp(fullPhone);
       router.push({ pathname: "/(auth)/otp", params: { phone: fullPhone } });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send OTP. Check Firebase phone auth setup.");
+      setError(err instanceof Error ? err.message : "Could not send OTP. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -43,7 +43,6 @@ export default function Login() {
           <View style={[styles.iconWrap, { backgroundColor: colors.brandTertiary }]}>
             <Ionicons name="school" size={32} color={colors.onBrandTertiary} />
           </View>
-          {Platform.OS === "web" && <View nativeID="firebase-recaptcha" style={styles.recaptcha} />}
           <Text style={[styles.h1, { color: colors.onSurface }]}>Welcome back</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
             Log in to your campus network. We&apos;ll send you a code.
@@ -129,5 +128,4 @@ const styles = StyleSheet.create({
     marginTop: spacing["2xl"], marginBottom: spacing.xl,
   },
   line: { flex: 1, height: 1 },
-  recaptcha: { width: 1, height: 1, opacity: 0, overflow: "hidden" },
 });

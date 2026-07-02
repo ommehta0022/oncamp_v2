@@ -12,7 +12,7 @@ from google.auth.transport import requests as google_requests
 import jwt
 import requests
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -74,6 +74,10 @@ FIREBASE_SERVICE_ACCOUNT_PATH = firebase_env_path or (
 FIREBASE_SERVICE_ACCOUNT_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 
 JWT_SECRET = os.getenv("JWT_SECRET") or value_after("JWT_SECRET", read_secret_file("JWT")) or "dev-only-change-me"
+
+# Development OTP Configuration
+DEV_MODE = os.getenv("DEV_MODE", "true").lower() == "true"
+DEV_OTP_CODE = os.getenv("DEV_OTP_CODE", "123456")
 
 app = FastAPI(title="OnCampus API", version="1.0.0")
 
@@ -343,10 +347,111 @@ def integrations_health() -> dict[str, Any]:
         "supabase": {"configured": db.enabled},
         "upstashRedis": {"configured": redis.enabled, "reachable": redis.ping() if redis.enabled else False},
         "firebase": {"configured": firebase_configured, "projectId": firebase_project_id()},
-        "otp": {"provider": "firebase_phone_auth", "configured": firebase_configured},
+        "otp": {
+            "provider": "dev_mode" if DEV_MODE else "firebase_phone_auth",
+            "configured": True if DEV_MODE else firebase_configured,
+            "devMode": DEV_MODE,
+            "devOtpCode": DEV_OTP_CODE if DEV_MODE else None
+        },
         "render": {"configured": bool(os.getenv("RENDER_API_KEY"))},
         "railway": {"configured": bool(os.getenv("RAILWAY_TOKEN"))},
         "claude": {"configured": bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY"))},
+    }
+
+
+class StartOtpDevDto(BaseModel):
+    phone: str
+
+
+class VerifyOtpDevDto(BaseModel):
+    phone: str
+    code: str
+    platform: Optional[str] = None
+
+
+@app.post("/v1/auth/otp/start")
+def start_otp_dev(payload: StartOtpDevDto) -> dict[str, Any]:
+    """Start OTP authentication - Development mode always returns success."""
+    phone = payload.phone.strip()
+    
+    if not phone or len(phone) < 10:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+    
+    return {
+        "success": True,
+        "message": f"OTP sent to {phone}",
+        "devMode": DEV_MODE,
+        "devCode": DEV_OTP_CODE if DEV_MODE else None
+    }
+
+
+@app.post("/v1/auth/otp/verify-code")
+def verify_otp_dev(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """Verify OTP code - Development mode accepts hardcoded OTP."""
+    phone = payload.phone.strip()
+    code = payload.code.strip()
+    
+    if not phone or len(phone) < 10:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+    
+    # In dev mode, check against dev OTP
+    if DEV_MODE:
+        if code != DEV_OTP_CODE:
+            raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
+    else:
+        # In production, would verify against Firebase or Redis
+        raise HTTPException(status_code=503, detail="Production OTP verification not configured")
+    
+    # Find or create user by phone hash
+    hashed_phone = phone_hash(phone)
+    user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*"})
+    if user_rows:
+        user = user_rows[0]
+    else:
+        user = db.post(
+            "users",
+            {
+                "id": str(uuid.uuid4()),
+                "phone_hash": hashed_phone,
+                "status": "active",
+                "account_type": "normal_user",
+                "updated_at": now_iso(),
+            },
+        )[0]
+
+    # Register device
+    device_id = x_device_id or str(uuid.uuid4())
+    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
+    device_data = {
+        "platform": payload.platform or "unknown",
+        "trusted": True,
+        "last_seen_at": now_iso(),
+    }
+    if existing_device:
+        db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
+    else:
+        db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
+    
+    # Generate tokens
+    role = user.get("account_type") or "normal_user"
+    access = create_access_token(user["id"], role)
+    refresh = str(uuid.uuid4())
+    
+    return {
+        "accessToken": access,
+        "refreshToken": refresh,
+        "user": {
+            "id": user["id"],
+            "name": user.get("name"),
+            "city": user.get("city"),
+            "course": user.get("course"),
+            "avatarUrl": user.get("avatar_url"),
+            "verified": user.get("verified", False),
+            "accountType": role,
+            "roles": [role],
+            "canCreatePosts": user.get("can_create_posts", False),
+            "canCreateGroups": user.get("can_create_groups", False),
+        },
     }
 
 
@@ -357,6 +462,10 @@ class VerifyOtpDto(BaseModel):
 
 @app.post("/v1/auth/otp/verify")
 def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """Verify Firebase phone auth ID token and create/login user."""
+@app.post("/v1/auth/otp/verify")
+def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """Verify Firebase phone auth ID token and create/login user."""
     try:
         req = google_requests.Request()
         project_id = firebase_project_id()
@@ -926,3 +1035,184 @@ def get_notifications(user: CurrentUser = Depends(current_user)) -> Any:
             "limit": "50",
         },
     )
+
+
+# ─────────────────────────────────────────────
+# FILE / MEDIA UPLOAD  →  Supabase Storage
+# ─────────────────────────────────────────────
+# Uses existing buckets: 'avatars' and 'group-media'
+SUPABASE_AVATAR_BUCKET = os.getenv("SUPABASE_AVATAR_BUCKET", "avatars")
+SUPABASE_MEDIA_BUCKET  = os.getenv("SUPABASE_MEDIA_BUCKET", "group-media")
+
+ALLOWED_IMAGE_TYPES  = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+ALLOWED_VIDEO_TYPES  = {"video/mp4", "video/quicktime", "video/webm"}
+ALLOWED_DOC_TYPES    = {"application/pdf"}
+ALLOWED_MEDIA_TYPES  = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES | ALLOWED_DOC_TYPES
+
+MAX_IMAGE_SIZE_MB = int(os.getenv("MAX_IMAGE_SIZE_MB", "10"))
+MAX_VIDEO_SIZE_MB = int(os.getenv("MAX_VIDEO_SIZE_MB", "100"))
+MAX_DOC_SIZE_MB   = int(os.getenv("MAX_DOC_SIZE_MB",   "20"))
+
+
+def _max_bytes(content_type: str) -> int:
+    if content_type in ALLOWED_VIDEO_TYPES:
+        return MAX_VIDEO_SIZE_MB * 1024 * 1024
+    if content_type in ALLOWED_DOC_TYPES:
+        return MAX_DOC_SIZE_MB * 1024 * 1024
+    return MAX_IMAGE_SIZE_MB * 1024 * 1024
+
+
+def _storage_upload(file_bytes: bytes, storage_path: str, content_type: str, bucket: str) -> str:
+    """Upload bytes to Supabase Storage and return the public URL."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(status_code=503, detail="Supabase storage is not configured.")
+
+    upload_url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{storage_path}"
+    headers = {
+        "apikey":        SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type":  content_type,
+        "x-upsert":      "true",
+    }
+    resp = requests.post(upload_url, headers=headers, data=file_bytes, timeout=60)
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Storage upload failed: {resp.text}")
+    return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{storage_path}"
+
+
+# ── 1. Avatar upload ────────────────────────────────────────────
+@app.post("/v1/upload/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, str]:
+    """
+    Upload a profile avatar.
+    Saves to Supabase Storage → updates users.avatar_url → returns url.
+    """
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Only images allowed. Got: {file.content_type}")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > _max_bytes(file.content_type):
+        raise HTTPException(status_code=400, detail=f"File too large. Max {MAX_IMAGE_SIZE_MB} MB.")
+
+    ext           = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
+    storage_path  = f"avatars/{user.id}.{ext}"
+    public_url    = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_AVATAR_BUCKET)
+
+    # Persist URL in user profile
+    db.patch("users", {"id": f"eq.{user.id}"}, {"avatar_url": public_url, "updated_at": now_iso()})
+
+    return {"url": public_url, "type": "avatar"}
+
+
+# ── 2. Post / announcement media upload ─────────────────────────
+@app.post("/v1/upload/post-media")
+async def upload_post_media(
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, str]:
+    """
+    Upload an image, video or PDF to attach to a post.
+    Returns the public URL to pass as mediaUrl when creating the post.
+    """
+    if file.content_type not in ALLOWED_MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > _max_bytes(file.content_type):
+        limit_mb = MAX_VIDEO_SIZE_MB if file.content_type in ALLOWED_VIDEO_TYPES else MAX_IMAGE_SIZE_MB
+        raise HTTPException(status_code=400, detail=f"File too large. Max {limit_mb} MB.")
+
+    ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "bin"
+    unique_name  = f"{uuid.uuid4()}.{ext}"
+    storage_path = f"posts/{user.id}/{unique_name}"
+    public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
+
+    media_type = (
+        "image" if file.content_type in ALLOWED_IMAGE_TYPES else
+        "video" if file.content_type in ALLOWED_VIDEO_TYPES else
+        "document"
+    )
+    return {"url": public_url, "mediaType": media_type}
+
+
+# ── 3. Group avatar upload ───────────────────────────────────────
+@app.post("/v1/upload/group-avatar/{group_id}")
+async def upload_group_avatar(
+    group_id: str,
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, str]:
+    """Upload a group avatar. Only group admin/owner can do this."""
+    require_group_admin(group_id, user)
+
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Only images allowed. Got: {file.content_type}")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > _max_bytes(file.content_type):
+        raise HTTPException(status_code=400, detail=f"File too large. Max {MAX_IMAGE_SIZE_MB} MB.")
+
+    ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
+    storage_path = f"groups/{group_id}/avatar.{ext}"
+    public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_AVATAR_BUCKET)
+
+    db.patch("groups", {"id": f"eq.{group_id}"}, {"avatar_url": public_url, "updated_at": now_iso()})
+
+    return {"url": public_url, "type": "group_avatar"}
+
+
+# ── 4. Group chat message media ──────────────────────────────────
+@app.post("/v1/upload/message-media/{group_id}")
+async def upload_message_media(
+    group_id: str,
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, str]:
+    """Upload media to attach to a group chat message."""
+    require_group_member(group_id, user)
+
+    if file.content_type not in ALLOWED_MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > _max_bytes(file.content_type):
+        limit_mb = MAX_VIDEO_SIZE_MB if file.content_type in ALLOWED_VIDEO_TYPES else MAX_IMAGE_SIZE_MB
+        raise HTTPException(status_code=400, detail=f"File too large. Max {limit_mb} MB.")
+
+    ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "bin"
+    unique_name  = f"{uuid.uuid4()}.{ext}"
+    storage_path = f"messages/{group_id}/{unique_name}"
+    public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
+
+    media_type = (
+        "image" if file.content_type in ALLOWED_IMAGE_TYPES else
+        "video" if file.content_type in ALLOWED_VIDEO_TYPES else
+        "document"
+    )
+    return {"url": public_url, "mediaType": media_type}
+
+
+# ── 5. Institution document upload ──────────────────────────────
+@app.post("/v1/upload/institution-doc")
+async def upload_institution_doc(
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, str]:
+    """Upload a verification document for institution registration."""
+    allowed = ALLOWED_IMAGE_TYPES | ALLOWED_DOC_TYPES
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail=f"Only images/PDFs allowed. Got: {file.content_type}")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > _max_bytes(file.content_type):
+        raise HTTPException(status_code=400, detail=f"File too large. Max {MAX_DOC_SIZE_MB} MB.")
+
+    ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "pdf"
+    unique_name  = f"{uuid.uuid4()}.{ext}"
+    storage_path = f"institution-docs/{user.id}/{unique_name}"
+    public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
+
+    return {"url": public_url, "type": "institution_document"}

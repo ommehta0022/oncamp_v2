@@ -9,7 +9,6 @@ import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import { api, saveSession } from "@/src/lib/api";
 import { useRole } from "@/src/context/RoleProvider";
-import { confirmFirebasePhoneCode, startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
 
 export default function Otp() {
   const { colors } = useTheme();
@@ -51,8 +50,10 @@ export default function Otp() {
     setError("");
     const code = digits.join("");
     try {
-      const firebaseIdToken = await confirmFirebasePhoneCode(code);
-      const session = await api.auth.verifyFirebaseIdToken(firebaseIdToken);
+      if (!phone) {
+        throw new Error("Phone number is required");
+      }
+      const session = await api.auth.verifyOtp(phone, code);
       await saveSession(session.accessToken, session.refreshToken);
       await AsyncStorage.setItem("oncampus.user", JSON.stringify(session.user));
       await AsyncStorage.setItem("oncampus.authed", "true");
@@ -69,7 +70,7 @@ export default function Otp() {
     if (!phone || seconds > 0) return;
     setError("");
     try {
-      await startFirebasePhoneAuth(phone);
+      await api.auth.startOtp(phone);
       setSeconds(30);
       setDigits(["", "", "", "", "", ""]);
       inputs.current[0]?.focus();
@@ -83,10 +84,12 @@ export default function Otp() {
       <Header title="" onBack={() => router.back()} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-          {Platform.OS === "web" && <View nativeID="firebase-recaptcha" style={styles.recaptcha} />}
           <Text style={[styles.h1, { color: colors.onSurface }]}>Verify your number</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
             Enter the 6-digit code sent to {phone || "+91 98765 43210"}
+          </Text>
+          <Text style={[styles.devHint, { color: colors.brandPrimary }]}>
+            💡 Development Mode: Use OTP 123456
           </Text>
           <View style={styles.otpRow}>
             {digits.map((d, i) => (
@@ -145,10 +148,10 @@ const styles = StyleSheet.create({
   wrap: { padding: spacing.xl, flexGrow: 1 },
   h1: { fontSize: 28, fontWeight: "500", letterSpacing: -0.5 },
   h2: { fontSize: font.base, marginTop: spacing.sm, lineHeight: 20 },
+  devHint: { fontSize: font.sm, marginTop: spacing.md, fontWeight: "500" },
   otpRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing["2xl"], gap: spacing.sm },
   otpBox: {
     borderWidth: 1, borderRadius: radius.md,
     textAlign: "center", fontSize: 22, fontWeight: "500",
   },
-  recaptcha: { width: 1, height: 1, opacity: 0, overflow: "hidden" },
 });
