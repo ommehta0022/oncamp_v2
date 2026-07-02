@@ -98,7 +98,7 @@ export default function Otp() {
       <Header title="" onBack={() => router.back()} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-          {Platform.OS === "web" && <View nativeID="firebase-recaptcha" style={styles.recaptcha} />}
+          {(Platform.OS === "web" || Platform.OS !== "web") && <View nativeID="firebase-recaptcha" style={styles.recaptcha} />}
           <Text style={[styles.h1, { color: colors.onSurface }]}>Verify your number</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
             Enter the 6-digit code sent to {phone || "+91 98765 43210"}
