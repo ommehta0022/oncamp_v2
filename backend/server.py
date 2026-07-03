@@ -93,17 +93,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include admin routes
-try:
-    import admin_routes_simple as admin_routes_module
-    admin_routes_module.set_db_client(db)  # Inject db dependency
-    app.include_router(admin_routes_module.router)
-    print("✅ Admin routes loaded successfully")
-except ImportError as e:
-    print(f"⚠️  Admin routes not loaded: {e}")
-except Exception as e:
-    print(f"⚠️  Admin routes error: {e}")
-
 
 class SupabaseRest:
     def __init__(self) -> None:
@@ -158,6 +147,17 @@ class SupabaseRest:
 
 
 db = SupabaseRest()
+
+# Include admin routes (AFTER db is initialized)
+try:
+    import admin_routes_simple as admin_routes_module
+    admin_routes_module.set_db_client(db)  # Inject db dependency
+    app.include_router(admin_routes_module.router)
+    print("✅ Admin routes loaded successfully")
+except ImportError as e:
+    print(f"⚠️  Admin routes not loaded: {e}")
+except Exception as e:
+    print(f"⚠️  Admin routes error: {e}")
 
 
 class UpstashRedis:
