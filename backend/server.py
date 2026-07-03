@@ -12,8 +12,9 @@ from google.auth.transport import requests as google_requests
 import jwt
 import requests
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, UploadFile, File, Form
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -158,6 +159,65 @@ except ImportError as e:
     print(f"⚠️  Admin routes not loaded: {e}")
 except Exception as e:
     print(f"⚠️  Admin routes error: {e}")
+
+
+def get_system_setting(key: str, default: Any = None) -> Any:
+    try:
+        rows = db.get("system_settings", {"key": f"eq.{key}", "select": "value", "limit": "1"})
+        if not rows:
+            return default
+        return rows[0].get("value", default)
+    except HTTPException:
+        return default
+
+
+def setting_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in {"true", "1", "yes", "on"}
+    return bool(value)
+
+
+def public_platform_settings() -> dict[str, Any]:
+    return {
+        "appName": get_system_setting("platform_name", "OnCampus"),
+        "supportEmail": get_system_setting("support_email", "support@oncampus.app"),
+        "maintenanceMode": setting_bool(get_system_setting("maintenance_mode", False)),
+        "maintenanceMessage": get_system_setting(
+            "maintenance_message",
+            "System under maintenance. We'll be back soon!",
+        ),
+        "registrationEnabled": setting_bool(get_system_setting("registration_enabled", True), True),
+        "groupCreationEnabled": setting_bool(get_system_setting("group_creation_enabled", True), True),
+        "pushNotificationsEnabled": setting_bool(get_system_setting("push_notifications_enabled", True), True),
+        "emailNotificationsEnabled": setting_bool(get_system_setting("email_notifications_enabled", True), True),
+    }
+
+
+@app.middleware("http")
+async def enforce_maintenance_mode(request: Request, call_next):
+    path = request.url.path
+    allowed = {"/v1/health", "/v1/platform/settings", "/v1/integrations/health"}
+    if path.startswith("/v1/") and path not in allowed and request.method != "OPTIONS":
+        settings = public_platform_settings()
+        if settings["maintenanceMode"]:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": settings["maintenanceMessage"],
+                    "maintenanceMode": True,
+                    "appName": settings["appName"],
+                },
+            )
+    return await call_next(request)
+
+
+@app.get("/v1/platform/settings")
+def get_public_platform_settings() -> dict[str, Any]:
+    return public_platform_settings()
 
 
 class UpstashRedis:

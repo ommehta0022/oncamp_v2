@@ -3,12 +3,14 @@ OnCampus Super Admin API Routes
 Supabase-backed endpoints for the enterprise admin panel.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 import hashlib
+import json
 import os
 import re
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, EmailStr
@@ -85,6 +87,23 @@ class BlockedKeywordRequest(BaseModel):
     matchType: str = "exact"
 
 
+class AdminNotificationRequest(BaseModel):
+    title: str
+    body: str
+    type: str = "admin_broadcast"
+    target: str = "all"
+    userIds: list[str] = []
+    data: dict[str, Any] = {}
+    channels: dict[str, bool] = {
+        "inApp": True,
+        "push": False,
+        "email": False,
+        "whatsapp": False,
+        "telegram": False,
+        "linkedin": False,
+    }
+
+
 def now_iso() -> str:
     return datetime.utcnow().isoformat()
 
@@ -134,6 +153,71 @@ def safe_post(table: str, payload: dict[str, Any]) -> Any:
         return db_client.post(table, payload) or []
     except HTTPException:
         return []
+
+
+def admin_firebase_project_id() -> str:
+    service_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+    if service_json:
+        try:
+            return json.loads(service_json).get("project_id", "")
+        except Exception:
+            return ""
+    service_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
+    if not service_path:
+        return ""
+    try:
+        return json.loads(Path(service_path).read_text(encoding="utf-8")).get("project_id", "")
+    except Exception:
+        return ""
+
+
+def admin_firebase_access_token() -> str:
+    try:
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Firebase auth dependency missing: {exc}")
+
+    service_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+    service_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
+    if service_json:
+        credentials = service_account.Credentials.from_service_account_info(
+            json.loads(service_json),
+            scopes=["https://www.googleapis.com/auth/firebase.messaging"],
+        )
+    elif service_path:
+        credentials = service_account.Credentials.from_service_account_file(
+            service_path,
+            scopes=["https://www.googleapis.com/auth/firebase.messaging"],
+        )
+    else:
+        raise HTTPException(status_code=503, detail="Firebase service account is not configured")
+    credentials.refresh(Request())
+    return credentials.token
+
+
+def send_admin_push(token: str, title: str, body: str, data: Optional[dict[str, str]] = None) -> Any:
+    project_id = admin_firebase_project_id()
+    if not project_id:
+        raise HTTPException(status_code=503, detail="Firebase project id is not configured")
+    response = requests.post(
+        f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send",
+        headers={
+            "Authorization": f"Bearer {admin_firebase_access_token()}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "message": {
+                "token": token,
+                "notification": {"title": title, "body": body},
+                "data": data or {},
+            }
+        },
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+    return response.json()
 
 
 def rest_get(table: str, params: Optional[dict[str, Any]] = None, count: bool = False) -> tuple[list[Any], int]:
@@ -502,7 +586,7 @@ async def get_institution_metrics(admin: dict = Depends(get_current_admin)):
 async def get_users(
     admin: dict = Depends(get_current_admin),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
     status: Optional[str] = None,
     city: Optional[str] = None,
     institution: Optional[str] = None,
@@ -597,7 +681,7 @@ async def verify_user(user_id: str, payload: VerifyUserRequest = Body(default=Ve
 async def get_groups(
     admin: dict = Depends(get_current_admin),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
     visibility: Optional[str] = None,
     category: Optional[str] = None,
     city: Optional[str] = None,
@@ -651,7 +735,7 @@ async def get_group_members(
     group_id: str,
     admin: dict = Depends(get_current_admin),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
 ):
     response = table_rows(
         "group_members",
@@ -688,7 +772,7 @@ async def delete_group(group_id: str, payload: ReasonRequest = Body(default=Reas
 async def get_reports(
     admin: dict = Depends(get_current_admin),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
     status: Optional[str] = None,
     type: Optional[str] = None,
 ):
@@ -735,7 +819,7 @@ async def dismiss_report(report_id: str, payload: DismissReportRequest, admin: d
 async def get_audit_logs(
     admin: dict = Depends(get_current_admin),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
     admin_filter: Optional[str] = Query(None, alias="admin"),
     action: Optional[str] = None,
     startDate: Optional[str] = None,
@@ -878,6 +962,182 @@ async def delete_admin(admin_id: str, admin: dict = Depends(get_current_admin)):
 
 
 # ============================================================================
+# ADMIN NOTIFICATIONS
+# ============================================================================
+
+
+def notification_channels_config() -> dict[str, bool]:
+    return {
+        "push": bool(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON") or os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")),
+        "email": bool(os.getenv("SENDGRID_API_KEY") or os.getenv("SMTP_HOST")),
+        "whatsapp": bool(os.getenv("WHATSAPP_ACCESS_TOKEN") and os.getenv("WHATSAPP_PHONE_NUMBER_ID")),
+        "telegram": bool(os.getenv("TELEGRAM_BOT_TOKEN")),
+        "linkedin": bool(os.getenv("LINKEDIN_ACCESS_TOKEN")),
+    }
+
+
+def normalize_notification(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "userId": row.get("user_id"),
+        "title": row.get("title"),
+        "body": row.get("body"),
+        "type": row.get("type"),
+        "data": row.get("data") or {},
+        "readAt": row.get("read_at"),
+        "createdAt": row.get("created_at"),
+    }
+
+
+@router.get("/notifications")
+async def get_admin_notifications(
+    admin: dict = Depends(get_current_admin),
+    limit: int = Query(50, ge=1, le=1000),
+):
+    rows = safe_get(
+        "notifications",
+        {
+            "select": "id,user_id,title,body,type,data,read_at,created_at",
+            "order": "created_at.desc",
+            "limit": str(limit),
+        },
+    )
+    return {
+        "data": [normalize_notification(row) for row in rows],
+        "channels": notification_channels_config(),
+    }
+
+
+@router.get("/notifications/stats")
+async def get_admin_notification_stats(admin: dict = Depends(get_current_admin)):
+    recent = safe_get(
+        "notifications",
+        {
+            "select": "id,title,body,type,read_at,created_at",
+            "order": "created_at.desc",
+            "limit": "10",
+        },
+    )
+    unread = count_rows("notifications", {"read_at": "is.null"})
+    total = count_rows("notifications")
+    return {
+        "total": total,
+        "unread": unread,
+        "recent": [normalize_notification(row) for row in recent],
+        "channels": notification_channels_config(),
+    }
+
+
+@router.post("/notifications")
+async def send_admin_notification(
+    payload: AdminNotificationRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    require_super_admin(admin)
+    selected_channels = {key: bool(value) for key, value in (payload.channels or {}).items()}
+    if not selected_channels.get("inApp") and not any(selected_channels.values()):
+        raise HTTPException(status_code=400, detail="Select at least one notification channel")
+
+    if payload.target == "users":
+        user_ids = [user_id for user_id in payload.userIds if user_id]
+    else:
+        users = safe_get("users", {"select": "id", "order": "created_at.desc", "limit": "10000"})
+        user_ids = [row.get("id") for row in users if row.get("id")]
+
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="No target users found")
+
+    now = now_iso()
+    notification_data = {
+        **(payload.data or {}),
+        "source": "admin_panel",
+        "channels": selected_channels,
+        "createdBy": get_admin_id(admin),
+    }
+    inserted: list[dict[str, Any]] = []
+    if selected_channels.get("inApp", True):
+        rows = [
+            {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "title": payload.title,
+                "body": payload.body,
+                "type": payload.type,
+                "data": notification_data,
+                "created_at": now,
+            }
+            for user_id in user_ids
+        ]
+        for start in range(0, len(rows), 500):
+            result = safe_post("notifications", rows[start:start + 500])
+            if isinstance(result, list):
+                inserted.extend(result)
+
+    delivery = {
+        "inApp": {
+            "requested": selected_channels.get("inApp", True),
+            "status": "delivered" if selected_channels.get("inApp", True) else "skipped",
+            "count": len(inserted),
+        }
+    }
+
+    if selected_channels.get("push"):
+        devices = safe_get(
+            "user_devices",
+            {
+                "select": "user_id,push_token,platform,revoked_at",
+                "user_id": f"in.({','.join(user_ids)})",
+                "limit": "10000",
+            },
+        )
+        sent = 0
+        failed = 0
+        skipped = 0
+        push_data = {key: str(value) for key, value in notification_data.items() if value is not None}
+        for device in devices:
+            token = device.get("push_token")
+            if not token or device.get("revoked_at"):
+                skipped += 1
+                continue
+            try:
+                send_admin_push(token, payload.title, payload.body, push_data)
+                sent += 1
+            except HTTPException:
+                failed += 1
+        delivery["push"] = {
+            "requested": True,
+            "status": "sent" if sent else ("no_tokens" if not devices else "failed"),
+            "sent": sent,
+            "failed": failed,
+            "skipped": skipped,
+        }
+    else:
+        delivery["push"] = {"requested": False, "status": "skipped"}
+
+    provider_env = notification_channels_config()
+    for channel in ["email", "whatsapp", "telegram", "linkedin"]:
+        requested = selected_channels.get(channel, False)
+        delivery[channel] = {
+            "requested": requested,
+            "status": "not_configured" if requested and not provider_env[channel] else "queued" if requested else "skipped",
+            "count": 0,
+        }
+
+    log_admin_action(
+        admin,
+        "NOTIFICATION_SEND",
+        {"title": payload.title, "target": payload.target, "users": len(user_ids), "delivery": delivery},
+        "notifications",
+    )
+    return {
+        "success": True,
+        "targetedUsers": len(user_ids),
+        "created": len(inserted),
+        "delivery": delivery,
+    }
+
+
+# ============================================================================
 # SETTINGS, DATABASE, SYSTEM, ERRORS
 # ============================================================================
 
@@ -961,7 +1221,7 @@ async def get_table_data(
     table_name: str,
     admin: dict = Depends(get_current_admin),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
     orderBy: Optional[str] = None,
 ):
     require_super_admin(admin)
@@ -989,7 +1249,7 @@ async def execute_database_query(payload: dict[str, str] = Body(...), admin: dic
     select_match = re.fullmatch(r"SELECT\s+\*\s+FROM\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(ORDER\s+BY\s+created_at\s+DESC)?\s*LIMIT\s+(\d+)\s*;?", query, re.I)
     if select_match:
         table = select_match.group(1)
-        limit = min(int(select_match.group(3)), 100)
+        limit = min(int(select_match.group(3)), 1000)
         if table not in KNOWN_TABLES:
             raise HTTPException(status_code=400, detail="Table is not exposed through the admin browser")
         return table_rows(table, {"order": "created_at.desc"}, 1, limit)["data"]
@@ -1035,7 +1295,7 @@ async def clear_cache(admin: dict = Depends(get_current_admin)):
 async def get_errors(
     admin: dict = Depends(get_current_admin),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
     level: Optional[str] = None,
     userId: Optional[str] = None,
 ):

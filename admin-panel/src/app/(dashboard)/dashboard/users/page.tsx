@@ -35,7 +35,7 @@ export default function UsersPage() {
   });
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 50,
+    limit: 1000,
     total: 0,
   });
 
@@ -53,6 +53,12 @@ export default function UsersPage() {
         city: filters.city || undefined,
         institution: filters.institution || undefined,
         search: search || undefined,
+        verified:
+          filters.verified === "verified"
+            ? "true"
+            : filters.verified === "unverified"
+            ? "false"
+            : undefined,
       });
       setUsers(response.data || []);
       setPagination((prev) => ({ ...prev, total: response.meta?.total || 0 }));
@@ -79,7 +85,7 @@ export default function UsersPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `users-page-${pagination.page}.csv`;
+    link.download = `users-all-${new Date().toISOString().split("T")[0]}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -100,7 +106,7 @@ export default function UsersPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Users</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Manage all users on the platform
+            Manage all users on the platform. The table loads up to 1000 users by default.
           </p>
         </div>
         <button
@@ -302,19 +308,8 @@ export default function UsersPage() {
           <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
             <div>
               <p className="text-sm text-gray-700">
-                Showing{" "}
-                <span className="font-medium">
-                  {(pagination.page - 1) * pagination.limit + 1}
-                </span>{" "}
-                to{" "}
-                <span className="font-medium">
-                  {Math.min(
-                    pagination.page * pagination.limit,
-                    pagination.total
-                  )}
-                </span>{" "}
-                of <span className="font-medium">{pagination.total}</span>{" "}
-                users
+                Showing <span className="font-medium">{users.length}</span> of{" "}
+                <span className="font-medium">{pagination.total}</span> users
               </p>
             </div>
             <div className="flex space-x-2">

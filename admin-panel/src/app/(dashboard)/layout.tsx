@@ -19,7 +19,7 @@ import {
   X,
   LogOut,
   Bell,
-  Search,
+  Send,
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
 import { api } from "@/lib/api";
@@ -33,6 +33,7 @@ const navigation = [
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { name: "Errors", href: "/dashboard/errors", icon: Bug, badge: true },
   { name: "Security", href: "/dashboard/security", icon: Lock },
+  { name: "Notifications", href: "/dashboard/notifications", icon: Send },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
@@ -50,7 +51,13 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { user, isAuthenticated, logout } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [platformName, setPlatformName] = useState("OnCampus");
   const [stats, setStats] = useState({ pendingReports: 0, unresolvedErrors: 0 });
+  const [notificationStats, setNotificationStats] = useState<any>({
+    unread: 0,
+    recent: [],
+  });
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -61,10 +68,21 @@ export default function DashboardLayout({
     // Fetch badge counts
     const fetchStats = async () => {
       try {
-        const dashboard = await api.getDashboard();
+        const [dashboard, settings, notifications] = await Promise.all([
+          api.getDashboard(),
+          api.getSettings(),
+          api.getAdminNotificationStats(),
+        ]);
         setStats({
           pendingReports: dashboard.pendingReports || 0,
           unresolvedErrors: dashboard.unresolvedErrors || 0,
+        });
+        if (settings?.appName) {
+          setPlatformName(settings.appName);
+        }
+        setNotificationStats({
+          unread: notifications?.unread || 0,
+          recent: notifications?.recent || [],
         });
       } catch (error) {
         console.error("Failed to fetch stats:", error);
@@ -103,7 +121,7 @@ export default function DashboardLayout({
         <div className="flex flex-col h-full">
           {/* Header */}
           <div className="flex items-center justify-between h-16 px-4 border-b border-gray-800">
-            <h1 className="text-xl font-bold">OnCampus Admin</h1>
+            <h1 className="text-xl font-bold truncate">{platformName} Admin</h1>
             <button
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden text-gray-400 hover:text-white"
@@ -211,9 +229,55 @@ export default function DashboardLayout({
           </button>
 
           <div className="flex items-center space-x-4 ml-auto">
-            <button className="text-gray-400 hover:text-gray-600">
-              <Bell className="w-6 h-6" />
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setNotificationOpen((open) => !open)}
+                className="relative text-gray-400 hover:text-gray-600"
+                aria-label="Open notifications"
+              >
+                <Bell className="w-6 h-6" />
+                {notificationStats.unread > 0 && (
+                  <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-4 text-white">
+                    {notificationStats.unread > 99 ? "99+" : notificationStats.unread}
+                  </span>
+                )}
+              </button>
+              {notificationOpen && (
+                <div className="absolute right-0 top-9 z-50 w-80 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Notifications</p>
+                      <p className="text-xs text-gray-500">{notificationStats.unread} unread user notifications</p>
+                    </div>
+                    <Link
+                      href="/dashboard/notifications"
+                      onClick={() => setNotificationOpen(false)}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                    >
+                      Manage
+                    </Link>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {notificationStats.recent.length > 0 ? (
+                      notificationStats.recent.map((item: any) => (
+                        <div key={item.id} className="border-b border-gray-100 px-4 py-3 last:border-b-0">
+                          <p className="truncate text-sm font-medium text-gray-900">{item.title}</p>
+                          <p className="mt-1 line-clamp-2 text-xs text-gray-500">{item.body}</p>
+                          <p className="mt-2 text-[11px] text-gray-400">
+                            {item.createdAt ? new Date(item.createdAt).toLocaleString() : "Just now"}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-4 py-8 text-center text-sm text-gray-500">
+                        No notifications yet
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

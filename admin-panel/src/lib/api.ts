@@ -139,6 +139,7 @@ class ApiClient {
     city?: string;
     institution?: string;
     search?: string;
+    verified?: string;
   }) {
     const response = await this.client.get("/admin/users", { params });
     return response.data;
@@ -524,6 +525,32 @@ class ApiClient {
     const response = await this.client.delete(
       `/admin/database/tables/${table}/${id}`
     );
+    return response.data;
+  }
+
+  // Notifications
+  async getAdminNotifications(limit = 50) {
+    const response = await this.client.get("/admin/notifications", {
+      params: { limit },
+    });
+    return response.data;
+  }
+
+  async getAdminNotificationStats() {
+    const response = await this.client.get("/admin/notifications/stats");
+    return response.data;
+  }
+
+  async sendAdminNotification(data: {
+    title: string;
+    body: string;
+    type?: string;
+    target?: string;
+    userIds?: string[];
+    data?: Record<string, any>;
+    channels?: Record<string, boolean>;
+  }) {
+    const response = await this.client.post("/admin/notifications", data);
     return response.data;
   }
 

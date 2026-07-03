@@ -67,12 +67,36 @@ export default function SecurityPage() {
     },
   });
 
+  const blockIpMutation = useMutation({
+    mutationFn: (ipAddress: string) =>
+      api.blockIP(ipAddress, "Blocked from failed login attempts"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-security-alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-failed-logins"] });
+    },
+  });
+
   const updateRateLimitsMutation = useMutation({
     mutationFn: () => api.updateRateLimits(rateLimitForm),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-rate-limits"] });
     },
   });
+
+  const alertItems = Array.isArray(alerts)
+    ? alerts
+    : [
+        ...(alerts?.audit_alerts || []),
+        ...(alerts?.recent_blocks || []).map((item: any) => ({
+          id: `block-${item.id || item.ip_address}`,
+          title: "Blocked IP",
+          description: `${item.ip_address} was blocked${item.reason ? `: ${item.reason}` : ""}`,
+          severity: "high",
+          created_at: item.created_at,
+        })),
+      ];
+  const failedLoginItems = Array.isArray(failedLogins) ? failedLogins : failedLogins?.data || [];
+  const keywordItems = Array.isArray(keywords) ? keywords : keywords?.data || [];
 
   return (
     <div className="space-y-6">
@@ -91,7 +115,7 @@ export default function SecurityPage() {
             <div>
               <p className="text-sm text-gray-600">Active Alerts</p>
               <p className="text-2xl font-bold text-red-600">
-                {alerts?.filter((a: any) => a.status === "active").length || 0}
+                {alertItems.filter((a: any) => !a.status || a.status === "active").length || 0}
               </p>
             </div>
             <AlertTriangle className="w-10 h-10 text-red-500" />
@@ -103,7 +127,7 @@ export default function SecurityPage() {
             <div>
               <p className="text-sm text-gray-600">Failed Logins (24h)</p>
               <p className="text-2xl font-bold text-orange-600">
-                {failedLogins?.length || 0}
+                {failedLoginItems.length || 0}
               </p>
             </div>
             <Lock className="w-10 h-10 text-orange-500" />
@@ -115,7 +139,7 @@ export default function SecurityPage() {
             <div>
               <p className="text-sm text-gray-600">Blocked Keywords</p>
               <p className="text-2xl font-bold text-gray-900">
-                {keywords?.length || 0}
+                {keywordItems.length || 0}
               </p>
             </div>
             <Ban className="w-10 h-10 text-gray-500" />
@@ -188,8 +212,8 @@ export default function SecurityPage() {
                 Recent Security Alerts
               </h3>
               <div className="space-y-4">
-                {alerts && alerts.length > 0 ? (
-                  alerts.map((alert: any) => (
+                {alertItems.length > 0 ? (
+                  alertItems.map((alert: any) => (
                     <div
                       key={alert.id}
                       className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50"
@@ -259,8 +283,8 @@ export default function SecurityPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {failedLogins && failedLogins.length > 0 ? (
-                    failedLogins.map((login: any) => (
+                  {failedLoginItems.length > 0 ? (
+                    failedLoginItems.map((login: any) => (
                       <tr key={login.id} className="border-b border-gray-100">
                         <td className="px-4 py-3 text-sm text-gray-900">
                           {login.email || login.phone || "Unknown"}
@@ -275,8 +299,12 @@ export default function SecurityPage() {
                           {new Date(login.last_attempt).toLocaleString()}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <button className="text-red-600 hover:text-red-900">
-                            Block IP
+                          <button
+                            onClick={() => login.ip_address && blockIpMutation.mutate(login.ip_address)}
+                            disabled={!login.ip_address || blockIpMutation.isPending}
+                            className="text-red-600 hover:text-red-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {blockIpMutation.isPending ? "Blocking..." : "Block IP"}
                           </button>
                         </td>
                       </tr>
@@ -341,8 +369,8 @@ export default function SecurityPage() {
 
               {/* Keywords List */}
               <div className="space-y-2">
-                {keywords && keywords.length > 0 ? (
-                  keywords.map((keyword: any) => (
+                {keywordItems.length > 0 ? (
+                  keywordItems.map((keyword: any) => (
                     <div
                       key={keyword.id}
                       className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50"

@@ -169,6 +169,19 @@ export type GroupDto = {
 };
 
 export const api = {
+  platform: {
+    settings: () =>
+      request<{
+        appName: string;
+        supportEmail?: string;
+        maintenanceMode: boolean;
+        maintenanceMessage?: string;
+        registrationEnabled?: boolean;
+        groupCreationEnabled?: boolean;
+        pushNotificationsEnabled?: boolean;
+        emailNotificationsEnabled?: boolean;
+      }>("/platform/settings", { auth: false }),
+  },
   auth: {
     startOtp: (phone: string) =>
       request<{ challengeId: string; expiresInSeconds: number; message: string }>("/auth/otp/start", {
