@@ -230,8 +230,6 @@ def rest_get(table: str, params: Optional[dict[str, Any]] = None, count: bool = 
     headers = dict(db_client.headers)
     if count:
         headers["Prefer"] = "count=exact"
-        headers["Range-Unit"] = "items"
-        headers["Range"] = "0-0"
 
     response = requests.get(
         f"{db_client.base}/{table}",
