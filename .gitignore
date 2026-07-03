@@ -90,3 +90,13 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+
+# Sensitive files and folders
+important/
+project_information/CREDENTIALS_AND_CONFIGURATION.md
+**/all_token
+github_token.txt
+*_token.txt
+*CREDENTIALS*.md
+*firebase*admin*.json
+*service*account*.json

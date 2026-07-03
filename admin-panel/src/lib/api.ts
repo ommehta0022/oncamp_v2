@@ -370,6 +370,126 @@ class ApiClient {
     return response.data;
   }
 
+  // Platform Settings
+  async getPlatformSettings() {
+    const response = await this.client.get("/admin/settings/platform");
+    return response.data;
+  }
+
+  async updatePlatformSettings(data: any) {
+    const response = await this.client.patch("/admin/settings/platform", data);
+    return response.data;
+  }
+
+  // Feature Flags
+  async getFeatureFlags() {
+    const response = await this.client.get("/admin/settings/features");
+    return response.data;
+  }
+
+  async createFeatureFlag(data: any) {
+    const response = await this.client.post("/admin/settings/features", data);
+    return response.data;
+  }
+
+  async updateFeatureFlag(flagKey: string, data: any) {
+    const response = await this.client.patch(`/admin/settings/features/${flagKey}`, data);
+    return response.data;
+  }
+
+  async deleteFeatureFlag(flagKey: string) {
+    const response = await this.client.delete(`/admin/settings/features/${flagKey}`);
+    return response.data;
+  }
+
+  // Maintenance Mode
+  async toggleMaintenanceMode(enabled: boolean, message?: string) {
+    const response = await this.client.post("/admin/settings/maintenance-mode", {
+      enabled,
+      message: message || "System under maintenance. We'll be back soon!"
+    });
+    return response.data;
+  }
+
+  // Security - Blocked IPs
+  async getBlockedIPs() {
+    const response = await this.client.get("/admin/security/blocked-ips");
+    return response.data;
+  }
+
+  async blockIP(ipAddress: string, reason?: string, expiresAt?: string) {
+    const response = await this.client.post("/admin/security/blocked-ips", {
+      ip_address: ipAddress,
+      reason,
+      expires_at: expiresAt
+    });
+    return response.data;
+  }
+
+  async unblockIP(ipAddress: string) {
+    const response = await this.client.delete(`/admin/security/blocked-ips/${ipAddress}`);
+    return response.data;
+  }
+
+  // Security - Rate Limits
+  async getRateLimitsConfig() {
+    const response = await this.client.get("/admin/security/rate-limits");
+    return response.data;
+  }
+
+  async addRateLimit(data: {
+    endpoint_pattern: string;
+    limit_type: string;
+    requests_limit: number;
+    window_seconds: number;
+    action_on_exceed?: string;
+    enabled?: boolean;
+  }) {
+    const response = await this.client.post("/admin/security/rate-limits", data);
+    return response.data;
+  }
+
+  async updateRateLimitConfig(limitId: string, data: any) {
+    const response = await this.client.patch(`/admin/security/rate-limits/${limitId}`, data);
+    return response.data;
+  }
+
+  async deleteRateLimitConfig(limitId: string) {
+    const response = await this.client.delete(`/admin/security/rate-limits/${limitId}`);
+    return response.data;
+  }
+
+  // Security - Blocked Keywords
+  async getBlockedKeywordsAll() {
+    const response = await this.client.get("/admin/security/blocked-keywords");
+    return response.data;
+  }
+
+  async addBlockedKeywordSec(keyword: string, matchType: string, category?: string) {
+    const response = await this.client.post("/admin/security/blocked-keywords", {
+      keyword,
+      match_type: matchType,
+      category: category || "general"
+    });
+    return response.data;
+  }
+
+  async deleteBlockedKeywordSec(keywordId: string) {
+    const response = await this.client.delete(`/admin/security/blocked-keywords/${keywordId}`);
+    return response.data;
+  }
+
+  // Security - Failed Logins
+  async getFailedLoginsAll() {
+    const response = await this.client.get("/admin/security/failed-logins");
+    return response.data;
+  }
+
+  async clearFailedLogins() {
+    const response = await this.client.post("/admin/security/failed-logins/clear");
+    return response.data;
+  }
+
   // Database Operations (Direct Supabase)
   async executeQuery(query: string) {
     const response = await this.client.post("/admin/database/query", { query });

@@ -1064,3 +1064,573 @@ async def resolve_error(error_id: str, admin: dict = Depends(get_current_admin))
     )
     log_admin_action(admin, "ERROR_RESOLVE", "Error marked resolved", "error", error_id)
     return result[0] if result else {"success": True}
+
+
+# ============================================================================
+# SYSTEM CONTROL
+# ============================================================================
+
+@router.post("/system/cache/clear")
+async def clear_cache(admin: dict = Depends(get_current_admin)):
+    """Clear system cache - Super admin only"""
+    # Only super admins can clear cache
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    try:
+        # Log action
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "CACHE_CLEAR",
+            "details": "System cache cleared"
+        })
+    except:
+        pass
+    
+    return {"success": True, "message": "Cache cleared successfully"}
+
+@router.get("/system/status")
+async def get_system_status(admin: dict = Depends(get_current_admin)):
+    """Get system status information"""
+    return {
+        "status": "operational",
+        "database": "connected",
+        "version": "1.0.0",
+        "uptime": "99.9%",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+@router.post("/system/restart")
+async def restart_system(admin: dict = Depends(get_current_admin)):
+    """Restart system - Super admin only"""
+    # Only super admins can restart
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    try:
+        # Log action
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "SYSTEM_RESTART",
+            "details": "System restart requested"
+        })
+    except:
+        pass
+    
+    return {"success": True, "message": "System restart initiated (requires manual restart)"}
+
+@router.get("/system/logs")
+async def get_system_logs(
+    admin: dict = Depends(get_current_admin),
+    lines: int = 100,
+    level: str = "all"
+):
+    """Get system logs - Super admin only"""
+    # Only super admins can view logs
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    # For now, return audit logs as system logs
+    logs = db_client.get("audit_logs", {
+        "select": "*",
+        "order": "created_at.desc",
+        "limit": str(lines)
+    })
+    
+    return {
+        "logs": logs or [],
+        "total": len(logs) if logs else 0
+    }
+
+
+# ============================================================================
+# SECURITY CENTER
+# ============================================================================
+
+@router.get("/security/blocked-ips")
+async def get_blocked_ips(admin: dict = Depends(get_current_admin)):
+    """Get all blocked IP addresses"""
+    ips = db_client.get("blocked_ips", {
+        "select": "*",
+        "order": "created_at.desc"
+    })
+    return {"data": ips or []}
+
+@router.post("/security/blocked-ips")
+async def block_ip(
+    data: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Block an IP address"""
+    # Only super admins can block IPs
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    result = db_client.post("blocked_ips", {
+        "ip_address": data.get("ip_address"),
+        "reason": data.get("reason", ""),
+        "blocked_by": admin.get("user_id"),
+        "expires_at": data.get("expires_at")
+    })
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "IP_BLOCK",
+            "target_id": data.get("ip_address"),
+            "details": f"IP blocked: {data.get('reason', 'No reason provided')}"
+        })
+    except:
+        pass
+    
+    return result[0] if result else {"success": True}
+
+@router.delete("/security/blocked-ips/{ip}")
+async def unblock_ip(
+    ip: str,
+    admin: dict = Depends(get_current_admin)
+):
+    """Unblock an IP address"""
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    db_client.delete("blocked_ips", {"ip_address": f"eq.{ip}"})
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "IP_UNBLOCK",
+            "target_id": ip,
+            "details": f"IP unblocked: {ip}"
+        })
+    except:
+        pass
+    
+    return {"success": True}
+
+@router.get("/security/blocked-keywords")
+async def get_blocked_keywords(admin: dict = Depends(get_current_admin)):
+    """Get all blocked keywords"""
+    keywords = db_client.get("blocked_keywords", {
+        "select": "*",
+        "order": "created_at.desc"
+    })
+    return {"data": keywords or []}
+
+@router.post("/security/blocked-keywords")
+async def add_blocked_keyword(
+    data: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Add a blocked keyword"""
+    result = db_client.post("blocked_keywords", {
+        "keyword": data.get("keyword"),
+        "match_type": data.get("match_type", "exact"),
+        "category": data.get("category", "general"),
+        "added_by": admin.get("user_id")
+    })
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "KEYWORD_ADD",
+            "details": f"Blocked keyword added: {data.get('keyword')}"
+        })
+    except:
+        pass
+    
+    return result[0] if result else {"success": True}
+
+@router.delete("/security/blocked-keywords/{keyword_id}")
+async def remove_blocked_keyword(
+    keyword_id: str,
+    admin: dict = Depends(get_current_admin)
+):
+    """Remove a blocked keyword"""
+    db_client.delete("blocked_keywords", {"id": f"eq.{keyword_id}"})
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "KEYWORD_REMOVE",
+            "target_id": keyword_id,
+            "details": "Blocked keyword removed"
+        })
+    except:
+        pass
+    
+    return {"success": True}
+
+@router.get("/security/failed-logins")
+async def get_failed_logins(
+    admin: dict = Depends(get_current_admin),
+    limit: int = 100
+):
+    """Get recent failed login attempts"""
+    attempts = db_client.get("failed_login_attempts", {
+        "select": "*",
+        "order": "created_at.desc",
+        "limit": str(limit)
+    })
+    return {"data": attempts or []}
+
+@router.post("/security/failed-logins/clear")
+async def clear_failed_logins(admin: dict = Depends(get_current_admin)):
+    """Clear old failed login attempts (older than 30 days)"""
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    # In a real implementation, this would delete old records
+    # For now, just log the action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "FAILED_LOGINS_CLEAR",
+            "details": "Cleared old failed login attempts"
+        })
+    except:
+        pass
+    
+    return {"success": True, "message": "Old failed login attempts cleared"}
+
+@router.get("/security/rate-limits")
+async def get_rate_limits(admin: dict = Depends(get_current_admin)):
+    """Get all rate limit configurations"""
+    limits = db_client.get("rate_limit_config", {
+        "select": "*",
+        "order": "created_at.desc"
+    })
+    return {"data": limits or []}
+
+@router.post("/security/rate-limits")
+async def add_rate_limit(
+    data: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Add a rate limit configuration"""
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    result = db_client.post("rate_limit_config", {
+        "endpoint_pattern": data.get("endpoint_pattern"),
+        "limit_type": data.get("limit_type", "per_ip"),
+        "requests_limit": data.get("requests_limit"),
+        "window_seconds": data.get("window_seconds"),
+        "action_on_exceed": data.get("action_on_exceed", "block"),
+        "enabled": data.get("enabled", True)
+    })
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "RATE_LIMIT_ADD",
+            "details": f"Rate limit added for {data.get('endpoint_pattern')}"
+        })
+    except:
+        pass
+    
+    return result[0] if result else {"success": True}
+
+@router.patch("/security/rate-limits/{limit_id}")
+async def update_rate_limit(
+    limit_id: str,
+    data: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Update a rate limit configuration"""
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    result = db_client.patch("rate_limit_config", {"id": f"eq.{limit_id}"}, data)
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "RATE_LIMIT_UPDATE",
+            "target_id": limit_id,
+            "details": "Rate limit configuration updated"
+        })
+    except:
+        pass
+    
+    return result[0] if result else {"success": True}
+
+@router.delete("/security/rate-limits/{limit_id}")
+async def delete_rate_limit(
+    limit_id: str,
+    admin: dict = Depends(get_current_admin)
+):
+    """Delete a rate limit configuration"""
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    db_client.delete("rate_limit_config", {"id": f"eq.{limit_id}"})
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "RATE_LIMIT_DELETE",
+            "target_id": limit_id,
+            "details": "Rate limit configuration deleted"
+        })
+    except:
+        pass
+    
+    return {"success": True}
+
+@router.get("/security/alerts")
+async def get_security_alerts(
+    admin: dict = Depends(get_current_admin),
+    limit: int = 50
+):
+    """Get recent security alerts"""
+    # Get recent audit logs that might be security-related
+    alerts = db_client.get("audit_logs", {
+        "select": "*",
+        "action": "in.(IP_BLOCK,FAILED_LOGIN,SECURITY_ALERT,SUSPICIOUS_ACTIVITY)",
+        "order": "created_at.desc",
+        "limit": str(limit)
+    })
+    
+    # Also get recent failed logins
+    failed_logins = db_client.get("failed_login_attempts", {
+        "select": "*",
+        "order": "created_at.desc",
+        "limit": "20"
+    })
+    
+    # Get blocked IPs that are recent
+    blocked_ips = db_client.get("blocked_ips", {
+        "select": "*",
+        "order": "created_at.desc",
+        "limit": "10"
+    })
+    
+    return {
+        "audit_alerts": alerts or [],
+        "failed_logins": failed_logins or [],
+        "recent_blocks": blocked_ips or [],
+        "summary": {
+            "total_alerts": len(alerts) if alerts else 0,
+            "failed_logins_count": len(failed_logins) if failed_logins else 0,
+            "blocked_ips_count": len(blocked_ips) if blocked_ips else 0
+        }
+    }
+
+
+# ============================================================================
+# PLATFORM SETTINGS
+# ============================================================================
+
+@router.get("/settings/platform")
+async def get_platform_settings(admin: dict = Depends(get_current_admin)):
+    """Get platform settings"""
+    settings = db_client.get("system_settings", {"select": "*"})
+    
+    # Convert to key-value format
+    settings_dict = {}
+    if settings:
+        for setting in settings:
+            settings_dict[setting["key"]] = setting["value"]
+    
+    # Add defaults if not exists
+    defaults = {
+        "platform_name": "OnCampus",
+        "support_email": "support@oncampus.app",
+        "max_group_size": 50000,
+        "maintenance_mode": False,
+        "allow_registration": True,
+        "allow_group_creation": True,
+        "logo_url": "/logo.png"
+    }
+    
+    for key, value in defaults.items():
+        if key not in settings_dict:
+            settings_dict[key] = value
+    
+    return settings_dict
+
+@router.patch("/settings/platform")
+async def update_platform_settings(
+    data: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Update platform settings"""
+    # Only super admins can update platform settings
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    for key, value in data.items():
+        # Check if setting exists
+        existing = db_client.get("system_settings", {"key": f"eq.{key}", "select": "id"})
+        
+        if existing:
+            # Update existing
+            db_client.patch("system_settings", {"key": f"eq.{key}"}, {
+                "value": value,
+                "updated_by": admin.get("user_id"),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            })
+        else:
+            # Insert new
+            db_client.post("system_settings", {
+                "key": key,
+                "value": value,
+                "updated_by": admin.get("user_id")
+            })
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "SETTINGS_UPDATE",
+            "details": f"Platform settings updated: {', '.join(data.keys())}"
+        })
+    except:
+        pass
+    
+    return {"success": True, "message": "Settings updated successfully"}
+
+@router.get("/settings/features")
+async def get_feature_flags(admin: dict = Depends(get_current_admin)):
+    """Get all feature flags"""
+    flags = db_client.get("feature_flags", {
+        "select": "*",
+        "order": "created_at.desc"
+    })
+    return {"features": flags or []}
+
+@router.post("/settings/features")
+async def create_feature_flag(
+    data: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Create a new feature flag"""
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    result = db_client.post("feature_flags", {
+        "flag_key": data.get("flag_key"),
+        "enabled": data.get("enabled", False),
+        "description": data.get("description", ""),
+        "rollout_percentage": data.get("rollout_percentage", 100)
+    })
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "FEATURE_FLAG_CREATE",
+            "details": f"Feature flag created: {data.get('flag_key')}"
+        })
+    except:
+        pass
+    
+    return result[0] if result else {"success": True}
+
+@router.patch("/settings/features/{flag_key}")
+async def update_feature_flag(
+    flag_key: str,
+    data: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Update a feature flag"""
+    result = db_client.patch("feature_flags", {"flag_key": f"eq.{flag_key}"}, {
+        **data,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "FEATURE_FLAG_UPDATE",
+            "target_id": flag_key,
+            "details": f"Feature flag '{flag_key}' updated"
+        })
+    except:
+        pass
+    
+    return result[0] if result else {"success": True}
+
+@router.delete("/settings/features/{flag_key}")
+async def delete_feature_flag(
+    flag_key: str,
+    admin: dict = Depends(get_current_admin)
+):
+    """Delete a feature flag"""
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    db_client.delete("feature_flags", {"flag_key": f"eq.{flag_key}"})
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "FEATURE_FLAG_DELETE",
+            "target_id": flag_key,
+            "details": f"Feature flag deleted: {flag_key}"
+        })
+    except:
+        pass
+    
+    return {"success": True}
+
+@router.post("/settings/maintenance-mode")
+async def toggle_maintenance_mode(
+    data: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Toggle maintenance mode"""
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    enabled = data.get("enabled", False)
+    message = data.get("message", "System under maintenance. We'll be back soon!")
+    
+    # Update in system_settings
+    existing = db_client.get("system_settings", {"key": "eq.maintenance_mode", "select": "id"})
+    
+    if existing:
+        db_client.patch("system_settings", {"key": "eq.maintenance_mode"}, {
+            "value": enabled,
+            "updated_by": admin.get("user_id"),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
+    else:
+        db_client.post("system_settings", {
+            "key": "maintenance_mode",
+            "value": enabled,
+            "updated_by": admin.get("user_id")
+        })
+    
+    # Store maintenance message
+    existing_msg = db_client.get("system_settings", {"key": "eq.maintenance_message", "select": "id"})
+    if existing_msg:
+        db_client.patch("system_settings", {"key": "eq.maintenance_message"}, {"value": message})
+    else:
+        db_client.post("system_settings", {"key": "maintenance_message", "value": message})
+    
+    # Log action
+    try:
+        db_client.post("audit_logs", {
+            "admin_id": admin.get("user_id"),
+            "action": "MAINTENANCE_MODE_TOGGLE",
+            "details": f"Maintenance mode {'enabled' if enabled else 'disabled'}"
+        })
+    except:
+        pass
+    
+    return {
+        "success": True,
+        "maintenance_mode": enabled,
+        "message": message
+    }

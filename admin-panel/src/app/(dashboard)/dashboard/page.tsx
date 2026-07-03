@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import {
   Users,
@@ -10,6 +11,10 @@ import {
   TrendingUp,
   TrendingDown,
   Activity,
+  AlertCircle,
+  Trash2,
+  Download,
+  FileText,
 } from "lucide-react";
 import { Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -36,10 +41,12 @@ interface GrowthData {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [growthData, setGrowthData] = useState<GrowthData[]>([]);
   const [systemStatus, setSystemStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -62,6 +69,77 @@ export default function DashboardPage() {
 
     fetchDashboardData();
   }, []);
+
+  // Quick Action Handlers
+  const handleReviewReports = () => {
+    router.push("/dashboard/moderation");
+  };
+
+  const handleViewErrors = () => {
+    router.push("/dashboard/errors");
+  };
+
+  const handleClearCache = async () => {
+    if (!confirm("Are you sure you want to clear the cache? This will temporarily slow down the system.")) {
+      return;
+    }
+
+    try {
+      setActionLoading("cache");
+      await api.clearCache();
+      alert("✅ Cache cleared successfully!");
+    } catch (error: any) {
+      console.error("Clear cache error:", error);
+      alert(`❌ Failed to clear cache: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleExportData = async () => {
+    try {
+      setActionLoading("export");
+      
+      // Gather all data
+      const [users, groups, reports, errors, auditLogs] = await Promise.all([
+        api.getUsers({ limit: 1000 }),
+        api.getGroups({ limit: 1000 }),
+        api.getReports({ limit: 1000 }),
+        api.getErrors({ limit: 1000 }),
+        api.getAuditLogs({ limit: 1000 }),
+      ]);
+
+      // Create export data
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        stats: stats,
+        users: users.data || users,
+        groups: groups.data || groups,
+        reports: reports.data || reports,
+        errors: errors.data || errors,
+        auditLogs: auditLogs.data || auditLogs,
+      };
+
+      // Create and download JSON file
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `oncampus-export-${new Date().toISOString().split("T")[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      alert("✅ Data exported successfully!");
+    } catch (error: any) {
+      console.error("Export error:", error);
+      alert(`❌ Failed to export data: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -223,17 +301,53 @@ export default function DashboardPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
           <div className="grid grid-cols-2 gap-3">
-            <button className="px-4 py-3 text-sm font-medium text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
+            <button
+              onClick={handleReviewReports}
+              className="px-4 py-3 text-sm font-medium text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <FileText className="w-4 h-4" />
               Review Reports
             </button>
-            <button className="px-4 py-3 text-sm font-medium text-purple-600 border border-purple-600 rounded-lg hover:bg-purple-50 transition-colors">
+            <button
+              onClick={handleViewErrors}
+              className="px-4 py-3 text-sm font-medium text-purple-600 border border-purple-600 rounded-lg hover:bg-purple-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <AlertCircle className="w-4 h-4" />
               View Errors
             </button>
-            <button className="px-4 py-3 text-sm font-medium text-orange-600 border border-orange-600 rounded-lg hover:bg-orange-50 transition-colors">
-              Clear Cache
+            <button
+              onClick={handleClearCache}
+              disabled={actionLoading === "cache"}
+              className="px-4 py-3 text-sm font-medium text-orange-600 border border-orange-600 rounded-lg hover:bg-orange-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {actionLoading === "cache" ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-600"></div>
+                  Clearing...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  Clear Cache
+                </>
+              )}
             </button>
-            <button className="px-4 py-3 text-sm font-medium text-green-600 border border-green-600 rounded-lg hover:bg-green-50 transition-colors">
-              Export Data
+            <button
+              onClick={handleExportData}
+              disabled={actionLoading === "export"}
+              className="px-4 py-3 text-sm font-medium text-green-600 border border-green-600 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {actionLoading === "export" ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Export Data
+                </>
+              )}
             </button>
           </div>
         </div>
