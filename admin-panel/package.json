@@ -1,0 +1,44 @@
+{
+  "name": "oncampus-super-admin",
+  "version": "1.0.0",
+  "description": "OnCampus Super Admin Panel - Enterprise Level Control Center",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "@tanstack/react-query": "^5.28.0",
+    "@tanstack/react-table": "^8.13.0",
+    "axios": "^1.6.7",
+    "zustand": "^4.5.2",
+    "recharts": "^2.12.0",
+    "date-fns": "^3.3.1",
+    "clsx": "^2.1.0",
+    "tailwind-merge": "^2.2.1",
+    "lucide-react": "^0.344.0",
+    "react-hook-form": "^7.51.0",
+    "zod": "^3.22.4",
+    "@hookform/resolvers": "^3.3.4",
+    "sonner": "^1.4.3",
+    "cmdk": "^1.0.0",
+    "jwt-decode": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.25",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "typescript": "^5.4.2",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8.4.35",
+    "autoprefixer": "^10.4.18",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.0"
+  }
+}
