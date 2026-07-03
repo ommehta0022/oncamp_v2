@@ -9,24 +9,41 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import Avatar from "@/src/components/Avatar";
 import EmptyState from "@/src/components/EmptyState";
-import { postRequests, PostRequest } from "@/src/data/mock";
 import { api } from "@/src/lib/api";
 
 const FILTERS = ["Pending", "Approved", "Rejected", "All"] as const;
+
+type PostRequest = {
+  id: string;
+  title: string;
+  description: string;
+  posterUrl?: string;
+  requesterName: string;
+  requesterAvatar?: string;
+  targetGroupId: string;
+  targetGroupName: string;
+  category: string;
+  publishDate: string;
+  expiryDate: string;
+  contactPhone: string;
+  contactEmail: string;
+  status: "pending" | "approved" | "rejected" | "needs_changes" | "scheduled" | "published" | "expired";
+  createdAt: string;
+};
 
 export default function PostRequestsInbox() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [filter, setFilter] = useState<typeof FILTERS[number]>("Pending");
-  const [items, setItems] = useState<PostRequest[]>(postRequests);
+  const [items, setItems] = useState<PostRequest[]>([]);
 
   const loadRequests = useCallback(async () => {
     try {
       const response = await api.groups.postRequests(id!);
-      if (Array.isArray(response) && response.length > 0) setItems(response.map(toPostRequest));
+      if (Array.isArray(response)) setItems(response.map(toPostRequest));
     } catch {
-      setItems(postRequests);
+      setItems([]);
     }
   }, [id]);
 
@@ -78,7 +95,7 @@ export default function PostRequestsInbox() {
                 <Avatar uri={r.requesterAvatar} name={r.requesterName} size={40} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{r.requesterName}</Text>
-                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>Requested {r.createdAt} · to {r.targetGroupName}</Text>
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>Requested {r.createdAt} - to {r.targetGroupName}</Text>
                 </View>
                 <StatusBadge status={r.status} />
               </View>

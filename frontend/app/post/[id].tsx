@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -8,25 +8,45 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import Header from "@/src/components/Header";
-import { feed, users, currentUser } from "@/src/data/mock";
+import EmptyState from "@/src/components/EmptyState";
+import { useRole } from "@/src/context/RoleProvider";
+import { api } from "@/src/lib/api";
 
 export default function PostDetail() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { user } = useRole();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const post = feed.find((p) => p.id === id) || feed[0];
+  const [post, setPost] = useState<any | null>(null);
   const [text, setText] = useState("");
-  const [comments, setComments] = useState([
-    { id: "c1", user: users[1], content: "This is incredible. Congrats team!", time: "1h", likes: 12 },
-    { id: "c2", user: users[3], content: "Where can we register for the demo?", time: "45m", likes: 4 },
-    { id: "c3", user: users[6], content: "Sign-ups open Wednesday — I'll drop a link here.", time: "30m", likes: 8 },
-  ]);
 
-  const submit = () => {
-    if (!text.trim()) return;
-    setComments((c) => [...c, { id: "c" + Date.now(), user: currentUser, content: text.trim(), time: "now", likes: 0 }]);
+  const load = useCallback(() => {
+    if (!id) return;
+    api.posts.get(id).then(setPost).catch(() => setPost(null));
+  }, [id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const submit = async () => {
+    if (!id || !text.trim()) return;
+    const content = text.trim();
     setText("");
+    await api.posts.comment(id, content).catch(() => {});
+    load();
   };
+
+  if (!post) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+        <Header title="Post" onBack={() => router.back()} />
+        <EmptyState icon="document-text-outline" title="Post not found" message="This post is not available in the database." />
+      </SafeAreaView>
+    );
+  }
+
+  const comments = post.comments || [];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
@@ -35,38 +55,36 @@ export default function PostDetail() {
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={[styles.postCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-              <Avatar uri={post.author.avatar} name={post.author.name} size={48} verified={post.author.verified} />
+              <Avatar uri={post.author?.avatarUrl} name={post.author?.name || "User"} size={48} verified={post.author?.verified} />
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{post.author.name}</Text>
-                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{post.author.institution} · {post.createdAt}</Text>
+                <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{post.author?.name || "User"}</Text>
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{post.group?.name || "Group"} - {post.createdAt}</Text>
               </View>
             </View>
             <Text style={{ color: colors.onSurface, fontSize: font.base, lineHeight: 22, marginTop: spacing.md }}>{post.content}</Text>
-            {post.image && <Image source={{ uri: post.image }} style={styles.img} contentFit="cover" />}
+            {post.mediaUrl && <Image source={{ uri: post.mediaUrl }} style={styles.img} contentFit="cover" />}
             <View style={[styles.actions, { borderTopColor: colors.border }]}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                 <Ionicons name="heart-outline" size={20} color={colors.onSurfaceTertiary} />
-                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{post.likes} likes</Text>
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{post.counts?.reactions || 0} likes</Text>
               </View>
-              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{comments.length} comments · {post.reposts} reposts</Text>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{comments.length} comments</Text>
             </View>
           </View>
 
           <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "500", paddingHorizontal: spacing.lg, marginTop: spacing.lg, textTransform: "uppercase", letterSpacing: 0.5 }}>Comments</Text>
 
-          {comments.map((c) => (
-            <View key={c.id} style={styles.comment}>
-              <Avatar uri={c.user.avatar} name={c.user.name} size={36} />
+          {comments.length === 0 ? (
+            <EmptyState icon="chatbubble-outline" title="No comments yet" message="Be the first to comment on this real post." />
+          ) : comments.map((comment: any) => (
+            <View key={comment.id} style={styles.comment}>
+              <Avatar uri={comment.user?.avatarUrl} name={comment.user?.name || "Member"} size={36} />
               <View style={{ flex: 1 }}>
                 <View style={[styles.commentBubble, { backgroundColor: colors.surfaceTertiary }]}>
-                  <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>{c.user.name}</Text>
-                  <Text style={{ color: colors.onSurface, fontSize: font.base, marginTop: 2, lineHeight: 20 }}>{c.content}</Text>
+                  <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>{comment.user?.name || "Member"}</Text>
+                  <Text style={{ color: colors.onSurface, fontSize: font.base, marginTop: 2, lineHeight: 20 }}>{comment.content}</Text>
                 </View>
-                <View style={{ flexDirection: "row", gap: spacing.lg, marginTop: 6, paddingLeft: spacing.sm }}>
-                  <Text style={{ color: colors.muted, fontSize: font.sm }}>{c.time}</Text>
-                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "500" }}>Like ({c.likes})</Text>
-                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "500" }}>Reply</Text>
-                </View>
+                <Text style={{ color: colors.muted, fontSize: font.sm, marginTop: 6, paddingLeft: spacing.sm }}>{comment.createdAt}</Text>
               </View>
             </View>
           ))}
@@ -74,7 +92,7 @@ export default function PostDetail() {
         </ScrollView>
 
         <View style={[styles.composer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
-          <Avatar uri={currentUser.avatar} name={currentUser.name} size={36} />
+          <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={36} />
           <View style={[styles.input, { backgroundColor: colors.surfaceTertiary }]}>
             <TextInput
               value={text}

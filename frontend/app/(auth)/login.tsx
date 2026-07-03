@@ -8,7 +8,6 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import { api } from "@/src/lib/api";
-import { startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
 
 export default function Login() {
   const { colors } = useTheme();
@@ -24,12 +23,14 @@ export default function Login() {
     setError("");
     const fullPhone = `${cc}${phone.replace(/\D/g, "")}`;
     try {
-      // 1. Get challengeId from backend
-      const response = await api.auth.startOtp(fullPhone);
-      // 2. Start Firebase phone auth (sends actual SMS)
-      await startFirebasePhoneAuth(fullPhone);
-      // 3. Navigate with both phone and challengeId
-      router.push({ pathname: "/(auth)/otp", params: { phone: fullPhone, challengeId: response.challengeId } });
+      const otp = await api.auth.startOtp(fullPhone);
+      router.push({
+        pathname: "/(auth)/otp",
+        params: {
+          phone: fullPhone,
+          challengeId: otp.challengeId || "",
+        },
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send OTP. Please try again.");
     } finally {
@@ -56,16 +57,15 @@ export default function Login() {
           <View style={{ marginTop: spacing["2xl"] }}>
             <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Phone number</Text>
             <View style={[styles.phoneRow, { borderColor: colors.borderStrong, backgroundColor: colors.surfaceSecondary }]}>
-              <Pressable style={styles.cc}>
+              <View style={styles.cc}>
                 <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>{cc}</Text>
-                <Ionicons name="chevron-down" size={16} color={colors.onSurfaceTertiary} />
-              </Pressable>
+              </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <TextInput
                 testID="phone-input"
                 value={phone}
                 onChangeText={setPhone}
-                placeholder="98765 43210"
+                placeholder="Phone number"
                 placeholderTextColor={colors.muted}
                 keyboardType="phone-pad"
                 style={{ flex: 1, color: colors.onSurface, fontSize: font.lg, paddingHorizontal: spacing.md }}
@@ -89,20 +89,6 @@ export default function Login() {
               {error}
             </Text>
           )}
-
-          <View style={styles.divider2}>
-            <View style={[styles.line, { backgroundColor: colors.border }]} />
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>OR</Text>
-            <View style={[styles.line, { backgroundColor: colors.border }]} />
-          </View>
-
-          <Button
-            label="Continue with Institution SSO"
-            fullWidth
-            size="lg"
-            variant="outline"
-            leftIcon={<Ionicons name="school-outline" size={18} color={colors.onSurface} />}
-          />
 
           <Pressable onPress={() => router.push("/(auth)/signup")} style={{ marginTop: spacing.xl, alignItems: "center" }}>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>
@@ -128,9 +114,4 @@ const styles = StyleSheet.create({
   },
   cc: { flexDirection: "row", alignItems: "center", gap: 4 },
   divider: { width: 1, height: 24, marginHorizontal: spacing.md },
-  divider2: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    marginTop: spacing["2xl"], marginBottom: spacing.xl,
-  },
-  line: { flex: 1, height: 1 },
 });

@@ -7,7 +7,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
-import { onboardingSlides } from "@/src/data/mock";
+import { onboardingSlides } from "@/src/data/onboarding";
 
 export default function Welcome() {
   const { width, height } = useWindowDimensions();

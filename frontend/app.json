@@ -33,13 +33,20 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow OnCampus to access your photos to share images and update your profile.",
+          "cameraPermission": "Allow OnCampus to access your camera to take photos."
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "https://api-production-4a48d.up.railway.app/v1"
+      "apiBaseUrl": "https://perpetual-motivation-production-be1a.up.railway.app/v1"
     }
   }
 }

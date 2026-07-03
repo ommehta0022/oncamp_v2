@@ -100,3 +100,32 @@ github_token.txt
 *CREDENTIALS*.md
 *firebase*admin*.json
 *service*account*.json
+
+# Build outputs and caches
+.next/
+admin-panel/.next/
+*.pack
+*.pack.gz
+
+# Documentation and temporary files (root level only)
+/*.md
+!README.md
+!CHANGELOG.md
+/*.txt
+*.sql
+*.ps1
+*.sh
+!package.json
+!package-lock.json
+*.bak
+verify_*.py
+fix_*.py
+
+# Test and deployment docs
+frontend/test-features.md
+frontend/INSTALL_AND_INTEGRATE.md
+admin-panel/*.md
+!admin-panel/README.md
+admin-panel/*.sql
+admin-panel/deploy.*
+admin-panel/verify-*.ps1

@@ -5,6 +5,7 @@ import { ActivityIndicator, LogBox, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ActionSheetProvider } from "@expo/react-native-action-sheet";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider, useTheme } from "@/src/theme/ThemeProvider";
@@ -93,11 +94,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider>
-          <RoleProvider>
-            <ThemedStack />
-          </RoleProvider>
-        </ThemeProvider>
+        <ActionSheetProvider>
+          <ThemeProvider>
+            <RoleProvider>
+              <ThemedStack />
+            </RoleProvider>
+          </ThemeProvider>
+        </ActionSheetProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

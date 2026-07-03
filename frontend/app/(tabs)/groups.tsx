@@ -6,7 +6,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
-import { groups, Group } from "@/src/data/mock";
+import EmptyState from "@/src/components/EmptyState";
 import { useRole } from "@/src/context/RoleProvider";
 import { api, GroupDto } from "@/src/lib/api";
 
@@ -16,6 +16,25 @@ type RowItem =
   | { type: "section"; id: string; label: string; count: number }
   | { type: "group"; id: string; group: Group };
 
+type Group = {
+  id: string;
+  name: string;
+  description: string;
+  image?: string;
+  institution: string;
+  city: string;
+  category: string;
+  visibility: "public" | "private";
+  members: number;
+  unread?: number;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  pinned?: boolean;
+  muted?: boolean;
+  verified?: boolean;
+  role?: "owner" | "admin" | "moderator" | "member";
+};
+
 export default function Groups() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -24,14 +43,14 @@ export default function Groups() {
   const [filter, setFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [items, setItems] = useState<Group[]>(groups);
+  const [items, setItems] = useState<Group[]>([]);
 
   const loadGroups = useCallback(async () => {
     try {
       const response = await api.groups.listMine();
-      if (response.length > 0) setItems(response.map(toGroup));
+      setItems(response.map(toGroup));
     } catch {
-      setItems(groups);
+      setItems([]);
     }
   }, []);
 
@@ -75,7 +94,7 @@ export default function Groups() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
             <View style={[styles.livedot, { backgroundColor: totalUnread > 0 ? colors.brandSecondary : colors.muted }]} />
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>
-              {items.length} joined · {totalUnread} unread
+              {items.length} joined - {totalUnread} unread
             </Text>
           </View>
         </View>
@@ -163,12 +182,13 @@ export default function Groups() {
           return <GroupRow group={item.group} onPress={() => router.push(`/group/${item.group.id}`)} />;
         }}
         ListEmptyComponent={
-          <View style={{ padding: spacing["2xl"], alignItems: "center" }}>
-            <Ionicons name="folder-open-outline" size={36} color={colors.muted} />
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.md }}>
-              No groups match this filter
-            </Text>
-          </View>
+          <EmptyState
+            icon="folder-open-outline"
+            title={items.length === 0 ? "No joined groups yet" : "No groups match this filter"}
+            message={items.length === 0 ? "Join a real campus group from Discover to start chatting." : undefined}
+            actionLabel={items.length === 0 ? "Discover groups" : undefined}
+            onAction={items.length === 0 ? () => router.push("/(tabs)/discover") : undefined}
+          />
         }
       />
 
@@ -195,15 +215,12 @@ function toGroup(group: GroupDto): Group {
     id: group.id,
     name: group.name,
     description: group.description || "",
-    image: group.avatarUrl || group.image || "https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=800&q=80",
+    image: group.avatarUrl || group.image,
     institution,
     city: group.city || "",
     category: group.category,
     visibility: group.visibility,
     members: group.memberCount || 0,
-    memberLimit: 50000,
-    createdBy: "",
-    createdAt: "",
     unread: group.unread || 0,
     lastMessage: group.lastMessage || group.description || "",
     lastMessageAt: group.lastMessageAt || "",

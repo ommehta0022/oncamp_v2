@@ -31,13 +31,13 @@ export default function Signup() {
           </Text>
 
           <Field label="Full name" value={name} onChange={setName} placeholder="Your name" icon="person-outline" />
-          <Field label="Email (student ID email)" value={email} onChange={setEmail} placeholder="you@iitb.ac.in" icon="mail-outline" keyboardType="email-address" />
-          <Field label="Phone number" value={phone} onChange={setPhone} placeholder="+91 98765 43210" icon="call-outline" keyboardType="phone-pad" />
+          <Field label="Email (student ID email)" value={email} onChange={setEmail} placeholder="you@institution.edu" icon="mail-outline" keyboardType="email-address" />
+          <Field label="Phone number" value={phone} onChange={setPhone} placeholder="Phone number" icon="call-outline" keyboardType="phone-pad" />
 
           <View style={{ marginTop: spacing.xl }}>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, lineHeight: 18 }}>
               By continuing you agree to our <Text style={{ color: colors.brandPrimary, fontWeight: "500" }}>Terms</Text> and{" "}
-              <Text style={{ color: colors.brandPrimary, fontWeight: "500" }}>Privacy Policy</Text>. OnCampus is group-only —
+              <Text style={{ color: colors.brandPrimary, fontWeight: "500" }}>Privacy Policy</Text>. OnCampus is group-only -
               there is no private messaging.
             </Text>
           </View>

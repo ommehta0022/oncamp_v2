@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -6,56 +6,66 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
+import { api } from "@/src/lib/api";
+
+const defaults = {
+  wifiDownload: "Photos",
+  mobileDownload: "Never",
+  roamingDownload: "Never",
+  downloadQuality: "Auto",
+};
+
+const options = {
+  wifiDownload: ["Never", "Photos", "Photos, videos"],
+  mobileDownload: ["Never", "Photos", "Photos, videos"],
+  roamingDownload: ["Never", "Photos"],
+  downloadQuality: ["Auto", "Data saver", "High quality"],
+};
 
 export default function Storage() {
   const { colors } = useTheme();
   const router = useRouter();
+  const [prefs, setPrefs] = useState(defaults);
+
+  useEffect(() => {
+    api.users.settings()
+      .then((row: any) => setPrefs({ ...defaults, ...(row.preferences?.storage || {}) }))
+      .catch(() => setPrefs(defaults));
+  }, []);
+
+  const cycle = (key: keyof typeof defaults) => {
+    const list = options[key];
+    const current = list.indexOf(prefs[key]);
+    const next = { ...prefs, [key]: list[(current + 1) % list.length] };
+    setPrefs(next);
+    api.users.updateSettings({ preferences: { storage: next } }).catch(() => {});
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
       <Header title="Storage & data" onBack={() => router.back()} />
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={[styles.summaryCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "500", textTransform: "uppercase", letterSpacing: 0.5 }}>Cache usage</Text>
-          <Text style={{ color: colors.onSurface, fontSize: 32, fontWeight: "500", marginTop: spacing.sm }}>142.8 MB</Text>
-          <View style={styles.bar}>
-            <View style={{ flex: 3, backgroundColor: colors.brandPrimary, borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }} />
-            <View style={{ flex: 2, backgroundColor: colors.brandSecondary }} />
-            <View style={{ flex: 1, backgroundColor: colors.info, borderTopRightRadius: 4, borderBottomRightRadius: 4 }} />
-          </View>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: spacing.md }}>
-            <Legend color={colors.brandPrimary} label="Media" value="72 MB" />
-            <Legend color={colors.brandSecondary} label="Docs" value="48 MB" />
-            <Legend color={colors.info} label="Other" value="22 MB" />
-          </View>
+          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "500", textTransform: "uppercase", letterSpacing: 0.5 }}>Device cache</Text>
+          <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500", marginTop: spacing.sm }}>Not tracked by server</Text>
+          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4, lineHeight: 20 }}>
+            Download preferences below are saved to your account.
+          </Text>
         </View>
 
         <Section title="Auto-download">
-          <SettingsRow icon="wifi-outline" title="On Wi-Fi" value="Photos, Videos" onPress={() => {}} />
+          <SettingsRow icon="wifi-outline" title="On Wi-Fi" value={prefs.wifiDownload} onPress={() => cycle("wifiDownload")} />
           <Divider />
-          <SettingsRow icon="cellular-outline" title="On mobile data" value="Photos only" onPress={() => {}} />
+          <SettingsRow icon="cellular-outline" title="On mobile data" value={prefs.mobileDownload} onPress={() => cycle("mobileDownload")} />
           <Divider />
-          <SettingsRow icon="cloud-outline" title="When roaming" value="Never" onPress={() => {}} />
+          <SettingsRow icon="cloud-outline" title="When roaming" value={prefs.roamingDownload} onPress={() => cycle("roamingDownload")} />
         </Section>
 
         <Section title="Manage">
-          <SettingsRow icon="trash-outline" title="Clear cache" subtitle="Free up 142.8 MB" onPress={() => {}} />
-          <Divider />
-          <SettingsRow icon="download-outline" title="Download quality" value="Auto" onPress={() => {}} />
+          <SettingsRow icon="download-outline" title="Download quality" value={prefs.downloadQuality} onPress={() => cycle("downloadQuality")} />
         </Section>
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function Legend({ color, label, value }: { color: string; label: string; value: string }) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} />
-      <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>
-      <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{value}</Text>
-    </View>
   );
 }
 
@@ -71,5 +81,4 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Divider() { const { colors } = useTheme(); return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 68 }} />; }
 const styles = StyleSheet.create({
   summaryCard: { margin: spacing.lg, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1 },
-  bar: { height: 8, borderRadius: 4, flexDirection: "row", marginTop: spacing.md, overflow: "hidden" },
 });

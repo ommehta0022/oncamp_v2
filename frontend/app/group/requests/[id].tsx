@@ -8,7 +8,6 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import Header from "@/src/components/Header";
 import EmptyState from "@/src/components/EmptyState";
-import { joinRequests } from "@/src/data/mock";
 import { api } from "@/src/lib/api";
 
 function normalizeJoinRequest(row: any) {
@@ -26,7 +25,7 @@ export default function Requests() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [items, setItems] = useState(joinRequests);
+  const [items, setItems] = useState<any[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -34,7 +33,7 @@ export default function Requests() {
       .then((rows: any) => {
         if (Array.isArray(rows)) setItems(rows.map(normalizeJoinRequest));
       })
-      .catch(() => {});
+      .catch(() => setItems([]));
   }, [id]);
 
   const handleAction = async (requestId: string, action: "approve" | "reject") => {

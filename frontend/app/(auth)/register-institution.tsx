@@ -44,7 +44,7 @@ export default function RegisterInstitution() {
         designation: form.designation,
       });
     } catch {
-      // Keep the flow reviewable in browser when API credentials are not configured yet.
+      // Keep the flow reviewable in browser during local development.
     } finally {
       setSubmitting(false);
       router.replace("/institution/dashboard");
@@ -81,7 +81,7 @@ export default function RegisterInstitution() {
                 We&apos;ll use this to set up your official page and verified badge.
               </Text>
 
-              <Field label="Institution name" value={form.name} onChange={(v) => set("name", v)} placeholder="e.g. Indian Institute of Technology, Bombay" />
+              <Field label="Institution name" value={form.name} onChange={(v) => set("name", v)} placeholder="Your institution name" />
 
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>Type</Text>
               <View style={styles.chips}>
@@ -102,9 +102,9 @@ export default function RegisterInstitution() {
                 ))}
               </View>
 
-              <Field label="City" value={form.city} onChange={(v) => set("city", v)} placeholder="Mumbai" />
-              <Field label="State" value={form.state} onChange={(v) => set("state", v)} placeholder="Maharashtra" />
-              <Field label="Country" value={form.country} onChange={(v) => set("country", v)} placeholder="India" />
+              <Field label="City" value={form.city} onChange={(v) => set("city", v)} placeholder="City" />
+              <Field label="State" value={form.state} onChange={(v) => set("state", v)} placeholder="State or region" />
+              <Field label="Country" value={form.country} onChange={(v) => set("country", v)} placeholder="Country" />
             </>
           )}
 
@@ -118,11 +118,11 @@ export default function RegisterInstitution() {
                 We need to verify you&apos;re authorized to represent this institution.
               </Text>
 
-              <Field label="Official email (domain)" value={form.email} onChange={(v) => set("email", v)} placeholder="admissions@iitb.ac.in" keyboardType="email-address" />
-              <Field label="Official phone" value={form.phone} onChange={(v) => set("phone", v)} placeholder="+91 22 1234 5678" keyboardType="phone-pad" />
+              <Field label="Official email (domain)" value={form.email} onChange={(v) => set("email", v)} placeholder="admin@institution.edu" keyboardType="email-address" />
+              <Field label="Official phone" value={form.phone} onChange={(v) => set("phone", v)} placeholder="Official phone number" keyboardType="phone-pad" />
               <Field label="Admin name" value={form.adminName} onChange={(v) => set("adminName", v)} placeholder="Your full name" />
-              <Field label="Designation" value={form.designation} onChange={(v) => set("designation", v)} placeholder="e.g. Dean of Student Affairs" />
-              <Field label="Website" value={form.website} onChange={(v) => set("website", v)} placeholder="https://iitb.ac.in" keyboardType="default" />
+              <Field label="Designation" value={form.designation} onChange={(v) => set("designation", v)} placeholder="Your official role" />
+              <Field label="Website" value={form.website} onChange={(v) => set("website", v)} placeholder="https://institution.edu" keyboardType="default" />
             </>
           )}
 

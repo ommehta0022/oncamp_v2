@@ -2,20 +2,21 @@ import React from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
 import Avatar from "@/src/components/Avatar";
-import { currentUser } from "@/src/data/mock";
 import { useRole, ROLE_LABELS, Role } from "@/src/context/RoleProvider";
 import { clearSession } from "@/src/lib/api";
 
 export default function Settings() {
   const { colors, mode } = useTheme();
-  const { role, setRole } = useRole();
+  const { role, setRole, user } = useRole();
   const router = useRouter();
+  const version = Constants.expoConfig?.version || "1.0.0";
 
   const logout = async () => {
     await clearSession();
@@ -30,10 +31,12 @@ export default function Settings() {
           onPress={() => router.push("/settings/edit-profile")}
           style={[styles.profileCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
         >
-          <Avatar uri={currentUser.avatar} name={currentUser.name} size={56} verified={currentUser.verified} />
+          <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={56} verified={user?.verified} />
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>{currentUser.name}</Text>
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{currentUser.bio}</Text>
+            <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>{user?.name || "Complete your profile"}</Text>
+            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>
+              {user?.bio || user?.course || "Complete your profile"}
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
         </Pressable>
@@ -41,36 +44,47 @@ export default function Settings() {
         <Section title="Account">
           <SettingsRow icon="person-outline" title="Edit profile" onPress={() => router.push("/settings/edit-profile")} />
           <Divider />
-          <SettingsRow icon="lock-closed-outline" title="Privacy" onPress={() => router.push("/settings/privacy")} />
+          <SettingsRow icon="lock-closed-outline" title="Privacy & safety" onPress={() => router.push("/settings/privacy")} />
           <Divider />
           <SettingsRow icon="shield-checkmark-outline" title="Blocked users" onPress={() => router.push("/settings/blocked")} />
           <Divider />
-          <SettingsRow icon="key-outline" title="Security" onPress={() => {}} />
+          <SettingsRow 
+            icon="person-add-outline" 
+            title="Account type" 
+            value={role === "institution_admin" ? "Institution Admin" : "User"}
+            disabled 
+          />
         </Section>
 
         <Section title="Preferences">
           <SettingsRow
             icon="moon-outline"
-            title="Theme"
-            value={mode === "system" ? "System" : mode === "dark" ? "Dark" : "Light"}
+            title="Appearance"
+            value={mode === "system" ? "Auto" : mode === "dark" ? "Dark" : "Light"}
             onPress={() => router.push("/settings/theme")}
           />
           <Divider />
           <SettingsRow icon="notifications-outline" title="Notifications" onPress={() => router.push("/settings/notifications")} />
           <Divider />
-          <SettingsRow icon="language-outline" title="Language" value="English" onPress={() => router.push("/settings/language")} />
-          <Divider />
           <SettingsRow icon="cloud-download-outline" title="Storage & data" onPress={() => router.push("/settings/storage")} />
+          <Divider />
+          <SettingsRow icon="language-outline" title="Language" value="English" onPress={() => router.push("/settings/language")} />
         </Section>
 
         <Section title="Community">
-          <SettingsRow icon="gift-outline" title="Invite friends" onPress={() => router.push("/settings/invite")} />
-          <Divider />
           <SettingsRow icon="bookmark-outline" title="Saved posts" onPress={() => router.push("/saved")} />
           <Divider />
-          <SettingsRow icon="help-circle-outline" title="Help & support" onPress={() => router.push("/settings/help")} />
+          <SettingsRow icon="time-outline" title="Activity log" onPress={() => router.push("/settings/activity")} />
           <Divider />
-          <SettingsRow icon="information-circle-outline" title="About" onPress={() => router.push("/settings/about")} />
+          <SettingsRow icon="download-outline" title="Download your data" onPress={() => router.push("/settings/data-export")} />
+        </Section>
+
+        <Section title="Support">
+          <SettingsRow icon="help-circle-outline" title="Help center" onPress={() => router.push("/settings/help")} />
+          <Divider />
+          <SettingsRow icon="document-text-outline" title="Terms & policies" onPress={() => router.push("/settings/about")} />
+          <Divider />
+          <SettingsRow icon="bug-outline" title="Report a problem" onPress={() => router.push("/settings/report")} />
         </Section>
 
         {__DEV__ && (
@@ -126,7 +140,7 @@ export default function Settings() {
             <Text style={{ color: colors.error, fontSize: font.base, fontWeight: "500" }}>Log out</Text>
           </Pressable>
           <Text style={{ color: colors.muted, fontSize: font.sm, textAlign: "center", marginTop: spacing.lg }}>
-            OnCampus v1.0.0
+            OnCampus v{version}
           </Text>
         </View>
       </ScrollView>

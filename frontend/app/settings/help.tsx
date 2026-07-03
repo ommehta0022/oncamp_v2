@@ -6,18 +6,11 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
-import SettingsRow from "@/src/components/SettingsRow";
-
-const FAQS = [
-  { q: "How do I join a group?", a: "Go to Discover and tap Join on any public group. For private groups, your request will be reviewed." },
-  { q: "Can I message someone privately?", a: "OnCampus is group-only. There are no direct messages by design." },
-  { q: "How do I verify my student status?", a: "Sign in with your institution email or SSO. Verified badge is granted after review." },
-  { q: "How do I report a message?", a: "Long-press any message and choose Report. Our moderation team reviews within 24h." },
-];
 
 export default function Help() {
   const { colors } = useTheme();
   const router = useRouter();
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
       <Header title="Help & support" onBack={() => router.back()} />
@@ -25,31 +18,20 @@ export default function Help() {
         <View style={[styles.hero, { backgroundColor: colors.brandTertiary }]}>
           <Ionicons name="help-buoy" size={32} color={colors.onBrandTertiary} />
           <Text style={{ color: colors.onBrandTertiary, fontSize: font.xl, fontWeight: "500", marginTop: spacing.sm }}>
-            We&apos;re here to help
+            Help & support
           </Text>
-          <Text style={{ color: colors.onBrandTertiary, fontSize: font.base, marginTop: 4, opacity: 0.8 }}>
-            Reach out anytime, we usually reply within a day.
+          <Text style={{ color: colors.onBrandTertiary, fontSize: font.base, marginTop: 4, opacity: 0.8, lineHeight: 22 }}>
+            Your institution administrator can help with account, group, and verification issues.
           </Text>
         </View>
 
-        <Section title="Contact us">
-          <SettingsRow icon="mail-outline" title="Email support" subtitle="support@oncampus.app" onPress={() => {}} />
-          <Divider />
-          <SettingsRow icon="chatbubbles-outline" title="Live chat" subtitle="Mon–Fri, 9 AM – 6 PM IST" onPress={() => {}} />
-          <Divider />
-          <SettingsRow icon="logo-twitter" title="Twitter / X" subtitle="@oncampusapp" onPress={() => {}} />
-        </Section>
-
-        <Section title="Frequently asked">
-          {FAQS.map((f, i) => (
-            <React.Fragment key={i}>
-              {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: spacing.lg }} />}
-              <View style={{ padding: spacing.lg }}>
-                <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{f.q}</Text>
-                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4, lineHeight: 20 }}>{f.a}</Text>
-              </View>
-            </React.Fragment>
-          ))}
+        <Section title="Account support">
+          <View style={{ padding: spacing.lg }}>
+            <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>Institution support</Text>
+            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4, lineHeight: 20 }}>
+              Contact your campus or organization admin for help with your OnCampus account.
+            </Text>
+          </View>
         </Section>
       </ScrollView>
     </SafeAreaView>
@@ -65,7 +47,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </View>
   );
 }
-function Divider() { const { colors } = useTheme(); return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 68 }} />; }
+
 const styles = StyleSheet.create({
   hero: { margin: spacing.lg, padding: spacing.xl, borderRadius: radius.md, alignItems: "flex-start" },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,20 +7,31 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import Header from "@/src/components/Header";
-import { users, getGroup } from "@/src/data/mock";
+import EmptyState from "@/src/components/EmptyState";
+import { api, GroupDto } from "@/src/lib/api";
 
 export default function Members() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const group = getGroup(id!);
+  const [group, setGroup] = useState<GroupDto | null>(null);
+  const [members, setMembers] = useState<any[]>([]);
   const [query, setQuery] = useState("");
 
-  const list = users.filter((u) => u.name.toLowerCase().includes(query.toLowerCase()));
+  useEffect(() => {
+    if (!id) return;
+    api.groups.get(id).then(setGroup).catch(() => setGroup(null));
+    api.groups.members(id).then((rows: any) => Array.isArray(rows) && setMembers(rows)).catch(() => setMembers([]));
+  }, [id]);
+
+  const list = useMemo(
+    () => members.filter((row) => (row.user?.name || "").toLowerCase().includes(query.toLowerCase())),
+    [members, query]
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="members-screen">
-      <Header title="Members" subtitle={group ? `${group.members.toLocaleString()} in ${group.name}` : ""} onBack={() => router.back()} />
+      <Header title="Members" subtitle={group ? `${members.length.toLocaleString()} in ${group.name}` : ""} onBack={() => router.back()} />
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
         <View style={[styles.searchBox, { backgroundColor: colors.surfaceTertiary }]}>
           <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
@@ -33,22 +44,22 @@ export default function Members() {
           />
         </View>
       </View>
-      <FlatList showsVerticalScrollIndicator={false}
+      <FlatList
+        showsVerticalScrollIndicator={false}
         data={list}
-        keyExtractor={(u) => u.id}
+        keyExtractor={(row) => row.user?.id}
         contentContainerStyle={{ paddingVertical: spacing.md }}
-        renderItem={({ item, index }) => (
+        ListEmptyComponent={<EmptyState icon="people-outline" title="No members" message="Members will appear after real users join this group." />}
+        renderItem={({ item }) => (
           <View style={styles.row}>
-            <Avatar uri={item.avatar} name={item.name} size={44} verified={item.verified} />
+            <Avatar uri={item.user?.avatarUrl} name={item.user?.name || "Member"} size={44} verified={item.user?.verified} />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{item.name}</Text>
-              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }} numberOfLines={1}>{item.bio}</Text>
+              <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{item.user?.name || "Member"}</Text>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }} numberOfLines={1}>{item.user?.bio || item.user?.course || "OnCampus member"}</Text>
             </View>
-            {index < 2 && (
+            {item.role && item.role !== "member" && (
               <View style={[styles.tag, { backgroundColor: colors.brandTertiary }]}>
-                <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "500" }}>
-                  {index === 0 ? "OWNER" : "ADMIN"}
-                </Text>
+                <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "500" }}>{item.role.toUpperCase()}</Text>
               </View>
             )}
           </View>
@@ -59,13 +70,7 @@ export default function Members() {
 }
 
 const styles = StyleSheet.create({
-  searchBox: {
-    flexDirection: "row", alignItems: "center", height: 42,
-    borderRadius: radius.pill, paddingHorizontal: spacing.md,
-  },
-  row: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-  },
+  searchBox: { flexDirection: "row", alignItems: "center", height: 42, borderRadius: radius.pill, paddingHorizontal: spacing.md },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
   tag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
 });

@@ -1,94 +1,81 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
-import { getGroup } from "@/src/data/mock";
-
-const KPIS = [
-  { label: "Members", value: "512", trend: "+8", icon: "people" as const, color: "#2E5C4E" },
-  { label: "Join requests", value: "3", trend: null, icon: "person-add" as const, color: "#E87A5D" },
-  { label: "Post requests", value: "2", trend: null, icon: "clipboard" as const, color: "#4A788C" },
-  { label: "Reports", value: "0", trend: null, icon: "flag" as const, color: "#D14D4D" },
-];
+import EmptyState from "@/src/components/EmptyState";
+import { api, GroupDto } from "@/src/lib/api";
 
 export default function GroupAdmin() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const group = getGroup(id!);
-  if (!group) return null;
+  const [group, setGroup] = useState<GroupDto | null>(null);
+  const [members, setMembers] = useState<any[]>([]);
+  const [joinRequests, setJoinRequests] = useState<any[]>([]);
+  const [postRequests, setPostRequests] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!id) return;
+    api.groups.get(id).then(setGroup).catch(() => setGroup(null));
+    api.groups.members(id).then((rows: any) => Array.isArray(rows) && setMembers(rows)).catch(() => setMembers([]));
+    api.groups.joinRequests(id).then((rows: any) => Array.isArray(rows) && setJoinRequests(rows)).catch(() => setJoinRequests([]));
+    api.groups.postRequests(id).then((rows: any) => Array.isArray(rows) && setPostRequests(rows)).catch(() => setPostRequests([]));
+  }, [id]);
+
+  const kpis = useMemo(() => [
+    { label: "Members", value: String(members.length || group?.memberCount || 0), icon: "people" as const, color: "#2E5C4E" },
+    { label: "Join requests", value: String(joinRequests.length), icon: "person-add" as const, color: "#E87A5D" },
+    { label: "Post requests", value: String(postRequests.filter((r) => r.status === "pending").length), icon: "clipboard" as const, color: "#4A788C" },
+    { label: "Reports", value: "0", icon: "flag" as const, color: "#D14D4D" },
+  ], [group?.memberCount, joinRequests.length, members.length, postRequests]);
+
+  if (!group) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+        <Header title="Admin panel" onBack={() => router.back()} />
+        <EmptyState icon="shield-checkmark-outline" title="Group not found" message="This admin panel needs a real group from the database." />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="group-admin-screen">
       <Header title="Admin panel" subtitle={group.name} onBack={() => router.back()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
-        <View style={styles.heroWrap}>
-          <Image source={{ uri: group.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          <LinearGradient colors={["rgba(0,0,0,0.2)", "rgba(0,0,0,0.85)"]} style={StyleSheet.absoluteFill} />
+        <View style={[styles.heroWrap, { backgroundColor: colors.brandPrimary }]}>
           <View style={{ padding: spacing.md }}>
             <View style={[styles.pill, { backgroundColor: "#ffffff22" }]}>
               <Ionicons name="shield-checkmark" size={11} color="#fff" />
               <Text style={{ color: "#fff", fontSize: 10, fontWeight: "500", letterSpacing: 0.3 }}>ADMIN VIEW</Text>
             </View>
             <Text style={styles.heroTitle} numberOfLines={2}>{group.name}</Text>
-            <Text style={styles.heroSub}>{group.members.toLocaleString()} members · {group.category}</Text>
+            <Text style={styles.heroSub}>{(group.memberCount || members.length).toLocaleString()} members - {group.category}</Text>
           </View>
         </View>
 
         <View style={styles.kpiGrid}>
-          {KPIS.map((k) => (
+          {kpis.map((k) => (
             <View key={k.label} style={[styles.kpi, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <View style={[styles.kpiIcon, { backgroundColor: k.color + "22" }]}>
                 <Ionicons name={k.icon} size={16} color={k.color} />
               </View>
               <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: spacing.sm }}>{k.label}</Text>
-              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6, marginTop: 2 }}>
-                <Text style={{ color: colors.onSurface, fontSize: 22, fontWeight: "500", letterSpacing: -0.5 }}>{k.value}</Text>
-                {k.trend && <Text style={{ color: colors.success, fontSize: font.sm, fontWeight: "500" }}>{k.trend}</Text>}
-              </View>
+              <Text style={{ color: colors.onSurface, fontSize: 22, fontWeight: "500", letterSpacing: -0.5, marginTop: 2 }}>{k.value}</Text>
             </View>
           ))}
         </View>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Manage</Text>
         <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <Row icon="information-circle" title="Group info" subtitle="Name, description, image, category" color="#2E5C4E" onPress={() => {}} />
-          <Divider />
           <Row icon="people" title="Members" subtitle="Roles, mute, remove" color="#4A788C" onPress={() => router.push(`/group/members/${id}`)} />
           <Divider />
-          <Row icon="person-add" title="Join requests" subtitle="3 pending" color="#E87A5D" onPress={() => router.push(`/group/requests/${id}`)} badge="3" />
+          <Row icon="person-add" title="Join requests" subtitle={`${joinRequests.length} pending`} color="#E87A5D" onPress={() => router.push(`/group/requests/${id}`)} badge={joinRequests.length ? String(joinRequests.length) : undefined} />
           <Divider />
-          <Row icon="clipboard" title="Post / poster requests" subtitle="2 pending review" color="#4A788C" onPress={() => router.push(`/group/admin/post-requests/${id}`)} badge="2" />
-          <Divider />
-          <Row icon="calendar" title="Scheduled posts" subtitle="1 upcoming" color="#D9983A" onPress={() => {}} />
-          <Divider />
-          <Row icon="megaphone" title="Published posts" subtitle="18 all-time" color="#347D5B" onPress={() => {}} />
-          <Divider />
-          <Row icon="pin" title="Pinned messages" subtitle="3 pinned" color="#8A8D8B" onPress={() => {}} />
-        </View>
-
-        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Content & safety</Text>
-        <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <Row icon="images" title="Media & docs" subtitle="128 shared files" color="#4A788C" onPress={() => {}} />
-          <Divider />
-          <Row icon="flag" title="Reports" subtitle="No open reports" color="#D14D4D" onPress={() => {}} />
-          <Divider />
-          <Row icon="options" title="Permissions" subtitle="Posting: members can request" color="#8A8D8B" onPress={() => {}} />
-          <Divider />
-          <Row icon="time" title="Admin activity log" subtitle="Every decision, audited" color="#8A8D8B" onPress={() => {}} />
-        </View>
-
-        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Danger zone</Text>
-        <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginBottom: spacing.lg }]}>
-          <Row icon="swap-horizontal" title="Transfer ownership" subtitle="Only for owners" color="#D9983A" onPress={() => {}} />
-          <Divider />
-          <Row icon="trash" title="Delete group" subtitle="Permanent. This cannot be undone." color="#D14D4D" onPress={() => {}} />
+          <Row icon="clipboard" title="Post / poster requests" subtitle={`${postRequests.filter((r) => r.status === "pending").length} pending review`} color="#4A788C" onPress={() => router.push(`/group/admin/post-requests/${id}`)} badge={postRequests.length ? String(postRequests.length) : undefined} />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -116,7 +103,10 @@ function Row({ icon, title, subtitle, color, onPress, badge }: { icon: any; titl
   );
 }
 
-function Divider() { const { colors } = useTheme(); return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 64 }} />; }
+function Divider() {
+  const { colors } = useTheme();
+  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 64 }} />;
+}
 
 const styles = StyleSheet.create({
   heroWrap: { height: 140, margin: spacing.lg, borderRadius: radius.md, overflow: "hidden", justifyContent: "flex-end" },

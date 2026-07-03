@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -9,29 +9,49 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import SettingsRow from "@/src/components/SettingsRow";
-import { getGroup, users } from "@/src/data/mock";
+import EmptyState from "@/src/components/EmptyState";
 import { useRole } from "@/src/context/RoleProvider";
+import { api, GroupDto } from "@/src/lib/api";
 
 export default function GroupInfo() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { role, isGroupAdmin } = useRole();
-  const group = getGroup(id!);
-  if (!group) return null;
-  const admins = users.slice(1, 4);
+  const [group, setGroup] = useState<GroupDto | null>(null);
+  const [members, setMembers] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!id) return;
+    api.groups.get(id).then(setGroup).catch(() => setGroup(null));
+    api.groups.members(id).then((rows: any) => Array.isArray(rows) && setMembers(rows)).catch(() => setMembers([]));
+  }, [id]);
+
+  const admins = useMemo(
+    () => members.filter((row) => ["owner", "admin", "moderator"].includes(row.role)).slice(0, 3),
+    [members]
+  );
+
+  if (!group) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+        <EmptyState icon="people-outline" title="Group not found" message="This group is not available in the database." />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="group-info-screen">
       <View style={{ position: "relative" }}>
-        <Image source={{ uri: group.image }} style={styles.cover} contentFit="cover" />
+        {group.avatarUrl ? (
+          <Image source={{ uri: group.avatarUrl }} style={styles.cover} contentFit="cover" />
+        ) : (
+          <View style={[styles.cover, { backgroundColor: colors.brandPrimary }]} />
+        )}
         <LinearGradient colors={["rgba(0,0,0,0.4)", "transparent", "rgba(0,0,0,0.8)"]} style={styles.scrim} />
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()} style={[styles.iconBtn, { backgroundColor: "#00000055" }]}>
             <Ionicons name="chevron-back" size={22} color="#fff" />
-          </Pressable>
-          <Pressable style={[styles.iconBtn, { backgroundColor: "#00000055" }]}>
-            <Ionicons name="share-outline" size={20} color="#fff" />
           </Pressable>
         </View>
         <View style={styles.coverContent}>
@@ -39,7 +59,7 @@ export default function GroupInfo() {
             <View style={[styles.pill, { backgroundColor: "#ffffff33" }]}>
               <Text style={{ color: "#fff", fontSize: font.sm, fontWeight: "500" }}>{group.category}</Text>
             </View>
-            {group.verified && (
+            {group.official && (
               <View style={[styles.pill, { backgroundColor: colors.brandSecondary }]}>
                 <Ionicons name="checkmark" size={12} color="#fff" />
                 <Text style={{ color: "#fff", fontSize: font.sm, fontWeight: "500" }}>Verified</Text>
@@ -48,7 +68,7 @@ export default function GroupInfo() {
           </View>
           <Text style={styles.groupName}>{group.name}</Text>
           <Text style={styles.groupMeta}>
-            {group.institution} · {group.city} · {group.members.toLocaleString()} members
+            {group.city || "Campus"} - {(group.memberCount || members.length).toLocaleString()} members
           </Text>
         </View>
       </View>
@@ -56,84 +76,67 @@ export default function GroupInfo() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
         <View style={{ padding: spacing.lg }}>
           <Text style={{ color: colors.onSurface, fontSize: font.base, lineHeight: 22 }}>
-            {group.description}
+            {group.description || "No description added yet."}
           </Text>
 
           <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg }}>
-            <Pressable
-              onPress={() => router.push(`/group/${group.id}`)}
-              style={[styles.primaryBtn, { backgroundColor: colors.brandPrimary }]}
-              testID="open-chat-btn"
-            >
-              <Ionicons name="chatbubbles" size={18} color={colors.onBrandPrimary} />
-              <Text style={{ color: colors.onBrandPrimary, fontSize: font.base, fontWeight: "500" }}>Open chat</Text>
-            </Pressable>
-            <Pressable style={[styles.outlineBtn, { borderColor: colors.borderStrong }]}>
-              <Ionicons name="notifications-off-outline" size={18} color={colors.onSurface} />
-            </Pressable>
-            <Pressable style={[styles.outlineBtn, { borderColor: colors.borderStrong }]}>
-              <Ionicons name="search" size={18} color={colors.onSurface} />
-            </Pressable>
+            {group.role ? (
+              <Pressable onPress={() => router.push(`/group/${group.id}`)} style={[styles.primaryBtn, { backgroundColor: colors.brandPrimary }]} testID="open-chat-btn">
+                <Ionicons name="chatbubbles" size={18} color={colors.onBrandPrimary} />
+                <Text style={{ color: colors.onBrandPrimary, fontSize: font.base, fontWeight: "500" }}>Open chat</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => api.groups.join(group.id).then(() => api.groups.get(group.id).then(setGroup)).catch(() => {})}
+                style={[styles.primaryBtn, { backgroundColor: colors.brandPrimary }]}
+              >
+                <Ionicons name="person-add" size={18} color={colors.onBrandPrimary} />
+                <Text style={{ color: colors.onBrandPrimary, fontSize: font.base, fontWeight: "500" }}>Join group</Text>
+              </Pressable>
+            )}
           </View>
         </View>
 
         <Section title="Admins">
-          {admins.map((u) => (
-            <Pressable key={u.id} style={styles.memberRow}>
-              <Avatar uri={u.avatar} name={u.name} size={44} verified={u.verified} />
+          {admins.length === 0 ? (
+            <View style={{ padding: spacing.lg }}>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>No admins loaded yet.</Text>
+            </View>
+          ) : admins.map((row) => (
+            <View key={row.user?.id} style={styles.memberRow}>
+              <Avatar uri={row.user?.avatarUrl} name={row.user?.name || "Admin"} size={44} verified={row.user?.verified} />
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{u.name}</Text>
-                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{u.bio}</Text>
+                <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{row.user?.name || "Admin"}</Text>
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{row.user?.bio || row.role}</Text>
               </View>
               <View style={[styles.roleTag, { backgroundColor: colors.brandTertiary }]}>
-                <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "500" }}>ADMIN</Text>
+                <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "500" }}>{row.role.toUpperCase()}</Text>
               </View>
-            </Pressable>
+            </View>
           ))}
-          <Pressable
-            onPress={() => router.push(`/group/members/${group.id}`)}
-            style={styles.seeAll}
-            testID="see-all-members-btn"
-          >
-            <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>See all {group.members.toLocaleString()} members</Text>
+          <Pressable onPress={() => router.push(`/group/members/${group.id}`)} style={styles.seeAll} testID="see-all-members-btn">
+            <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>See all members</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.brandPrimary} />
           </Pressable>
         </Section>
 
         <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <SettingsRow icon="pin" title="Pinned messages" value="3" onPress={() => {}} />
-          <SettingsRow icon="images-outline" title="Media, links & docs" value="128" onPress={() => {}} />
-          <SettingsRow icon="notifications-outline" title="Notifications" value="On" onPress={() => {}} />
           {isGroupAdmin && (
-            <SettingsRow icon="person-add-outline" title="Join requests" value="3" onPress={() => router.push(`/group/requests/${group.id}`)} />
+            <SettingsRow icon="person-add-outline" title="Join requests" onPress={() => router.push(`/group/requests/${group.id}`)} />
           )}
           {role === "normal_user" && (
-            <SettingsRow
-              icon="clipboard-outline"
-              title="Submit a post / poster request"
-              subtitle="Ask admins to publish your poster in this group"
-              onPress={() => router.push(`/group/post-request/${group.id}`)}
-              testID="submit-post-request-btn"
-            />
+            <SettingsRow icon="clipboard-outline" title="Submit a post / poster request" subtitle="Ask admins to publish your poster in this group" onPress={() => router.push(`/group/post-request/${group.id}`)} testID="submit-post-request-btn" />
+          )}
+          {isGroupAdmin && (
+            <SettingsRow icon="shield-checkmark-outline" title="Admin panel" subtitle="Manage requests, roles, and content" onPress={() => router.push(`/group/admin/${group.id}`)} testID="open-admin-panel-btn" />
           )}
         </View>
 
-        {isGroupAdmin && (
+        {group.role && (
           <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <SettingsRow
-              icon="shield-checkmark-outline"
-              title="Admin panel"
-              subtitle="Manage requests, roles, and content"
-              onPress={() => router.push(`/group/admin/${group.id}`)}
-              testID="open-admin-panel-btn"
-            />
+            <SettingsRow icon="exit-outline" title="Leave group" destructive onPress={() => api.groups.leave(group.id).then(() => router.back()).catch(() => {})} />
           </View>
         )}
-
-        <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <SettingsRow icon="flag-outline" title="Report group" destructive onPress={() => {}} />
-          <SettingsRow icon="exit-outline" title="Leave group" destructive onPress={() => {}} />
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -156,36 +159,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const styles = StyleSheet.create({
   cover: { width: "100%", height: 220 },
   scrim: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
-  topBar: {
-    position: "absolute", top: 12, left: spacing.md, right: spacing.md,
-    flexDirection: "row", justifyContent: "space-between",
-  },
+  topBar: { position: "absolute", top: 12, left: spacing.md, right: spacing.md, flexDirection: "row", justifyContent: "space-between" },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  coverContent: {
-    position: "absolute", bottom: spacing.lg, left: spacing.lg, right: spacing.lg,
-  },
+  coverContent: { position: "absolute", bottom: spacing.lg, left: spacing.lg, right: spacing.lg },
   pill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
   groupName: { color: "#fff", fontSize: 22, fontWeight: "500", marginTop: spacing.sm, letterSpacing: -0.5 },
   groupMeta: { color: "#ffffffcc", fontSize: font.sm, marginTop: 4 },
-  primaryBtn: {
-    flex: 1, height: 48, borderRadius: radius.pill,
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm,
-  },
-  outlineBtn: {
-    width: 48, height: 48, borderRadius: radius.pill,
-    borderWidth: 1, alignItems: "center", justifyContent: "center",
-  },
-  section: {
-    marginHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1,
-    marginBottom: spacing.md, overflow: "hidden",
-  },
-  memberRow: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-  },
+  primaryBtn: { flex: 1, height: 48, borderRadius: radius.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
+  section: { marginHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, marginBottom: spacing.md, overflow: "hidden" },
+  memberRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
   roleTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
-  seeAll: {
-    flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 4,
-    paddingVertical: spacing.md,
-  },
+  seeAll: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 4, paddingVertical: spacing.md },
 });

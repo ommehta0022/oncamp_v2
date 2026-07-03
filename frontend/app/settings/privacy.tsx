@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -6,13 +6,26 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
+import { api } from "@/src/lib/api";
+
+const defaults = { showPhone: false, showEmail: false, readReceipts: true, lastSeen: true, discoverable: true };
 
 export default function Privacy() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [s, set] = useState({ showPhone: false, showEmail: false, readReceipts: true, lastSeen: true, discoverable: true });
+  const [s, set] = useState(defaults);
+  useEffect(() => {
+    api.users.settings()
+      .then((row: any) => set({ ...defaults, ...(row.privacy || {}) }))
+      .catch(() => set(defaults));
+  }, []);
+  const update = (k: keyof typeof s) => {
+    const next = { ...s, [k]: !s[k] };
+    set(next);
+    api.users.updateSettings({ privacy: { [k]: next[k] } }).catch(() => {});
+  };
   const Sw = (k: keyof typeof s) => (
-    <Switch value={s[k]} onValueChange={() => set((v) => ({ ...v, [k]: !v[k] }))} trackColor={{ true: colors.brandPrimary, false: colors.borderStrong }} thumbColor="#fff" />
+    <Switch value={s[k]} onValueChange={() => update(k)} trackColor={{ true: colors.brandPrimary, false: colors.borderStrong }} thumbColor="#fff" />
   );
 
   return (

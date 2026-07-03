@@ -122,12 +122,50 @@ export type SessionUser = {
   avatarUrl?: string;
   city?: string;
   course?: string;
+  bio?: string;
+  handle?: string;
   accountType?: AccountRole;
   roles?: AccountRole[];
   verified?: boolean;
   canCreatePosts?: boolean;
   canCreateGroups?: boolean;
+  profileCompleted?: boolean;
+  onboardingSkipped?: Record<string, boolean>;
+  defaultAvatarKey?: string;
 };
+
+export type StartOtpResponse = {
+  challengeId?: string;
+  expiresInSeconds?: number;
+  message?: string;
+  success?: boolean;
+  devMode?: boolean;
+  devCode?: string | null;
+};
+
+export type AuthSessionResponse = {
+  accessToken: string;
+  refreshToken: string;
+  userId: string;
+  isNewUser: boolean;
+  user?: SessionUser;
+};
+
+function normalizeAuthSession(data: {
+  accessToken: string;
+  refreshToken: string;
+  userId?: string;
+  isNewUser?: boolean;
+  user?: SessionUser;
+}): AuthSessionResponse {
+  return {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    userId: data.userId || data.user?.id || "",
+    isNewUser: Boolean(data.isNewUser),
+    user: data.user,
+  };
+}
 
 export type FeedPostDto = {
   id: string;
@@ -138,6 +176,8 @@ export type FeedPostDto = {
   createdAt: string;
   pinned?: boolean;
   announcement?: boolean;
+  liked?: boolean;
+  bookmarked?: boolean;
   author?: {
     id: string;
     name?: string;
@@ -184,35 +224,89 @@ export const api = {
   },
   auth: {
     startOtp: (phone: string) =>
-      request<{ challengeId: string; expiresInSeconds: number; message: string }>("/auth/otp/start", {
+      request<StartOtpResponse>("/auth/otp/start", {
         method: "POST",
         auth: false,
         body: { phone },
       }),
-    verifyOtp: (challengeId: string, firebaseIdToken: string) =>
-      request<{ accessToken: string; refreshToken: string; userId: string; isNewUser: boolean; user?: SessionUser }>("/auth/otp/verify", {
-        method: "POST",
-        auth: false,
-        body: { challengeId, firebaseIdToken },
-      }),
-    verifyOtpDev: (phone: string, code: string) =>
-      request<{ accessToken: string; refreshToken: string; userId: string; isNewUser: boolean; user?: SessionUser }>("/auth/otp/verify-dev", {
-        method: "POST",
-        auth: false,
-        body: { phone, code },
-      }),
-    verifyFirebaseIdToken: (firebaseIdToken: string) =>
-      request<{ accessToken: string; refreshToken: string; user: SessionUser }>("/auth/otp/verify", {
-        method: "POST",
-        auth: false,
-        body: { firebaseIdToken, platform: Platform.OS },
-      }),
+    verifyOtp: async (challengeId: string, firebaseIdToken: string) =>
+      normalizeAuthSession(
+        await request<{
+          accessToken: string;
+          refreshToken: string;
+          userId?: string;
+          isNewUser?: boolean;
+          user?: SessionUser;
+        }>("/auth/otp/verify", {
+          method: "POST",
+          auth: false,
+          body: { challengeId, firebaseIdToken, platform: Platform.OS },
+        })
+      ),
+    verifyOtpDev: async (phone: string, code: string) => {
+      try {
+        return normalizeAuthSession(
+          await request<{
+            accessToken: string;
+            refreshToken: string;
+            userId?: string;
+            isNewUser?: boolean;
+            user?: SessionUser;
+          }>("/auth/otp/verify-dev", {
+            method: "POST",
+            auth: false,
+            body: { phone, code, platform: Platform.OS },
+          })
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        const missingRoute =
+          message.includes("404") ||
+          message.includes("Not Found") ||
+          message.includes("Cannot POST");
+        if (!missingRoute) throw error;
+
+        return normalizeAuthSession(
+          await request<{
+            accessToken: string;
+            refreshToken: string;
+            userId?: string;
+            isNewUser?: boolean;
+            user?: SessionUser;
+          }>("/auth/otp/verify-code", {
+            method: "POST",
+            auth: false,
+            body: { phone, code, platform: Platform.OS },
+          })
+        );
+      }
+    },
+    verifyFirebaseIdToken: async (firebaseIdToken: string) =>
+      normalizeAuthSession(
+        await request<{
+          accessToken: string;
+          refreshToken: string;
+          userId?: string;
+          isNewUser?: boolean;
+          user?: SessionUser;
+        }>("/auth/otp/verify", {
+          method: "POST",
+          auth: false,
+          body: { firebaseIdToken, platform: Platform.OS },
+        })
+      ),
     me: () => request<SessionUser>("/auth/me"),
     logout: () => request<void>("/auth/logout", { method: "POST" }),
   },
   users: {
     me: () => request<SessionUser>("/users/me"),
+    stats: () => request<{ groups: number; posts: number; followers: number; following: number }>("/users/me/stats"),
     updateMe: (body: Partial<SessionUser>) => request<SessionUser>("/users/me", { method: "PATCH", body }),
+    settings: () => request("/users/me/settings"),
+    updateSettings: (body: unknown) => request("/users/me/settings", { method: "PATCH", body }),
+    notificationPreferences: () => request("/users/me/notification-preferences"),
+    updateNotificationPreferences: (body: unknown) =>
+      request("/users/me/notification-preferences", { method: "PATCH", body }),
   },
   feed: {
     list: () => request<{ feed?: FeedPostDto[]; posts?: FeedPostDto[] }>("/feed"),
@@ -235,6 +329,7 @@ export const api = {
     messages: (groupId: string, limit = 50) => request(`/groups/${groupId}/messages?limit=${limit}`),
     sendMessage: (groupId: string, body: unknown) =>
       request(`/groups/${groupId}/messages`, { method: "POST", body }),
+    members: (groupId: string) => request(`/groups/${groupId}/members`),
     joinRequests: (groupId: string) => request(`/groups/${groupId}/join-requests`),
     approveJoinRequest: (groupId: string, requestId: string) =>
       request(`/groups/${groupId}/join-requests/${requestId}/approve`, { method: "POST" }),
@@ -244,10 +339,33 @@ export const api = {
   institutions: {
     register: (body: unknown) => request("/institutions/register", { method: "POST", auth: false, body }),
     dashboard: () => request("/institutions/me/dashboard"),
+    analytics: () => request("/institutions/me/analytics"),
+    updateMe: (body: unknown) => request("/institutions/me", { method: "PATCH", body }),
+    admins: () => request("/institutions/me/admins"),
   },
   notifications: {
     list: () => request("/notifications"),
+    markAllRead: () => request("/notifications/read-all", { method: "PATCH" }),
+    markRead: (notificationId: string) => request(`/notifications/${notificationId}/read`, { method: "PATCH" }),
     registerDevice: (pushToken: string, platform = Platform.OS) =>
       request("/notifications/register-device", { method: "POST", body: { pushToken, platform } }),
+  },
+  posts: {
+    get: (postId: string) => request(`/posts/${postId}`),
+    comment: (postId: string, content: string) =>
+      request(`/posts/${postId}/comments`, { method: "POST", body: { content } }),
+    like: (postId: string) => request<{ liked: boolean; reactions: number }>(`/posts/${postId}/reaction`, { method: "POST" }),
+    unlike: (postId: string) => request<{ liked: boolean; reactions: number }>(`/posts/${postId}/reaction`, { method: "DELETE" }),
+  },
+  saved: {
+    list: () => request<FeedPostDto[]>("/saved-posts"),
+    save: (postId: string) => request("/saved-posts", { method: "POST", body: { postId } }),
+    remove: (postId: string) => request(`/saved-posts/${postId}`, { method: "DELETE" }),
+  },
+  blocked: {
+    list: () => request<SessionUser[]>("/blocked-users"),
+  },
+  search: {
+    query: (q: string) => request(`/search?q=${encodeURIComponent(q)}`),
   },
 };

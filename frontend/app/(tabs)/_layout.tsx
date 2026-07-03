@@ -3,9 +3,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, Platform } from "react-native";
 import { BlurView } from "expo-blur";
 import { useTheme } from "@/src/theme/ThemeProvider";
+import { useTabBadges } from "@/src/hooks/useTabBadges";
 
 export default function TabsLayout() {
   const { colors, isDark } = useTheme();
+  const { groupsUnread, notificationsUnread } = useTabBadges();
 
   return (
     <Tabs
@@ -49,7 +51,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "chatbubbles" : "chatbubbles-outline"} size={24} color={color} />
           ),
-          tabBarBadge: 39,
+          tabBarBadge: groupsUnread > 0 ? groupsUnread : undefined,
           tabBarBadgeStyle: {
             backgroundColor: colors.brandSecondary,
             color: "#fff",
@@ -74,7 +76,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "notifications" : "notifications-outline"} size={24} color={color} />
           ),
-          tabBarBadge: 3,
+          tabBarBadge: notificationsUnread > 0 ? notificationsUnread : undefined,
           tabBarBadgeStyle: {
             backgroundColor: colors.brandSecondary,
             color: "#fff",

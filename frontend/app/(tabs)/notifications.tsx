@@ -5,10 +5,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
-import { notifications, Notification } from "@/src/data/mock";
+import EmptyState from "@/src/components/EmptyState";
 import { api } from "@/src/lib/api";
 
 const TABS = ["All", "Mentions", "Announcements"];
+
+type Notification = {
+  id: string;
+  type: "mention" | "join" | "announcement" | "reply" | "approved" | "post";
+  title: string;
+  body: string;
+  createdAt: string;
+  read: boolean;
+  avatar?: string;
+};
 
 const ICONS: Record<Notification["type"], keyof typeof import("@expo/vector-icons").Ionicons.glyphMap> = {
   mention: "at",
@@ -37,17 +47,20 @@ function normalizeNotification(row: any): Notification {
 export default function Notifications() {
   const { colors } = useTheme();
   const [tab, setTab] = useState("All");
-  const [items, setItems] = useState(notifications);
+  const [items, setItems] = useState<Notification[]>([]);
 
   useEffect(() => {
     api.notifications.list()
       .then((rows: any) => {
         if (Array.isArray(rows)) setItems(rows.map(normalizeNotification));
       })
-      .catch(() => {});
+      .catch(() => setItems([]));
   }, []);
 
-  const markAll = () => setItems((n) => n.map((x) => ({ ...x, read: true })));
+  const markAll = () => {
+    setItems((n) => n.map((x) => ({ ...x, read: true })));
+    api.notifications.markAllRead().catch(() => {});
+  };
 
   let data = items;
   if (tab === "Mentions") data = items.filter((n) => n.type === "mention" || n.type === "reply");
@@ -91,6 +104,13 @@ export default function Notifications() {
         contentContainerStyle={{ paddingBottom: 120 }}
         renderItem={({ item }) => <NotifRow n={item} />}
         ItemSeparatorComponent={() => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 72 }} />}
+        ListEmptyComponent={
+          <EmptyState
+            icon="notifications-outline"
+            title="No alerts yet"
+            message="Real mentions, approvals, and announcements will appear here."
+          />
+        }
       />
     </SafeAreaView>
   );

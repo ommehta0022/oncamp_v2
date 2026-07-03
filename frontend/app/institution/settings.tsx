@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -6,110 +6,86 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
+import { api } from "@/src/lib/api";
+
+const defaults = {
+  publicPage: true,
+  autoApproveStudents: false,
+  allowExternalRequests: true,
+  membersCanCreateGroups: false,
+  verifiedBadgeVisible: true,
+  weeklyDigest: true,
+};
 
 export default function InstitutionSettings() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [state, setState] = useState({
-    publicPage: true, autoApproveStudents: false, allowExternalRequests: true,
-    membersCanCreateGroups: false, verifiedBadgeVisible: true, weeklyDigest: true,
-  });
-  const toggle = (k: keyof typeof state) => setState((s) => ({ ...s, [k]: !s[k] }));
-  const Sw = (k: keyof typeof state) => (
-    <Switch value={state[k]} onValueChange={() => toggle(k)} trackColor={{ true: colors.brandPrimary, false: colors.borderStrong }} thumbColor="#fff" />
+  const [institution, setInstitution] = useState<any>(null);
+  const [counts, setCounts] = useState<any>({});
+  const [state, setState] = useState(defaults);
+
+  useEffect(() => {
+    api.institutions.dashboard()
+      .then((data: any) => {
+        setInstitution(data.institution || null);
+        setCounts(data.counts || {});
+        setState({ ...defaults, ...(data.institution?.verification_policy || {}) });
+      })
+      .catch(() => {});
+  }, []);
+
+  const toggle = (key: keyof typeof state) => {
+    const next = { ...state, [key]: !state[key] };
+    setState(next);
+    api.institutions.updateMe({ verificationPolicy: next }).catch(() => {});
+  };
+
+  const Sw = (key: keyof typeof state) => (
+    <Switch value={state[key]} onValueChange={() => toggle(key)} trackColor={{ true: colors.brandPrimary, false: colors.borderStrong }} thumbColor="#fff" />
   );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="institution-settings-screen">
-      <Header title="Institution settings" subtitle="IIT Bombay" onBack={() => router.back()} />
+      <Header title="Institution settings" subtitle={institution?.name || "Institution"} onBack={() => router.back()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
         <Section title="Institution profile">
-          <SettingsRow icon="business-outline" title="Basic info" subtitle="Name, description, contact" onPress={() => {}} />
+          <SettingsRow icon="business-outline" title="Basic info" subtitle={institution?.name || "Not set"} onPress={() => router.push("/institution/branding")} />
           <Divider />
-          <SettingsRow icon="color-palette-outline" title="Branding" subtitle="Logo, cover, brand colors" onPress={() => router.push("/institution/branding")} />
+          <SettingsRow icon="color-palette-outline" title="Branding" subtitle="Logo, cover, public profile" onPress={() => router.push("/institution/branding")} />
           <Divider />
-          <SettingsRow icon="location-outline" title="Locations & campuses" subtitle="1 campus configured" onPress={() => {}} />
+          <SettingsRow icon="location-outline" title="Location" subtitle={[institution?.city, institution?.state, institution?.country].filter(Boolean).join(", ") || "Not set"} onPress={() => router.push("/institution/branding")} />
           <Divider />
-          <SettingsRow icon="link-outline" title="Website & social" subtitle="iitb.ac.in · 4 links" onPress={() => {}} />
+          <SettingsRow icon="link-outline" title="Website" subtitle={institution?.website || "Not set"} onPress={() => router.push("/institution/branding")} />
         </Section>
 
         <Section title="Verification">
-          <SettingsRow
-            icon="shield-checkmark"
-            iconColor={colors.success}
-            iconBg={colors.success + "22"}
-            title="Verified status"
-            subtitle="Approved · Nov 12, 2025"
-            onPress={() => router.push("/institution/verification")}
-          />
-          <Divider />
-          <SettingsRow icon="documents-outline" title="Verification documents" subtitle="3 documents on file" onPress={() => {}} />
+          <SettingsRow icon="shield-checkmark" iconColor={institution?.verified_at ? colors.success : colors.warning} iconBg={(institution?.verified_at ? colors.success : colors.warning) + "22"} title="Verified status" subtitle={institution?.verified_at ? `Verified ${institution.verified_at}` : institution?.status || "Pending"} onPress={() => router.push("/institution/verification")} />
         </Section>
 
         <Section title="Administrators & roles">
-          <SettingsRow icon="people-outline" title="Institution admins" subtitle="4 admins" onPress={() => router.push("/institution/admins")} />
-          <Divider />
-          <SettingsRow icon="lock-closed-outline" title="Permissions" subtitle="Role-based access control" onPress={() => {}} />
-          <Divider />
-          <SettingsRow icon="time-outline" title="Admin activity log" subtitle="Every action, audited" onPress={() => {}} />
+          <SettingsRow icon="people-outline" title="Institution admins" subtitle="Fetched from institution_admins" onPress={() => router.push("/institution/admins")} />
         </Section>
 
         <Section title="Community controls">
           <SettingsRow icon="globe-outline" title="Public institution page" subtitle="Visible in Discover" right={Sw("publicPage")} />
           <Divider />
-          <SettingsRow icon="checkmark-done-outline" title="Auto-approve verified students" subtitle="Using domain email match" right={Sw("autoApproveStudents")} />
+          <SettingsRow icon="checkmark-done-outline" title="Auto-approve verified students" subtitle="Using approved verification policy" right={Sw("autoApproveStudents")} />
           <Divider />
-          <SettingsRow icon="clipboard-outline" title="Allow external post requests" subtitle="Non-members can submit posters" right={Sw("allowExternalRequests")} />
+          <SettingsRow icon="clipboard-outline" title="Allow external post requests" right={Sw("allowExternalRequests")} />
           <Divider />
           <SettingsRow icon="add-circle-outline" title="Members can create groups" right={Sw("membersCanCreateGroups")} />
           <Divider />
-          <SettingsRow icon="ribbon-outline" title="Show verified badge everywhere" right={Sw("verifiedBadgeVisible")} />
+          <SettingsRow icon="ribbon-outline" title="Show verified badge" right={Sw("verifiedBadgeVisible")} />
         </Section>
 
-        <Section title="Content moderation">
-          <SettingsRow icon="filter-outline" title="Content filters" subtitle="12 blocked keywords" onPress={() => {}} />
+        <Section title="Data">
+          <SettingsRow icon="people-outline" title="Members" subtitle={`${counts.members || 0} real members`} />
           <Divider />
-          <SettingsRow icon="flag-outline" title="Report queue" subtitle="0 open reports" onPress={() => {}} />
+          <SettingsRow icon="chatbubbles-outline" title="Groups" subtitle={`${counts.groups || 0} real groups`} onPress={() => router.push("/(tabs)/groups")} />
           <Divider />
-          <SettingsRow icon="ban-outline" title="Banned users" subtitle="2 users banned" onPress={() => {}} />
+          <SettingsRow icon="document-text-outline" title="Posts" subtitle={`${counts.posts || 0} real posts`} onPress={() => router.push("/(tabs)/feed")} />
           <Divider />
-          <SettingsRow icon="alert-circle-outline" title="Slow mode & rate limits" onPress={() => {}} />
-        </Section>
-
-        <Section title="Notifications & digests">
-          <SettingsRow icon="mail-outline" title="Weekly admin digest" subtitle="Every Monday, 9 AM" right={Sw("weeklyDigest")} />
-          <Divider />
-          <SettingsRow icon="notifications-outline" title="Push notification channels" onPress={() => {}} />
-        </Section>
-
-        <Section title="Data & compliance">
-          <SettingsRow icon="download-outline" title="Export institution data" subtitle="Members, posts, analytics" onPress={() => {}} />
-          <Divider />
-          <SettingsRow icon="document-text-outline" title="Data processing agreement" onPress={() => {}} />
-          <Divider />
-          <SettingsRow icon="lock-open-outline" title="Two-factor authentication" subtitle="Required for all admins" onPress={() => {}} />
-        </Section>
-
-        <Section title="Billing & plan">
-          <SettingsRow
-            icon="star"
-            iconColor={colors.warning}
-            iconBg={colors.warning + "22"}
-            title="Current plan"
-            subtitle="Verified · Free tier"
-            value="Upgrade"
-            onPress={() => {}}
-          />
-          <Divider />
-          <SettingsRow icon="card-outline" title="Payment methods" onPress={() => {}} />
-          <Divider />
-          <SettingsRow icon="receipt-outline" title="Invoices" onPress={() => {}} />
-        </Section>
-
-        <Section title="Danger zone">
-          <SettingsRow icon="pause-circle-outline" title="Pause institution page" destructive onPress={() => {}} />
-          <Divider />
-          <SettingsRow icon="trash-outline" title="Delete institution account" destructive onPress={() => {}} />
+          <SettingsRow icon="stats-chart-outline" title="Analytics" subtitle="Real Supabase metrics" onPress={() => router.push("/institution/analytics")} />
         </Section>
       </ScrollView>
     </SafeAreaView>
@@ -125,4 +101,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </View>
   );
 }
-function Divider() { const { colors } = useTheme(); return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 68 }} />; }
+
+function Divider() {
+  const { colors } = useTheme();
+  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 68 }} />;
+}

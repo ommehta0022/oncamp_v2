@@ -7,6 +7,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
+import { api } from "@/src/lib/api";
 
 const CATS = ["Batch", "Clubs", "Study", "Events", "Sports", "Tech", "Arts", "Career"];
 type Visibility = "public" | "private" | "official";
@@ -16,21 +17,40 @@ export default function CreateGroup() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
+  const [city, setCity] = useState("");
   const [cat, setCat] = useState("Clubs");
   const [vis, setVis] = useState<Visibility>("public");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    if (!name.trim() || !desc.trim() || !city.trim() || submitting) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await api.groups.create({
+        name: name.trim(),
+        description: desc.trim(),
+        city: city.trim(),
+        category: cat,
+        visibility: vis === "official" ? "private" : vis,
+        joinPolicy: vis === "public" ? "auto_approve_verified" : "request_to_join",
+      });
+      router.replace("/(tabs)/groups");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create group");
+      setSubmitting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="create-group-screen">
       <Header title="New group" onBack={() => router.back()} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-          <Pressable style={[styles.imagePicker, { backgroundColor: colors.brandTertiary, borderColor: colors.border }]}>
-            <Ionicons name="camera" size={28} color={colors.onBrandTertiary} />
-            <Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "500", marginTop: 4 }}>Add cover</Text>
-          </Pressable>
-
-          <Field label="Group name" value={name} onChange={setName} placeholder="e.g. CSE Batch of 2026" />
+          <Field label="Group name" value={name} onChange={setName} placeholder="Group name" />
           <Field label="Description" value={desc} onChange={setDesc} placeholder="What's this group about?" multiline />
+          <Field label="City" value={city} onChange={setCity} placeholder="City" />
 
           <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>Category</Text>
           <View style={styles.chips}>
@@ -63,10 +83,11 @@ export default function CreateGroup() {
               label="Create group"
               fullWidth
               size="lg"
-              disabled={!name || !desc}
-              onPress={() => router.replace("/(tabs)/groups")}
+              disabled={submitting || !name.trim() || !desc.trim() || !city.trim()}
+              onPress={submit}
               testID="create-group-submit-btn"
             />
+            {!!error && <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.md, textAlign: "center" }}>{error}</Text>}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -125,11 +146,6 @@ function VisOption({ label, desc, icon, selected, onPress }: { label: string; de
 }
 
 const styles = StyleSheet.create({
-  imagePicker: {
-    width: "100%", height: 140, borderRadius: radius.md,
-    borderWidth: 1, borderStyle: "dashed",
-    alignItems: "center", justifyContent: "center",
-  },
   sectionLabel: { fontSize: font.sm, marginTop: spacing.xl, marginBottom: spacing.md, fontWeight: "500" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   chip: { height: 36, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },

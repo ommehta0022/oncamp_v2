@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,24 +7,55 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
-import { feed, currentUser, FeedPost } from "@/src/data/mock";
+import EmptyState from "@/src/components/EmptyState";
+import ImageViewer from "@/src/components/ImageViewer";
 import { useRole } from "@/src/context/RoleProvider";
 import { api, FeedPostDto } from "@/src/lib/api";
+
+type FeedPost = {
+  id: string;
+  author: {
+    id: string;
+    name: string;
+    avatar?: string;
+    institution?: string;
+    verified?: boolean;
+    badge?: string;
+  };
+  group?: { id: string; name: string };
+  content: string;
+  image?: string;
+  createdAt: string;
+  likes: number;
+  comments: number;
+  reposts: number;
+  liked?: boolean;
+  bookmarked?: boolean;
+  pinned?: boolean;
+  announcement?: boolean;
+};
 
 export default function Feed() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { canCreatePosts } = useRole();
+  const { canCreatePosts, user } = useRole();
   const [refreshing, setRefreshing] = useState(false);
-  const [posts, setPosts] = useState(feed);
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerImage, setViewerImage] = useState("");
+
+  const openImage = (url: string) => {
+    setViewerImage(url);
+    setViewerVisible(true);
+  };
 
   const loadPosts = useCallback(async () => {
     try {
       const response = await api.feed.list();
       const apiPosts = response.posts || response.feed || [];
-      if (apiPosts.length > 0) setPosts(apiPosts.map(toFeedPost));
+      setPosts(apiPosts.map(toFeedPost));
     } catch {
-      setPosts(feed);
+      setPosts([]);
     }
   }, []);
 
@@ -38,7 +69,9 @@ export default function Feed() {
     setRefreshing(false);
   };
 
-  const toggleLike = (id: string) => {
+  const toggleLike = async (id: string) => {
+    const current = posts.find((post) => post.id === id);
+    if (!current) return;
     setPosts((p) =>
       p.map((post) =>
         post.id === id
@@ -46,6 +79,24 @@ export default function Feed() {
           : post
       )
     );
+    try {
+      const result = current.liked ? await api.posts.unlike(id) : await api.posts.like(id);
+      setPosts((p) => p.map((post) => post.id === id ? { ...post, liked: result.liked, likes: result.reactions } : post));
+    } catch {
+      setPosts((p) => p.map((post) => post.id === id ? current : post));
+    }
+  };
+
+  const toggleBookmark = async (id: string) => {
+    const current = posts.find((post) => post.id === id);
+    if (!current) return;
+    setPosts((p) => p.map((post) => post.id === id ? { ...post, bookmarked: !post.bookmarked } : post));
+    try {
+      if (current.bookmarked) await api.saved.remove(id);
+      else await api.saved.save(id);
+    } catch {
+      setPosts((p) => p.map((post) => post.id === id ? current : post));
+    }
   };
 
   return (
@@ -67,9 +118,24 @@ export default function Feed() {
         keyExtractor={(p) => p.id}
         contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
-        ListHeaderComponent={canCreatePosts ? <Composer /> : <View style={{ height: spacing.md }} />}
-        renderItem={({ item }) => <PostCard post={item} onLike={() => toggleLike(item.id)} />}
+        ListHeaderComponent={canCreatePosts ? <Composer user={user} /> : <View style={{ height: spacing.md }} />}
+        ListEmptyComponent={
+          <EmptyState
+            icon="newspaper-outline"
+            title="No posts yet"
+            message="Real announcements and posts will appear here after verified publishers create them."
+            actionLabel={canCreatePosts ? "Create post" : undefined}
+            onAction={canCreatePosts ? () => router.push("/create-post") : undefined}
+          />
+        }
+        renderItem={({ item }) => <PostCard post={item} onLike={() => toggleLike(item.id)} onBookmark={() => toggleBookmark(item.id)} onImagePress={openImage} />}
         ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+      />
+      
+      <ImageViewer
+        visible={viewerVisible}
+        imageUrl={viewerImage}
+        onClose={() => setViewerVisible(false)}
       />
     </SafeAreaView>
   );
@@ -80,12 +146,9 @@ function toFeedPost(post: FeedPostDto): FeedPost {
     id: post.id,
     author: {
       id: post.author?.id || "unknown",
-      name: post.author?.name || "OnCampus",
-      handle: "@oncampus",
-      avatar: post.author?.avatarUrl || currentUser.avatar,
-      institution: post.author?.institution || "OnCampus",
-      city: "",
-      bio: "",
+      name: post.author?.name || "User",
+      avatar: post.author?.avatarUrl,
+      institution: post.author?.institution || post.group?.name || "",
       verified: post.author?.verified,
       badge: post.author?.badge === "official" ? "official" : undefined,
     },
@@ -98,10 +161,12 @@ function toFeedPost(post: FeedPostDto): FeedPost {
     reposts: post.counts?.reposts || 0,
     pinned: post.pinned,
     announcement: post.announcement,
+    liked: post.liked,
+    bookmarked: post.bookmarked,
   };
 }
 
-function Composer() {
+function Composer({ user }: { user: ReturnType<typeof useRole>["user"] }) {
   const { colors } = useTheme();
   const router = useRouter();
   return (
@@ -110,16 +175,16 @@ function Composer() {
       style={[styles.composer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
       testID="composer-btn"
     >
-      <Avatar uri={currentUser.avatar} name={currentUser.name} size={40} />
+      <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={40} />
       <View style={[styles.composerInput, { backgroundColor: colors.surfaceTertiary }]}>
-        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Share something with your campus…</Text>
+        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Share something with your campus...</Text>
       </View>
       <Ionicons name="image-outline" size={22} color={colors.brandPrimary} />
     </Pressable>
   );
 }
 
-function PostCard({ post, onLike }: { post: FeedPost; onLike: () => void }) {
+function PostCard({ post, onLike, onBookmark, onImagePress }: { post: FeedPost; onLike: () => void; onBookmark: () => void; onImagePress: (url: string) => void }) {
   const { colors } = useTheme();
   const router = useRouter();
 
@@ -152,13 +217,10 @@ function PostCard({ post, onLike }: { post: FeedPost; onLike: () => void }) {
             )}
           </View>
           <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>
-            {post.author.institution} · {post.createdAt}
-            {post.group ? ` · in ${post.group.name}` : ""}
+            {post.author.institution} - {post.createdAt}
+            {post.group ? ` - in ${post.group.name}` : ""}
           </Text>
         </View>
-        <Pressable hitSlop={8}>
-          <Ionicons name="ellipsis-horizontal" size={20} color={colors.onSurfaceTertiary} />
-        </Pressable>
       </View>
 
       {post.announcement && (
@@ -173,11 +235,13 @@ function PostCard({ post, onLike }: { post: FeedPost; onLike: () => void }) {
       </Text>
 
       {post.image && (
-        <Image
-          source={{ uri: post.image }}
-          style={styles.postImage}
-          contentFit="cover"
-        />
+        <TouchableOpacity onPress={() => onImagePress(post.image!)} activeOpacity={0.9}>
+          <Image
+            source={{ uri: post.image }}
+            style={styles.postImage}
+            contentFit="cover"
+          />
+        </TouchableOpacity>
       )}
 
       <View style={[styles.actions, { borderTopColor: colors.border }]}>
@@ -188,18 +252,25 @@ function PostCard({ post, onLike }: { post: FeedPost; onLike: () => void }) {
           onPress={onLike}
         />
         <ActionBtn icon="chatbubble-outline" label={String(post.comments)} color={colors.onSurfaceTertiary} />
-        <ActionBtn icon="repeat-outline" label={String(post.reposts)} color={colors.onSurfaceTertiary} />
-        <ActionBtn icon={post.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={colors.onSurfaceTertiary} />
+        <ActionBtn icon={post.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={post.bookmarked ? colors.brandSecondary : colors.onSurfaceTertiary} onPress={onBookmark} />
       </View>
     </Pressable>
   );
 }
 
 function ActionBtn({ icon, label, color, onPress }: { icon: any; label: string; color: string; onPress?: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={styles.actionBtn} hitSlop={8}>
+  const content = (
+    <>
       <Ionicons name={icon} size={20} color={color} />
       {!!label && <Text style={{ color, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>}
+    </>
+  );
+  if (!onPress) {
+    return <View style={styles.actionBtn}>{content}</View>;
+  }
+  return (
+    <Pressable onPress={onPress} style={styles.actionBtn} hitSlop={8}>
+      {content}
     </Pressable>
   );
 }

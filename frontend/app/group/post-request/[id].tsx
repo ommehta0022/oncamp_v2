@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,8 +7,8 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
-import { getGroup, groups } from "@/src/data/mock";
-import { api } from "@/src/lib/api";
+import EmptyState from "@/src/components/EmptyState";
+import { api, GroupDto } from "@/src/lib/api";
 
 const CATEGORIES = ["Event", "Announcement", "Contest", "Notice", "Fundraiser", "Recruitment"];
 
@@ -16,7 +16,7 @@ export default function GroupPostRequest() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const group = getGroup(id!) || groups[0];
+  const [group, setGroup] = useState<GroupDto | null>(null);
   const [form, setForm] = useState({
     title: "", description: "", category: "Event",
     publishDate: "", expiryDate: "",
@@ -24,13 +24,20 @@ export default function GroupPostRequest() {
     reason: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const set = (k: string, v: string) => setForm((s) => ({ ...s, [k]: v }));
 
   const canSubmit = form.title && form.description && form.contactName && form.contactPhone;
 
+  useEffect(() => {
+    if (!id) return;
+    api.groups.get(id).then(setGroup).catch(() => setGroup(null));
+  }, [id]);
+
   const submit = async () => {
-    if (!canSubmit || submitting) return;
+    if (!canSubmit || submitting || !group) return;
     setSubmitting(true);
+    setError("");
     try {
       await api.groups.postRequest(group.id, {
         title: form.title,
@@ -42,13 +49,22 @@ export default function GroupPostRequest() {
         contactPhone: form.contactPhone,
         contactEmail: form.contactEmail || undefined,
       });
-    } catch {
-      // Keep browser review usable until backend credentials are present.
+      router.back();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not submit request");
     } finally {
       setSubmitting(false);
-      router.back();
     }
   };
+
+  if (!group) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+        <Header title="Submit post request" onBack={() => router.back()} />
+        <EmptyState icon="people-outline" title="Group not found" message="This request needs a real group from the database." />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="post-request-screen">
@@ -62,13 +78,7 @@ export default function GroupPostRequest() {
             </Text>
           </View>
 
-          <Pressable style={[styles.uploadBox, { borderColor: colors.borderStrong, backgroundColor: colors.surfaceSecondary }]}>
-            <Ionicons name="cloud-upload-outline" size={28} color={colors.onSurfaceTertiary} />
-            <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500", marginTop: 6 }}>Upload poster / image</Text>
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>PNG, JPG or PDF · max 10 MB</Text>
-          </Pressable>
-
-          <Field label="Title" value={form.title} onChange={(v) => set("title", v)} placeholder="e.g. Coding Hackathon 2026" />
+          <Field label="Title" value={form.title} onChange={(v) => set("title", v)} placeholder="Post title" />
           <Field label="Description" value={form.description} onChange={(v) => set("description", v)} placeholder="What's this about? Why should members care?" multiline />
 
           <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>Category</Text>
@@ -92,17 +102,17 @@ export default function GroupPostRequest() {
 
           <View style={{ flexDirection: "row", gap: spacing.md }}>
             <View style={{ flex: 1 }}>
-              <Field label="Publish date" value={form.publishDate} onChange={(v) => set("publishDate", v)} placeholder="Feb 10" />
+              <Field label="Publish date" value={form.publishDate} onChange={(v) => set("publishDate", v)} placeholder="YYYY-MM-DD" />
             </View>
             <View style={{ flex: 1 }}>
-              <Field label="Expiry date" value={form.expiryDate} onChange={(v) => set("expiryDate", v)} placeholder="Feb 20" />
+              <Field label="Expiry date" value={form.expiryDate} onChange={(v) => set("expiryDate", v)} placeholder="YYYY-MM-DD" />
             </View>
           </View>
 
           <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>Contact for coordination</Text>
           <Field label="Contact name" value={form.contactName} onChange={(v) => set("contactName", v)} placeholder="Your name" />
-          <Field label="Phone" value={form.contactPhone} onChange={(v) => set("contactPhone", v)} placeholder="+91 98765 43210" keyboardType="phone-pad" />
-          <Field label="Email" value={form.contactEmail} onChange={(v) => set("contactEmail", v)} placeholder="you@iitb.ac.in" keyboardType="email-address" />
+          <Field label="Phone" value={form.contactPhone} onChange={(v) => set("contactPhone", v)} placeholder="Phone number" keyboardType="phone-pad" />
+          <Field label="Email" value={form.contactEmail} onChange={(v) => set("contactEmail", v)} placeholder="you@institution.edu" keyboardType="email-address" />
 
           <Field label="Reason (optional)" value={form.reason} onChange={(v) => set("reason", v)} placeholder="Anything else admins should know?" multiline />
 
@@ -115,6 +125,7 @@ export default function GroupPostRequest() {
               onPress={submit}
               testID="submit-post-request-btn"
             />
+            {!!error && <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.md, textAlign: "center" }}>{error}</Text>}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -157,11 +168,6 @@ const styles = StyleSheet.create({
   notice: {
     flexDirection: "row", alignItems: "flex-start", gap: spacing.sm,
     padding: spacing.md, borderRadius: radius.md,
-  },
-  uploadBox: {
-    marginTop: spacing.lg, padding: spacing.xl, borderRadius: radius.md,
-    borderWidth: 1, borderStyle: "dashed",
-    alignItems: "center", justifyContent: "center",
   },
   sectionLabel: { fontSize: font.sm, marginTop: spacing.xl, marginBottom: spacing.md, fontWeight: "500" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },

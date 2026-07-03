@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -6,14 +6,43 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
+import { api } from "@/src/lib/api";
+
+const defaults = {
+  push: true,
+  mentions: true,
+  announcements: true,
+  joinRequests: true,
+  postActivity: true,
+  sound: true,
+  vibrate: true,
+};
 
 export default function Notifs() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [state, setState] = useState({
-    push: true, mentions: true, replies: true, announcements: true, joinRequests: true, marketing: false, sound: true, vibrate: true,
-  });
-  const toggle = (k: keyof typeof state) => setState((s) => ({ ...s, [k]: !s[k] }));
+  const [state, setState] = useState(defaults);
+  useEffect(() => {
+    api.users.notificationPreferences()
+      .then((row: any) => setState({
+        ...defaults,
+        push: row.pushEnabled,
+        mentions: row.mentions,
+        announcements: row.announcements,
+        joinRequests: row.joinRequests,
+        postActivity: row.postActivity,
+      }))
+      .catch(() => setState(defaults));
+  }, []);
+  const toggle = (k: keyof typeof state) => {
+    const next = { ...state, [k]: !state[k] };
+    setState(next);
+    const body: Record<string, boolean> = {};
+    if (k === "push") body.pushEnabled = next[k];
+    else if (k === "postActivity" || k === "mentions" || k === "announcements" || k === "joinRequests") body[k] = next[k];
+    else api.users.updateSettings({ preferences: { [k]: next[k] } }).catch(() => {});
+    if (Object.keys(body).length > 0) api.users.updateNotificationPreferences(body).catch(() => {});
+  };
 
   const Sw = (k: keyof typeof state) => (
     <Switch
@@ -34,7 +63,7 @@ export default function Notifs() {
         <Section title="Group activity">
           <SettingsRow icon="at" title="Mentions" right={Sw("mentions")} />
           <Divider />
-          <SettingsRow icon="arrow-undo" title="Replies to you" right={Sw("replies")} />
+          <SettingsRow icon="arrow-undo" title="Replies to you" right={Sw("postActivity")} />
           <Divider />
           <SettingsRow icon="megaphone-outline" title="Announcements" right={Sw("announcements")} />
           <Divider />
@@ -44,9 +73,6 @@ export default function Notifs() {
           <SettingsRow icon="musical-notes-outline" title="Sound" right={Sw("sound")} />
           <Divider />
           <SettingsRow icon="phone-portrait-outline" title="Vibrate" right={Sw("vibrate")} />
-        </Section>
-        <Section title="Other">
-          <SettingsRow icon="pricetag-outline" title="Product updates" right={Sw("marketing")} />
         </Section>
       </ScrollView>
     </SafeAreaView>

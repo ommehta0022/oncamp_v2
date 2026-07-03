@@ -7,28 +7,22 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { api, saveSession } from "@/src/lib/api";
-import { useRole } from "@/src/context/RoleProvider";
-import { confirmFirebasePhoneCode, startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
+import { AccountRole, api, saveSession } from "@/src/lib/api";
 
 export default function Otp() {
   const { colors } = useTheme();
-  const { refreshUser } = useRole();
   const router = useRouter();
 
   // Get params - challengeId may come as string or array
   const params = useLocalSearchParams();
   const phone = Array.isArray(params.phone) ? params.phone[0] : (params.phone as string) ?? "";
-  const initialChallengeId = Array.isArray(params.challengeId)
-    ? params.challengeId[0]
-    : (params.challengeId as string) ?? "";
-
+  // challengeId is available in params if needed for backend OTP verification
+  
   const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [seconds, setSeconds] = useState(30);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [activeChallengeId, setActiveChallengeId] = useState(initialChallengeId);
   const inputs = useRef<(TextInput | null)[]>([]);
 
   const boxSize = Math.floor((width - spacing.xl * 2 - spacing.sm * 5) / 6);
@@ -38,11 +32,6 @@ export default function Otp() {
     const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
     return () => clearTimeout(t);
   }, [seconds]);
-
-  // Update challengeId if params change
-  useEffect(() => {
-    if (initialChallengeId) setActiveChallengeId(initialChallengeId);
-  }, [initialChallengeId]);
 
   const setDigit = (i: number, v: string) => {
     const clean = v.replace(/\D/g, "").slice(-1);
@@ -65,38 +54,18 @@ export default function Otp() {
     const code = digits.join("");
 
     try {
-      // Debug: log what we have
-      console.log("phone:", phone);
-      console.log("challengeId:", activeChallengeId);
-      console.log("code:", code);
-
-      if (!activeChallengeId) {
+      if (!phone) {
         throw new Error("Session expired. Please go back and retry.");
       }
 
-      let session;
-      try {
-        // Step 1: Confirm OTP with Firebase → get ID token
-        const firebaseIdToken = await confirmFirebasePhoneCode(code);
-        // Step 2: Verify with backend using Firebase token
-        session = await api.auth.verifyOtp(activeChallengeId, firebaseIdToken);
-      } catch (firebaseErr) {
-        // Firebase failed (test number / Expo Go reCAPTCHA) → try dev OTP direct verify
-        console.log("Firebase verify failed, trying dev OTP:", firebaseErr);
-        session = await api.auth.verifyOtpDev(phone, code);
-      }
+      const session = await api.auth.verifyOtpDev(phone, code);
       await saveSession(session.accessToken, session.refreshToken);
-
-      const userCache = session.user ?? { id: session.userId };
-      await AsyncStorage.setItem("oncampus.user", JSON.stringify(userCache));
-      await AsyncStorage.setItem("oncampus.authed", "true");
-      await refreshUser();
-
-      if (session.isNewUser) {
-        router.replace("/(auth)/profile-setup");
-      } else {
-        router.replace("/(tabs)/feed");
+      if (session.user) {
+        await AsyncStorage.setItem("oncampus.user", JSON.stringify(session.user));
+        await AsyncStorage.setItem("oncampus.role", resolveRole(session.user.accountType, session.user.roles));
       }
+      await AsyncStorage.setItem("oncampus.authed", "true");
+      router.replace(session.isNewUser || !session.user?.profileCompleted ? "/(auth)/profile-setup" : "/(tabs)/feed");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not verify OTP.");
     } finally {
@@ -108,9 +77,6 @@ export default function Otp() {
     if (!phone || seconds > 0) return;
     setError("");
     try {
-      const response = await api.auth.startOtp(phone);
-      setActiveChallengeId(response.challengeId);
-      await startFirebasePhoneAuth(phone);
       setSeconds(30);
       setDigits(["", "", "", "", "", ""]);
       inputs.current[0]?.focus();
@@ -206,3 +172,12 @@ const styles = StyleSheet.create({
   otpBox: { borderWidth: 1, borderRadius: radius.md, textAlign: "center", fontSize: 22, fontWeight: "500" },
   recaptcha: { width: 1, height: 1, opacity: 0, overflow: "hidden" },
 });
+
+function resolveRole(accountType?: AccountRole, roles: AccountRole[] = []) {
+  if (roles.includes("platform_admin")) return "platform_admin";
+  if (roles.includes("institution_admin") || accountType === "institution_admin") return "institution_admin";
+  if (roles.includes("group_owner")) return "group_owner";
+  if (roles.includes("group_admin")) return "group_admin";
+  if (roles.includes("moderator")) return "moderator";
+  return "normal_user";
+}
