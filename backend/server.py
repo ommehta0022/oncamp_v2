@@ -95,11 +95,14 @@ app.add_middleware(
 
 # Include admin routes
 try:
-    from admin_routes import router as admin_router
-    app.include_router(admin_router)
+    import admin_routes_simple as admin_routes_module
+    admin_routes_module.set_db_client(db)  # Inject db dependency
+    app.include_router(admin_routes_module.router)
     print("✅ Admin routes loaded successfully")
 except ImportError as e:
     print(f"⚠️  Admin routes not loaded: {e}")
+except Exception as e:
+    print(f"⚠️  Admin routes error: {e}")
 
 
 class SupabaseRest:

@@ -4,18 +4,63 @@ Complete admin control endpoints for the enterprise admin panel
 """
 
 from datetime import datetime, timedelta
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional, List, Any
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from pydantic import BaseModel, EmailStr
 import hashlib
 import jwt
 import os
-from functools import wraps
+import requests
 
-# Import from main server
-from server import SupabaseRest, JWT_SECRET
+# Get JWT_SECRET from environment
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-change-me")
+
+# Supabase configuration from environment
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+
+# Supabase REST client (local copy to avoid circular import)
+class SupabaseClient:
+    def __init__(self):
+        self.base = f"{SUPABASE_URL}/rest/v1"
+        self.headers = {
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json",
+        }
+
+    def get(self, table: str, params: Optional[dict] = None) -> Any:
+        response = requests.get(f"{self.base}/{table}", headers=self.headers, params=params, timeout=20)
+        if response.status_code >= 400:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+        return response.json() if response.text else []
+
+    def post(self, table: str, payload: dict) -> Any:
+        headers = {**self.headers, "Prefer": "return=representation"}
+        response = requests.post(f"{self.base}/{table}", headers=headers, json=payload, timeout=20)
+        if response.status_code >= 400:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+        return response.json() if response.text else []
+
+    def patch(self, table: str, params: dict, payload: dict) -> Any:
+        headers = {**self.headers, "Prefer": "return=representation"}
+        response = requests.patch(f"{self.base}/{table}", headers=headers, params=params, json=payload, timeout=20)
+        if response.status_code >= 400:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+        return response.json() if response.text else []
+
+    def delete(self, table: str, params: dict) -> Any:
+        headers = {**self.headers, "Prefer": "return=representation"}
+        response = requests.delete(f"{self.base}/{table}", headers=headers, params=params, timeout=20)
+        if response.status_code >= 400:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+        return response.json() if response.text else []
+
+
+db = SupabaseClient()
 
 # Admin user model
 class AdminUser(BaseModel):
@@ -36,7 +81,7 @@ class AdminLoginResponse(BaseModel):
     user: AdminUser
 
 # Dependency to verify admin token
-def get_current_admin(authorization: str = None):
+def get_current_admin(authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
     
@@ -56,9 +101,6 @@ def require_super_admin(admin_data: dict):
         raise HTTPException(status_code=403, detail="Super admin access required")
     return admin_data
 
-# Initialize Supabase client
-supabase = SupabaseRest()
-
 # ============================================================================
 # AUTHENTICATION
 # ============================================================================
@@ -73,7 +115,7 @@ async def admin_login(request: AdminLoginRequest):
     password_hash = hashlib.sha256(request.password.encode()).hexdigest()
     
     # Query admin users table
-    result = supabase.get(
+    result = db.get(
         "admin_users",
         {
             "email": f"eq.{request.email}",
@@ -106,7 +148,7 @@ async def admin_login(request: AdminLoginRequest):
     refresh_token = jwt.encode(refresh_token_payload, JWT_SECRET, algorithm="HS256")
     
     # Log admin login
-    supabase.post("audit_logs", {
+    db.post("audit_logs", {
         "admin_id": admin["id"],
         "action": "AUTH_LOGIN",
         "target_type": "system",
@@ -123,7 +165,7 @@ async def admin_login(request: AdminLoginRequest):
 async def admin_logout(admin: dict = Depends(get_current_admin)):
     """Logout admin and invalidate token"""
     # Log logout
-    supabase.post("audit_logs", {
+    db.post("audit_logs", {
         "admin_id": admin["id"],
         "action": "AUTH_LOGOUT",
         "target_type": "system",
@@ -134,7 +176,7 @@ async def admin_logout(admin: dict = Depends(get_current_admin)):
 @router.get("/auth/me")
 async def get_current_admin_user(admin: dict = Depends(get_current_admin)):
     """Get current admin user info"""
-    result = supabase.get("admin_users", {"id": f"eq.{admin['id']}", "select": "*"})
+    result = db.get("admin_users", {"id": f"eq.{admin['id']}", "select": "*"})
     if result and len(result) > 0:
         return AdminUser(**result[0])
     raise HTTPException(status_code=404, detail="Admin not found")
@@ -150,12 +192,12 @@ async def get_dashboard(admin: dict = Depends(get_current_admin)):
     Returns: total users, active users, groups, messages, growth data
     """
     # Total users
-    users_result = supabase.query("users", select="count")
+    users_result = db.query("users", select="count")
     total_users = users_result.get("count", 0)
     
     # Active users (24h)
     yesterday = (datetime.utcnow() - timedelta(days=1)).isoformat()
-    active_users_result = supabase.query(
+    active_users_result = db.query(
         "users",
         filters={"last_seen__gte": yesterday},
         select="count"
@@ -163,11 +205,11 @@ async def get_dashboard(admin: dict = Depends(get_current_admin)):
     active_users = active_users_result.get("count", 0)
     
     # Total groups
-    groups_result = supabase.query("groups", select="count")
+    groups_result = db.query("groups", select="count")
     total_groups = groups_result.get("count", 0)
     
     # Messages (24h)
-    messages_result = supabase.query(
+    messages_result = db.query(
         "messages",
         filters={"created_at__gte": yesterday},
         select="count"
@@ -187,7 +229,7 @@ async def get_dashboard(admin: dict = Depends(get_current_admin)):
         })
     
     # Recent activity
-    recent_activity = supabase.query(
+    recent_activity = db.query(
         "audit_logs",
         limit=20,
         order_by="created_at.desc"
@@ -228,7 +270,7 @@ async def get_users(
         filters["name__ilike"] = f"%{search}%"
     
     offset = (page - 1) * limit
-    result = supabase.query(
+    result = db.query(
         "users",
         filters=filters,
         limit=limit,
@@ -248,27 +290,27 @@ async def get_users(
 @router.get("/users/{user_id}")
 async def get_user(user_id: str, admin: dict = Depends(get_current_admin)):
     """Get user detail"""
-    result = supabase.query("users", filters={"id": user_id})
+    result = db.query("users", filters={"id": user_id})
     if not result.get("data"):
         raise HTTPException(status_code=404, detail="User not found")
     
     user = result["data"][0]
     
     # Get user's groups
-    groups_result = supabase.query(
+    groups_result = db.query(
         "group_members",
         filters={"user_id": user_id},
         select="groups(*)"
     )
     
     # Get user's activity
-    messages_count = supabase.query(
+    messages_count = db.query(
         "messages",
         filters={"sender_id": user_id},
         select="count"
     ).get("count", 0)
     
-    posts_count = supabase.query(
+    posts_count = db.query(
         "posts",
         filters={"author_id": user_id},
         select="count"
@@ -288,10 +330,10 @@ async def update_user(
     admin: dict = Depends(get_current_admin)
 ):
     """Update user profile"""
-    result = supabase.update("users", user_id, data)
+    result = db.update("users", user_id, data)
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "USER_UPDATE",
         "target_type": "user",
@@ -320,14 +362,14 @@ async def mute_user(
     
     mute_until = datetime.utcnow() + duration_map.get(duration, timedelta(days=1))
     
-    result = supabase.update("users", user_id, {
+    result = db.update("users", user_id, {
         "status": "muted",
         "muted_until": mute_until.isoformat(),
         "mute_reason": reason
     })
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "USER_MUTE",
         "target_type": "user",
@@ -344,19 +386,19 @@ async def ban_user(
     admin: dict = Depends(get_current_admin)
 ):
     """Ban user permanently"""
-    result = supabase.update("users", user_id, {
+    result = db.update("users", user_id, {
         "status": "banned",
         "ban_reason": reason,
         "banned_at": datetime.utcnow().isoformat()
     })
     
     # Revoke all user sessions
-    supabase.execute_query(
+    db.execute_query(
         f"DELETE FROM user_devices WHERE user_id = '{user_id}'"
     )
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "USER_BAN",
         "target_type": "user",
@@ -369,14 +411,14 @@ async def ban_user(
 @router.post("/users/{user_id}/unban")
 async def unban_user(user_id: str, admin: dict = Depends(get_current_admin)):
     """Unban user"""
-    result = supabase.update("users", user_id, {
+    result = db.update("users", user_id, {
         "status": "active",
         "ban_reason": None,
         "banned_at": None
     })
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "USER_UNBAN",
         "target_type": "user",
@@ -393,13 +435,13 @@ async def verify_user(
     admin: dict = Depends(get_current_admin)
 ):
     """Verify user with badge"""
-    result = supabase.update("users", user_id, {
+    result = db.update("users", user_id, {
         "is_verified": True,
         "verification_badge": badge
     })
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "USER_VERIFY",
         "target_type": "user",
@@ -435,7 +477,7 @@ async def get_groups(
         filters["name__ilike"] = f"%{search}%"
     
     offset = (page - 1) * limit
-    result = supabase.query(
+    result = db.query(
         "groups",
         filters=filters,
         limit=limit,
@@ -455,21 +497,21 @@ async def get_groups(
 @router.get("/groups/{group_id}")
 async def get_group(group_id: str, admin: dict = Depends(get_current_admin)):
     """Get group detail"""
-    result = supabase.query("groups", filters={"id": group_id})
+    result = db.query("groups", filters={"id": group_id})
     if not result.get("data"):
         raise HTTPException(status_code=404, detail="Group not found")
     
     group = result["data"][0]
     
     # Get members count
-    members_result = supabase.query(
+    members_result = db.query(
         "group_members",
         filters={"group_id": group_id},
         select="count"
     )
     
     # Get messages count
-    messages_result = supabase.query(
+    messages_result = db.query(
         "messages",
         filters={"group_id": group_id},
         select="count"
@@ -488,10 +530,10 @@ async def update_group(
     admin: dict = Depends(get_current_admin)
 ):
     """Update group"""
-    result = supabase.update("groups", group_id, data)
+    result = db.update("groups", group_id, data)
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "GROUP_UPDATE",
         "target_type": "group",
@@ -512,11 +554,11 @@ async def delete_group(
     if hardDelete:
         # Hard delete - remove completely
         require_super_admin(admin)
-        supabase.delete("groups", group_id)
+        db.delete("groups", group_id)
         action = "GROUP_HARD_DELETE"
     else:
         # Soft delete - mark as deleted
-        supabase.update("groups", group_id, {
+        db.update("groups", group_id, {
             "status": "deleted",
             "deleted_at": datetime.utcnow().isoformat(),
             "delete_reason": reason
@@ -524,7 +566,7 @@ async def delete_group(
         action = "GROUP_SOFT_DELETE"
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": action,
         "target_type": "group",
@@ -537,10 +579,10 @@ async def delete_group(
 @router.post("/groups/{group_id}/verify")
 async def verify_group(group_id: str, admin: dict = Depends(get_current_admin)):
     """Verify group as official"""
-    result = supabase.update("groups", group_id, {"is_official": True})
+    result = db.update("groups", group_id, {"is_official": True})
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "GROUP_VERIFY",
         "target_type": "group",
@@ -559,7 +601,7 @@ async def get_group_members(
 ):
     """Get group members"""
     offset = (page - 1) * limit
-    result = supabase.query(
+    result = db.query(
         "group_members",
         filters={"group_id": group_id},
         limit=limit,
@@ -583,12 +625,12 @@ async def remove_group_member(
     admin: dict = Depends(get_current_admin)
 ):
     """Remove member from group"""
-    result = supabase.execute_query(
+    result = db.execute_query(
         f"DELETE FROM group_members WHERE group_id = '{group_id}' AND user_id = '{user_id}'"
     )
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "MEMBER_REMOVE",
         "target_type": "group",
@@ -650,7 +692,7 @@ async def get_audit_logs(
         filters["created_at__lte"] = endDate
     
     offset = (page - 1) * limit
-    result = supabase.query(
+    result = db.query(
         "audit_logs",
         filters=filters,
         limit=limit,
@@ -674,7 +716,7 @@ async def get_audit_logs(
 @router.get("/settings")
 async def get_settings(admin: dict = Depends(get_current_admin)):
     """Get platform settings"""
-    result = supabase.query("platform_settings")
+    result = db.query("platform_settings")
     return result.get("data", {})
 
 @router.patch("/settings")
@@ -687,13 +729,13 @@ async def update_settings(
     
     # Update settings
     # This assumes a single row in platform_settings table
-    result = supabase.execute_query(
+    result = db.execute_query(
         "UPDATE platform_settings SET data = data || %s",
         (data,)
     )
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "SETTINGS_UPDATE",
         "target_type": "system",
@@ -724,10 +766,10 @@ async def execute_database_query(
             )
     
     try:
-        result = supabase.execute_query(query)
+        result = db.execute_query(query)
         
         # Log action
-        supabase.insert("audit_logs", {
+        db.insert("audit_logs", {
             "admin_id": admin["id"],
             "action": "DB_QUERY",
             "target_type": "database",
@@ -751,7 +793,7 @@ async def get_database_tables(admin: dict = Depends(get_current_admin)):
     WHERE table_schema = 'public'
     ORDER BY table_name
     """
-    result = supabase.execute_query(query)
+    result = db.execute_query(query)
     return result
 
 @router.get("/database/tables/{table_name}")
@@ -765,7 +807,7 @@ async def get_table_data(
     require_super_admin(admin)
     
     offset = (page - 1) * limit
-    result = supabase.query(table_name, limit=limit, offset=offset)
+    result = db.query(table_name, limit=limit, offset=offset)
     
     return {
         "data": result.get("data", []),
@@ -801,7 +843,7 @@ async def clear_cache(admin: dict = Depends(get_current_admin)):
     # Clear cache logic here
     
     # Log action
-    supabase.insert("audit_logs", {
+    db.insert("audit_logs", {
         "admin_id": admin["id"],
         "action": "CACHE_CLEAR",
         "target_type": "system",
@@ -830,7 +872,7 @@ async def get_errors(
         filters["user_id"] = userId
     
     offset = (page - 1) * limit
-    result = supabase.query(
+    result = db.query(
         "error_logs",
         filters=filters,
         limit=limit,
@@ -850,7 +892,7 @@ async def get_errors(
 @router.get("/errors/{error_id}")
 async def get_error_detail(error_id: str, admin: dict = Depends(get_current_admin)):
     """Get error detail"""
-    result = supabase.query("error_logs", filters={"id": error_id})
+    result = db.query("error_logs", filters={"id": error_id})
     if not result.get("data"):
         raise HTTPException(status_code=404, detail="Error not found")
     return result["data"][0]
@@ -861,7 +903,7 @@ async def mark_error_resolved(
     admin: dict = Depends(get_current_admin)
 ):
     """Mark error as resolved"""
-    result = supabase.update("error_logs", error_id, {
+    result = db.update("error_logs", error_id, {
         "status": "resolved",
         "resolved_by": admin["id"],
         "resolved_at": datetime.utcnow().isoformat()
