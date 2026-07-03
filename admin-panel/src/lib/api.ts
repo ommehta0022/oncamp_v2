@@ -598,3 +598,14 @@ class ApiClient {
 }
 
 export const api = new ApiClient();
+
+  // Settings (Platform)
+  async getSettings() {
+    try {
+      const response = await this.client.get("/admin/settings/platform");
+      return response.data;
+    } catch (error) {
+      console.error("Failed to get settings:", error);
+      return { appName: "OnCampus" }; // Default fallback
+    }
+  }

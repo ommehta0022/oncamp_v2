@@ -99,7 +99,7 @@ export default function GroupChat() {
       setMessages((m) => [...m, normalizeMessage(saved, id!, user?.id)]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Failed to send image");
     } finally {
       setSendingImage(false);

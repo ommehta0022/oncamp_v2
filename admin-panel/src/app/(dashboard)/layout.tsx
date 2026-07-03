@@ -49,7 +49,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isAuthenticated, logout } = useAuthStore();
+  const { user, isAuthenticated, isLoading, logout } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [platformName, setPlatformName] = useState("OnCampus");
@@ -59,8 +59,15 @@ export default function DashboardLayout({
     recent: [],
   });
 
+  // Wait for auth store to rehydrate before checking authentication
   useEffect(() => {
-    if (!isAuthenticated) {
+    // Don't check auth while still loading from localStorage
+    if (isLoading) return;
+    
+    // Check if we have a valid token in localStorage
+    const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+    
+    if (!isAuthenticated || !token) {
       router.push("/auth/login");
       return;
     }
@@ -86,19 +93,37 @@ export default function DashboardLayout({
         });
       } catch (error) {
         console.error("Failed to fetch stats:", error);
+        // If API calls fail with 401, redirect to login
+        if ((error as any)?.response?.status === 401) {
+          localStorage.removeItem('admin_token');
+          localStorage.removeItem('admin_refresh_token');
+          router.push("/auth/login");
+        }
       }
     };
 
     fetchStats();
     const interval = setInterval(fetchStats, 30000); // Refresh every 30s
     return () => clearInterval(interval);
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, isLoading, router]);
 
   const handleLogout = async () => {
     await api.logout();
     logout();
     router.push("/auth/login");
   };
+
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   const isSuperAdmin = user?.role === "super_admin";
 
