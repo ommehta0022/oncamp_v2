@@ -20,7 +20,11 @@ BACKEND_DIR = Path(__file__).resolve().parent
 load_dotenv(BACKEND_DIR / ".env")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-ALL_SET_DIR = ROOT_DIR / "all_info_for_api_referance_only" / "all_set"
+ALL_SET_DIRS = [
+    ROOT_DIR / "important" / "all_set",
+    ROOT_DIR / "all_info_for_api_referance_only" / "all_set",
+]
+ALL_SET_DIR = next((path for path in ALL_SET_DIRS if path.exists()), ALL_SET_DIRS[0])
 
 
 def read_secret_file(name: str) -> str:
@@ -89,6 +93,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include admin routes
+try:
+    from admin_routes import router as admin_router
+    app.include_router(admin_router)
+    print("✅ Admin routes loaded successfully")
+except ImportError as e:
+    print(f"⚠️  Admin routes not loaded: {e}")
+
 
 class SupabaseRest:
     def __init__(self) -> None:
@@ -125,6 +137,12 @@ class SupabaseRest:
         self.ensure()
         headers = {**self.headers, "Prefer": "return=representation"}
         response = requests.patch(f"{self.base}/{table}", headers=headers, params=params, json=payload, timeout=20)
+        return self._json(response)
+
+    def delete(self, table: str, params: dict[str, Any]) -> Any:
+        self.ensure()
+        headers = {**self.headers, "Prefer": "return=representation"}
+        response = requests.delete(f"{self.base}/{table}", headers=headers, params=params, timeout=20)
         return self._json(response)
 
     @staticmethod
@@ -323,6 +341,79 @@ def create_access_token(user_id: str, role: str = "normal_user") -> str:
     )
 
 
+def safe_get(table: str, params: Optional[dict[str, Any]] = None, fallback: Any = None) -> Any:
+    try:
+        return db.get(table, params)
+    except HTTPException:
+        return [] if fallback is None else fallback
+
+
+def serialize_user(row: dict[str, Any]) -> dict[str, Any]:
+    account_type = row.get("account_type") or "normal_user"
+    return {
+        "id": row["id"],
+        "name": row.get("name"),
+        "city": row.get("city"),
+        "course": row.get("course"),
+        "bio": row.get("bio"),
+        "handle": row.get("handle"),
+        "avatarUrl": row.get("avatar_url"),
+        "verified": row.get("verified", False),
+        "accountType": account_type,
+        "roles": [account_type],
+        "canCreatePosts": row.get("can_create_posts", False),
+        "canCreateGroups": row.get("can_create_groups", False),
+        "profileCompleted": row.get("profile_completed"),
+        "onboardingSkipped": row.get("onboarding_skipped") or {},
+        "defaultAvatarKey": row.get("default_avatar_key"),
+    }
+
+
+def serialize_group(row: dict[str, Any], role: Optional[str] = None) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row.get("name"),
+        "description": row.get("description"),
+        "city": row.get("city"),
+        "category": row.get("category"),
+        "visibility": row.get("visibility"),
+        "avatarUrl": row.get("avatar_url"),
+        "official": row.get("official", False),
+        "postingMode": row.get("posting_mode"),
+        "joinPolicy": row.get("join_policy"),
+        "institutionId": row.get("institution_id"),
+        "memberCount": row.get("member_count", 0),
+        "role": role,
+        "unread": row.get("unread", 0),
+        "lastMessage": row.get("last_message"),
+        "lastMessageAt": row.get("last_message_at"),
+    }
+
+
+def group_member_count(group_id: str) -> int:
+    rows = safe_get("group_members", {"group_id": f"eq.{group_id}", "status": "eq.active", "select": "user_id"})
+    return len(rows)
+
+
+def current_institution_admin(user: CurrentUser) -> Optional[dict[str, Any]]:
+    rows = safe_get(
+        "institution_admins",
+        {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "institution_id,role"},
+    )
+    if rows:
+        return rows[0]
+    return None
+
+
+def require_institution_admin(user: CurrentUser) -> dict[str, Any]:
+    admin = current_institution_admin(user)
+    if admin:
+        return admin
+    if user.role == "platform_admin":
+        return {"institution_id": None, "role": "platform_admin"}
+    raise HTTPException(status_code=403, detail="Institution admin access required")
+
+
 @app.get("/health")
 @app.get("/v1/health")
 def health() -> dict[str, Any]:
@@ -373,27 +464,30 @@ class VerifyOtpDevDto(BaseModel):
 def start_otp_dev(payload: StartOtpDevDto) -> dict[str, Any]:
     """Start OTP authentication - Development mode always returns success."""
     phone = payload.phone.strip()
-    
+
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
-    
+
     return {
         "success": True,
+        "challengeId": str(uuid.uuid4()),
+        "expiresInSeconds": 300,
         "message": f"OTP sent to {phone}",
         "devMode": DEV_MODE,
-        "devCode": DEV_OTP_CODE if DEV_MODE else None
+        "devCode": DEV_OTP_CODE if DEV_MODE else None,
     }
 
 
+@app.post("/v1/auth/otp/verify-dev")
 @app.post("/v1/auth/otp/verify-code")
 def verify_otp_dev(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
     """Verify OTP code - Development mode accepts hardcoded OTP."""
     phone = payload.phone.strip()
     code = payload.code.strip()
-    
+
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
-    
+
     # In dev mode, check against dev OTP
     if DEV_MODE:
         if code != DEV_OTP_CODE:
@@ -405,6 +499,7 @@ def verify_otp_dev(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header
     # Find or create user by phone hash
     hashed_phone = phone_hash(phone)
     user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*"})
+    is_new_user = not bool(user_rows)
     if user_rows:
         user = user_rows[0]
     else:
@@ -440,18 +535,9 @@ def verify_otp_dev(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header
     return {
         "accessToken": access,
         "refreshToken": refresh,
-        "user": {
-            "id": user["id"],
-            "name": user.get("name"),
-            "city": user.get("city"),
-            "course": user.get("course"),
-            "avatarUrl": user.get("avatar_url"),
-            "verified": user.get("verified", False),
-            "accountType": role,
-            "roles": [role],
-            "canCreatePosts": user.get("can_create_posts", False),
-            "canCreateGroups": user.get("can_create_groups", False),
-        },
+        "userId": user["id"],
+        "isNewUser": is_new_user,
+        "user": serialize_user(user),
     }
 
 
@@ -460,9 +546,6 @@ class VerifyOtpDto(BaseModel):
     platform: Optional[str] = None
 
 
-@app.post("/v1/auth/otp/verify")
-def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
-    """Verify Firebase phone auth ID token and create/login user."""
 @app.post("/v1/auth/otp/verify")
 def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
     """Verify Firebase phone auth ID token and create/login user."""
@@ -481,6 +564,7 @@ def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(defaul
 
     hashed_phone = phone_hash(phone)
     user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*"})
+    is_new_user = not bool(user_rows)
     if user_rows:
         user = user_rows[0]
     else:
@@ -512,18 +596,9 @@ def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(defaul
     return {
         "accessToken": access,
         "refreshToken": refresh,
-        "user": {
-            "id": user["id"],
-            "name": user.get("name"),
-            "city": user.get("city"),
-            "course": user.get("course"),
-            "avatarUrl": user.get("avatar_url"),
-            "verified": user.get("verified", False),
-            "accountType": role,
-            "roles": [role],
-            "canCreatePosts": user.get("can_create_posts", False),
-            "canCreateGroups": user.get("can_create_groups", False),
-        },
+        "userId": user["id"],
+        "isNewUser": is_new_user,
+        "user": serialize_user(user),
     }
 
 
@@ -534,24 +609,25 @@ def me(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
         "users",
         {
             "id": f"eq.{user.id}",
-            "select": "id,name,city,course,avatar_url,verified,account_type,can_create_posts,can_create_groups,status",
+            "select": "*",
         },
     )
     if not rows:
         raise HTTPException(status_code=404, detail="User not found")
-    profile = rows[0]
-    account_type = profile.get("account_type") or "normal_user"
+    return serialize_user(rows[0])
+
+
+@app.get("/v1/users/me/stats")
+def me_stats(user: CurrentUser = Depends(current_user)) -> dict[str, int]:
+    groups = safe_get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id"})
+    posts = safe_get("posts", {"author_id": f"eq.{user.id}", "select": "id"})
+    followers = safe_get("user_follows", {"following_id": f"eq.{user.id}", "select": "follower_id"})
+    following = safe_get("user_follows", {"follower_id": f"eq.{user.id}", "select": "following_id"})
     return {
-        "id": profile["id"],
-        "name": profile.get("name"),
-        "city": profile.get("city"),
-        "course": profile.get("course"),
-        "avatarUrl": profile.get("avatar_url"),
-        "verified": profile.get("verified", False),
-        "accountType": account_type,
-        "roles": [account_type],
-        "canCreatePosts": profile.get("can_create_posts", False),
-        "canCreateGroups": profile.get("can_create_groups", False),
+        "groups": len(groups),
+        "posts": len(posts),
+        "followers": len(followers),
+        "following": len(following),
     }
 
 
@@ -574,6 +650,30 @@ def feed(
             "limit": str(limit),
         },
     )
+    author_ids = sorted({post.get("author_id") for post in posts if post.get("author_id")})
+    group_ids = sorted({post.get("group_id") for post in posts if post.get("group_id")})
+    authors = {}
+    groups_by_id = {}
+    if author_ids:
+        rows = safe_get("users", {"id": f"in.({','.join(author_ids)})", "select": "id,name,avatar_url,verified,account_type"})
+        authors = {row["id"]: row for row in rows}
+    if group_ids:
+        rows = safe_get("groups", {"id": f"in.({','.join(group_ids)})", "select": "id,name"})
+        groups_by_id = {row["id"]: row for row in rows}
+    liked_ids = set()
+    saved_ids = set()
+    post_ids = [post["id"] for post in posts]
+    if post_ids:
+        liked_rows = safe_get(
+            "post_reactions",
+            {"post_id": f"in.({','.join(post_ids)})", "user_id": f"eq.{user.id}", "select": "post_id"},
+        )
+        liked_ids = {row["post_id"] for row in liked_rows}
+        saved_rows = safe_get(
+            "saved_posts",
+            {"post_id": f"in.({','.join(post_ids)})", "user_id": f"eq.{user.id}", "select": "post_id"},
+        )
+        saved_ids = {row["post_id"] for row in saved_rows}
     return {
         "feed": [
             {
@@ -585,12 +685,126 @@ def feed(
                 "pinned": post.get("pinned", False),
                 "announcement": post.get("type") in {"announcement", "emergency", "notice"},
                 "createdAt": post.get("published_at") or post.get("created_at"),
-                "author": {"id": post.get("author_id")},
-                "group": {"id": post["group_id"], "name": "Group"} if post.get("group_id") else None,
+                "author": {
+                    "id": post.get("author_id"),
+                    "name": authors.get(post.get("author_id"), {}).get("name") or "OnCampus user",
+                    "avatarUrl": authors.get(post.get("author_id"), {}).get("avatar_url"),
+                    "verified": authors.get(post.get("author_id"), {}).get("verified", False),
+                    "badge": "official" if authors.get(post.get("author_id"), {}).get("account_type") == "institution_admin" else None,
+                },
+                "group": groups_by_id.get(post["group_id"]) if post.get("group_id") else None,
+                "counts": {
+                    "reactions": len(safe_get("post_reactions", {"post_id": f"eq.{post['id']}", "select": "user_id"})),
+                    "comments": len(safe_get("post_comments", {"post_id": f"eq.{post['id']}", "deleted_at": "is.null", "select": "id"})),
+                },
+                "liked": post["id"] in liked_ids,
+                "bookmarked": post["id"] in saved_ids,
             }
             for post in posts
         ]
     }
+
+
+@app.get("/v1/posts/{post_id}")
+def get_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    rows = db.get(
+        "posts",
+        {
+            "id": f"eq.{post_id}",
+            "select": "id,title,content,media_url,media_type,type,status,pinned,created_at,published_at,author_id,group_id,institution_id",
+        },
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Post not found")
+    post = rows[0]
+    try:
+        existing_view = db.get("post_views", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}", "select": "post_id"})
+        if existing_view:
+            db.patch("post_views", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}"}, {"viewed_at": now_iso()})
+        else:
+            db.post("post_views", {"post_id": post_id, "user_id": user.id})
+    except HTTPException:
+        pass
+    author_rows = safe_get("users", {"id": f"eq.{post.get('author_id')}", "select": "*"})
+    group_rows = safe_get("groups", {"id": f"eq.{post.get('group_id')}", "select": "id,name"}) if post.get("group_id") else []
+    comments = safe_get(
+        "post_comments",
+        {"post_id": f"eq.{post_id}", "deleted_at": "is.null", "select": "id,user_id,content,created_at", "order": "created_at.asc"},
+    )
+    comment_user_ids = sorted({row.get("user_id") for row in comments if row.get("user_id")})
+    comment_users = {}
+    if comment_user_ids:
+        users_rows = safe_get("users", {"id": f"in.({','.join(comment_user_ids)})", "select": "id,name,avatar_url,verified"})
+        comment_users = {row["id"]: row for row in users_rows}
+    return {
+        "id": post["id"],
+        "title": post.get("title"),
+        "content": post.get("content"),
+        "mediaUrl": post.get("media_url"),
+        "mediaType": post.get("media_type"),
+        "pinned": post.get("pinned", False),
+        "announcement": post.get("type") in {"announcement", "emergency", "notice"},
+        "createdAt": post.get("published_at") or post.get("created_at"),
+        "author": serialize_user(author_rows[0]) if author_rows else {"id": post.get("author_id"), "name": "OnCampus user"},
+        "group": group_rows[0] if group_rows else None,
+        "comments": [
+            {
+                "id": row["id"],
+                "content": row.get("content"),
+                "createdAt": row.get("created_at"),
+                "user": {
+                    "id": row.get("user_id"),
+                    "name": comment_users.get(row.get("user_id"), {}).get("name") or "Member",
+                    "avatarUrl": comment_users.get(row.get("user_id"), {}).get("avatar_url"),
+                    "verified": comment_users.get(row.get("user_id"), {}).get("verified", False),
+                },
+            }
+            for row in comments
+        ],
+        "counts": {
+            "reactions": len(safe_get("post_reactions", {"post_id": f"eq.{post_id}", "select": "user_id"})),
+            "comments": len(comments),
+            "views": len(safe_get("post_views", {"post_id": f"eq.{post_id}", "select": "user_id"})),
+        },
+        "liked": bool(safe_get("post_reactions", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}", "select": "post_id"})),
+    }
+
+
+class CreateCommentDto(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+
+@app.post("/v1/posts/{post_id}/comments")
+def create_comment(post_id: str, payload: CreateCommentDto, user: CurrentUser = Depends(current_user)) -> Any:
+    rows = db.post(
+        "post_comments",
+        {
+            "id": str(uuid.uuid4()),
+            "post_id": post_id,
+            "user_id": user.id,
+            "content": payload.content,
+        },
+    )
+    return rows[0]
+
+
+@app.post("/v1/posts/{post_id}/reaction")
+def like_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    existing = safe_get("post_reactions", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}", "select": "post_id"})
+    if not existing:
+        db.post("post_reactions", {"post_id": post_id, "user_id": user.id, "reaction": "like"})
+    count = len(safe_get("post_reactions", {"post_id": f"eq.{post_id}", "select": "user_id"}))
+    return {"liked": True, "reactions": count}
+
+
+@app.delete("/v1/posts/{post_id}/reaction")
+def unlike_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    try:
+        db.delete("post_reactions", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}"})
+    except HTTPException:
+        pass
+    count = len(safe_get("post_reactions", {"post_id": f"eq.{post_id}", "select": "user_id"}))
+    return {"liked": False, "reactions": count}
 
 
 class CreatePostDto(BaseModel):
@@ -642,11 +856,14 @@ def my_groups(user: CurrentUser = Depends(current_user)) -> Any:
         {
             "id": f"in.({','.join(group_ids)})",
             "deleted_at": "is.null",
-            "select": "id,name,description,city,category,visibility,avatar_url,official,posting_mode",
+            "select": "id,name,description,city,category,visibility,join_policy,avatar_url,official,posting_mode",
         },
     )
     role_by_group = {row["group_id"]: row["role"] for row in memberships}
-    return [{**group, "avatarUrl": group.get("avatar_url"), "role": role_by_group.get(group["id"])} for group in groups]
+    return [
+        serialize_group({**group, "member_count": group_member_count(group["id"])}, role_by_group.get(group["id"]))
+        for group in groups
+    ]
 
 
 @app.get("/v1/discovery/groups")
@@ -658,7 +875,7 @@ def discover_groups(
     params = {
         "deleted_at": "is.null",
         "visibility": "eq.public",
-        "select": "id,name,description,city,category,visibility,avatar_url,official,posting_mode",
+        "select": "id,name,description,city,category,visibility,join_policy,avatar_url,official,posting_mode",
         "order": "official.desc,created_at.desc",
         "limit": "50",
     }
@@ -668,7 +885,8 @@ def discover_groups(
         params["category"] = f"eq.{category}"
     if q:
         params["name"] = f"ilike.*{q}*"
-    return {"groups": db.get("groups", params)}
+    rows = db.get("groups", params)
+    return {"groups": [serialize_group({**row, "member_count": group_member_count(row["id"])}) for row in rows]}
 
 
 @app.get("/v1/groups/{group_id}")
@@ -694,6 +912,7 @@ def get_group(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
         "joinPolicy": group.get("join_policy"),
         "postingMode": group.get("posting_mode"),
         "role": memberships[0]["role"] if memberships else None,
+        "memberCount": group_member_count(group_id),
     }
 
 
@@ -735,17 +954,11 @@ def register_institution(payload: InstitutionRegistrationDto) -> Any:
 
 @app.get("/v1/institutions/me/dashboard")
 def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    admin_rows = db.get(
-        "institution_admins",
-        {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "institution_id,role"},
-    )
-    if not admin_rows and user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Institution admin access required")
-
-    institution_id = admin_rows[0]["institution_id"] if admin_rows else None
+    admin = require_institution_admin(user)
+    institution_id = admin.get("institution_id")
     institution = None
     if institution_id:
-        rows = db.get("institutions", {"id": f"eq.{institution_id}", "select": "id,name,city"})
+        rows = db.get("institutions", {"id": f"eq.{institution_id}", "select": "*"})
         institution = rows[0] if rows else None
 
     scoped = {"institution_id": f"eq.{institution_id}"} if institution_id else {}
@@ -759,16 +972,146 @@ def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str
     )
     return {
         "institution": institution,
-        "role": admin_rows[0]["role"] if admin_rows else "platform_admin",
+        "role": admin.get("role", "platform_admin"),
         "counts": {
             "posts": len(posts),
             "groups": len(groups),
+            "members": sum(group_member_count(group["id"]) for group in groups),
             "verificationRequests": len(requests),
         },
         "recentPosts": posts,
         "groups": groups,
         "verificationRequests": requests,
     }
+
+
+@app.get("/v1/institutions/me/analytics")
+def institution_analytics(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    admin = require_institution_admin(user)
+    institution_id = admin.get("institution_id")
+    scoped = {"institution_id": f"eq.{institution_id}"} if institution_id else {}
+    institution = None
+    if institution_id:
+        rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "*"})
+        institution = rows[0] if rows else None
+    groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,category"})
+    posts = safe_get("posts", {**scoped, "select": "id,title,content,created_at", "order": "created_at.desc", "limit": "50"})
+    group_count_by_id = {group["id"]: group_member_count(group["id"]) for group in groups}
+    post_metrics = []
+    total_reactions = 0
+    total_comments = 0
+    total_views = 0
+    for post in posts:
+        reactions = len(safe_get("post_reactions", {"post_id": f"eq.{post['id']}", "select": "user_id"}))
+        comments = len(safe_get("post_comments", {"post_id": f"eq.{post['id']}", "deleted_at": "is.null", "select": "id"}))
+        views = len(safe_get("post_views", {"post_id": f"eq.{post['id']}", "select": "user_id"}))
+        total_reactions += reactions
+        total_comments += comments
+        total_views += views
+        post_metrics.append({
+            "id": post["id"],
+            "title": post.get("title") or (post.get("content") or "Post")[:80],
+            "views": views,
+            "likes": reactions,
+            "comments": comments,
+        })
+    group_ids = [group["id"] for group in groups]
+    post_requests = safe_get(
+        "group_post_requests",
+        {"group_id": f"in.({','.join(group_ids)})", "select": "id,status"} if group_ids else {"id": "eq.__none__", "select": "id,status"},
+    )
+    approved_requests = [row for row in post_requests if row.get("status") in {"approved", "scheduled", "published"}]
+    approval_rate = round((len(approved_requests) / len(post_requests)) * 100) if post_requests else 0
+    return {
+        "institution": institution,
+        "counts": {
+            "reach": total_views,
+            "members": sum(group_count_by_id.values()),
+            "groups": len(groups),
+            "posts": len(posts),
+            "engagements": total_reactions + total_comments,
+            "approvalRate": approval_rate,
+        },
+        "topGroups": sorted(
+            [{"id": group["id"], "name": group.get("name"), "members": group_count_by_id[group["id"]]} for group in groups],
+            key=lambda row: row["members"],
+            reverse=True,
+        )[:5],
+        "topPosts": sorted(post_metrics, key=lambda row: (row["views"], row["likes"], row["comments"]), reverse=True)[:5],
+    }
+
+
+class InstitutionUpdateDto(BaseModel):
+    name: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    description: Optional[str] = None
+    logoUrl: Optional[str] = None
+    coverUrl: Optional[str] = None
+    verificationPolicy: Optional[dict[str, Any]] = None
+
+
+@app.patch("/v1/institutions/me")
+def update_institution(payload: InstitutionUpdateDto, user: CurrentUser = Depends(current_user)) -> Any:
+    admin = require_institution_admin(user)
+    institution_id = admin.get("institution_id")
+    if not institution_id:
+        raise HTTPException(status_code=400, detail="No institution scope available")
+    data: dict[str, Any] = {}
+    for source, target in {
+        "name": "name",
+        "city": "city",
+        "state": "state",
+        "country": "country",
+        "website": "website",
+        "phone": "phone",
+        "description": "description",
+        "logoUrl": "logo_url",
+        "coverUrl": "cover_url",
+        "verificationPolicy": "verification_policy",
+    }.items():
+        value = getattr(payload, source)
+        if value is not None:
+            data[target] = value
+    if not data:
+        return {"success": True}
+    return db.patch("institutions", {"id": f"eq.{institution_id}"}, data)[0]
+
+
+@app.get("/v1/institutions/me/admins")
+def institution_admins(user: CurrentUser = Depends(current_user)) -> Any:
+    admin_rows = db.get(
+        "institution_admins",
+        {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "institution_id,role"},
+    )
+    if not admin_rows and user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Institution admin access required")
+    if not admin_rows:
+        return []
+
+    institution_id = admin_rows[0]["institution_id"]
+    rows = db.get(
+        "institution_admins",
+        {"institution_id": f"eq.{institution_id}", "status": "eq.active", "select": "id,user_id,role,status,created_at"},
+    )
+    user_ids = [row["user_id"] for row in rows]
+    users_by_id = {}
+    if user_ids:
+        users_rows = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "*"})
+        users_by_id = {row["id"]: row for row in users_rows}
+    return [
+        {
+            "id": row["id"],
+            "role": row.get("role"),
+            "status": row.get("status"),
+            "createdAt": row.get("created_at"),
+            "user": serialize_user(users_by_id[row["user_id"]]) if row["user_id"] in users_by_id else {"id": row["user_id"], "name": "Admin"},
+        }
+        for row in rows
+    ]
 
 
 class GroupPostRequestDto(BaseModel):
@@ -886,7 +1229,12 @@ class UpdateProfileDto(BaseModel):
     name: Optional[str] = None
     city: Optional[str] = None
     course: Optional[str] = None
+    bio: Optional[str] = None
+    handle: Optional[str] = None
     avatarUrl: Optional[str] = None
+    profileCompleted: Optional[bool] = None
+    onboardingSkipped: Optional[dict[str, Any]] = None
+    defaultAvatarKey: Optional[str] = None
 
 @app.patch("/v1/auth/me")
 @app.patch("/v1/users/me")
@@ -895,11 +1243,19 @@ def update_profile(payload: UpdateProfileDto, user: CurrentUser = Depends(curren
     if payload.name is not None: data["name"] = payload.name
     if payload.city is not None: data["city"] = payload.city
     if payload.course is not None: data["course"] = payload.course
+    if payload.bio is not None: data["bio"] = payload.bio
+    if payload.handle is not None: data["handle"] = payload.handle
     if payload.avatarUrl is not None: data["avatar_url"] = payload.avatarUrl
+    if payload.onboardingSkipped is not None: data["onboarding_skipped"] = payload.onboardingSkipped
+    if payload.defaultAvatarKey is not None: data["default_avatar_key"] = payload.defaultAvatarKey
+    if payload.profileCompleted is not None:
+        data["profile_completed"] = payload.profileCompleted
+        if payload.profileCompleted:
+            data["onboarding_completed_at"] = now_iso()
     if not data:
         return {"success": True}
     data["updated_at"] = now_iso()
-    return db.patch("users", {"id": f"eq.{user.id}"}, data)[0]
+    return serialize_user(db.patch("users", {"id": f"eq.{user.id}"}, data)[0])
 
 @app.post("/v1/groups/{group_id}/join")
 def join_group(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
@@ -934,7 +1290,7 @@ def join_group(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
 
 @app.post("/v1/groups/{group_id}/leave")
 def leave_group(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
-    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"status": "left"})
+    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"status": "removed"})
     return {"success": True}
 
 class SendMessageDto(BaseModel):
@@ -957,12 +1313,25 @@ def send_group_message(group_id: str, payload: SendMessageDto, user: CurrentUser
 @app.get("/v1/groups/{group_id}/messages")
 def get_group_messages(group_id: str, limit: int = 50, user: CurrentUser = Depends(current_user)) -> Any:
     require_group_member(group_id, user)
-    return db.get("messages", {
+    messages = db.get("messages", {
         "group_id": f"eq.{group_id}",
         "select": "*,users(name)",
         "order": "created_at.desc",
         "limit": str(limit)
     })
+    safe_get("message_reads", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"})
+    try:
+        existing = db.get("message_reads", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "select": "group_id"})
+        payload = {"last_read_at": now_iso()}
+        if messages:
+            payload["last_read_message_id"] = messages[0]["id"]
+        if existing:
+            db.patch("message_reads", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, payload)
+        else:
+            db.post("message_reads", {"group_id": group_id, "user_id": user.id, **payload})
+    except HTTPException:
+        pass
+    return messages
 
 class CreateGroupDto(BaseModel):
     name: str
@@ -997,7 +1366,29 @@ def create_group_api(payload: CreateGroupDto, user: CurrentUser = Depends(curren
         "role": "owner",
         "status": "active"
     })
-    return group
+    return serialize_group({**group, "member_count": 1}, "owner")
+
+
+@app.get("/v1/groups/{group_id}/members")
+def get_group_members(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    require_group_member(group_id, user)
+    members = db.get(
+        "group_members",
+        {"group_id": f"eq.{group_id}", "status": "eq.active", "select": "user_id,role,joined_at", "order": "joined_at.asc"},
+    )
+    user_ids = [row["user_id"] for row in members]
+    users_by_id = {}
+    if user_ids:
+        users_rows = db.get("users", {"id": f"in.({','.join(user_ids)})", "select": "*"})
+        users_by_id = {row["id"]: row for row in users_rows}
+    return [
+        {
+            "user": serialize_user(users_by_id[row["user_id"]]) if row["user_id"] in users_by_id else {"id": row["user_id"], "name": "Member"},
+            "role": row.get("role"),
+            "joinedAt": row.get("joined_at"),
+        }
+        for row in members
+    ]
 
 @app.get("/v1/groups/{group_id}/join-requests")
 def get_join_requests(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
@@ -1035,6 +1426,204 @@ def get_notifications(user: CurrentUser = Depends(current_user)) -> Any:
             "limit": "50",
         },
     )
+
+
+@app.patch("/v1/notifications/read-all")
+def mark_notifications_read(user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    db.patch("notifications", {"user_id": f"eq.{user.id}", "read_at": "is.null"}, {"read_at": now_iso()})
+    return {"success": True}
+
+
+@app.patch("/v1/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    rows = db.patch(
+        "notifications",
+        {"id": f"eq.{notification_id}", "user_id": f"eq.{user.id}"},
+        {"read_at": now_iso()},
+    )
+    return rows[0] if rows else {"success": True}
+
+
+@app.get("/v1/saved-posts")
+def get_saved_posts(user: CurrentUser = Depends(current_user)) -> Any:
+    rows = safe_get("saved_posts", {"user_id": f"eq.{user.id}", "select": "post_id,created_at", "order": "created_at.desc"})
+    post_ids = [row["post_id"] for row in rows]
+    if not post_ids:
+        return []
+    posts = db.get(
+        "posts",
+        {"id": f"in.({','.join(post_ids)})", "status": "eq.published", "select": "id,title,content,media_url,media_type,created_at,published_at,author_id,group_id"},
+    )
+    author_ids = sorted({post.get("author_id") for post in posts if post.get("author_id")})
+    authors = {}
+    if author_ids:
+        authors = {row["id"]: row for row in safe_get("users", {"id": f"in.({','.join(author_ids)})", "select": "id,name,avatar_url,verified"})}
+    return [
+        {
+            "id": post["id"],
+            "title": post.get("title"),
+            "content": post.get("content"),
+            "mediaUrl": post.get("media_url"),
+            "mediaType": post.get("media_type"),
+            "createdAt": post.get("published_at") or post.get("created_at"),
+            "author": {
+                "id": post.get("author_id"),
+                "name": authors.get(post.get("author_id"), {}).get("name") or "OnCampus user",
+                "avatarUrl": authors.get(post.get("author_id"), {}).get("avatar_url"),
+                "verified": authors.get(post.get("author_id"), {}).get("verified", False),
+            },
+        }
+        for post in posts
+    ]
+
+
+class SavePostDto(BaseModel):
+    postId: str
+
+
+@app.post("/v1/saved-posts")
+def save_post(payload: SavePostDto, user: CurrentUser = Depends(current_user)) -> Any:
+    existing = safe_get("saved_posts", {"user_id": f"eq.{user.id}", "post_id": f"eq.{payload.postId}", "select": "post_id"})
+    if existing:
+        return {"success": True}
+    db.post("saved_posts", {"user_id": user.id, "post_id": payload.postId})
+    return {"success": True}
+
+
+@app.delete("/v1/saved-posts/{post_id}")
+def unsave_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    try:
+        db.delete("saved_posts", {"user_id": f"eq.{user.id}", "post_id": f"eq.{post_id}"})
+    except HTTPException:
+        pass
+    return {"success": True}
+
+
+@app.get("/v1/blocked-users")
+def get_blocked_users(user: CurrentUser = Depends(current_user)) -> Any:
+    rows = safe_get("user_blocks", {"blocker_id": f"eq.{user.id}", "select": "blocked_user_id,created_at", "order": "created_at.desc"})
+    user_ids = [row["blocked_user_id"] for row in rows]
+    if not user_ids:
+        return []
+    users_rows = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "*"})
+    return [serialize_user(row) for row in users_rows]
+
+
+class UserSettingsDto(BaseModel):
+    privacy: Optional[dict[str, Any]] = None
+    preferences: Optional[dict[str, Any]] = None
+
+
+@app.get("/v1/users/me/settings")
+def get_user_settings(user: CurrentUser = Depends(current_user)) -> Any:
+    rows = safe_get("user_settings", {"user_id": f"eq.{user.id}", "select": "*"})
+    if rows:
+        return rows[0]
+    return {"user_id": user.id, "privacy": {}, "preferences": {}}
+
+
+@app.patch("/v1/users/me/settings")
+def update_user_settings(payload: UserSettingsDto, user: CurrentUser = Depends(current_user)) -> Any:
+    existing = safe_get("user_settings", {"user_id": f"eq.{user.id}", "select": "user_id,privacy,preferences"})
+    current = existing[0] if existing else {"privacy": {}, "preferences": {}}
+    data = {
+        "privacy": {**(current.get("privacy") or {}), **(payload.privacy or {})},
+        "preferences": {**(current.get("preferences") or {}), **(payload.preferences or {})},
+        "updated_at": now_iso(),
+    }
+    if existing:
+        return db.patch("user_settings", {"user_id": f"eq.{user.id}"}, data)[0]
+    return db.post("user_settings", {"user_id": user.id, **data})[0]
+
+
+class NotificationPreferencesDto(BaseModel):
+    pushEnabled: Optional[bool] = None
+    emailEnabled: Optional[bool] = None
+    mentions: Optional[bool] = None
+    announcements: Optional[bool] = None
+    joinRequests: Optional[bool] = None
+    postActivity: Optional[bool] = None
+
+
+def serialize_notification_preferences(row: dict[str, Any], user_id: str) -> dict[str, Any]:
+    return {
+        "userId": row.get("user_id", user_id),
+        "pushEnabled": row.get("push_enabled", True),
+        "emailEnabled": row.get("email_enabled", False),
+        "mentions": row.get("mentions", True),
+        "announcements": row.get("announcements", True),
+        "joinRequests": row.get("join_requests", True),
+        "postActivity": row.get("post_activity", True),
+    }
+
+
+@app.get("/v1/users/me/notification-preferences")
+def get_notification_preferences(user: CurrentUser = Depends(current_user)) -> Any:
+    rows = safe_get("notification_preferences", {"user_id": f"eq.{user.id}", "select": "*"})
+    return serialize_notification_preferences(rows[0], user.id) if rows else serialize_notification_preferences({}, user.id)
+
+
+@app.patch("/v1/users/me/notification-preferences")
+def update_notification_preferences(payload: NotificationPreferencesDto, user: CurrentUser = Depends(current_user)) -> Any:
+    existing = safe_get("notification_preferences", {"user_id": f"eq.{user.id}", "select": "user_id"})
+    data = {}
+    mapping = {
+        "pushEnabled": "push_enabled",
+        "emailEnabled": "email_enabled",
+        "mentions": "mentions",
+        "announcements": "announcements",
+        "joinRequests": "join_requests",
+        "postActivity": "post_activity",
+    }
+    for source, target in mapping.items():
+        value = getattr(payload, source)
+        if value is not None:
+            data[target] = value
+    data["updated_at"] = now_iso()
+    row = db.patch("notification_preferences", {"user_id": f"eq.{user.id}"}, data)[0] if existing else db.post("notification_preferences", {"user_id": user.id, **data})[0]
+    return serialize_notification_preferences(row, user.id)
+
+
+@app.get("/v1/search")
+def search(q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    query = q.strip()
+    if len(query) < 2:
+        return {"groups": [], "users": [], "posts": []}
+    groups = safe_get(
+        "groups",
+        {
+            "deleted_at": "is.null",
+            "visibility": "eq.public",
+            "name": f"ilike.*{query}*",
+            "select": "id,name,description,city,category,visibility,join_policy,avatar_url,official,posting_mode",
+            "limit": "20",
+        },
+    )
+    users_rows = safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,verified,account_type", "limit": "20"})
+    posts = safe_get(
+        "posts",
+        {
+            "status": "eq.published",
+            "content": f"ilike.*{query}*",
+            "select": "id,title,content,media_url,created_at,published_at,author_id",
+            "limit": "20",
+        },
+    )
+    return {
+        "groups": [serialize_group({**row, "member_count": group_member_count(row["id"])}) for row in groups],
+        "users": [serialize_user(row) for row in users_rows],
+        "posts": [
+            {
+                "id": row["id"],
+                "title": row.get("title"),
+                "content": row.get("content"),
+                "mediaUrl": row.get("media_url"),
+                "createdAt": row.get("published_at") or row.get("created_at"),
+                "author": {"id": row.get("author_id")},
+            }
+            for row in posts
+        ],
+    }
 
 
 # ─────────────────────────────────────────────
