@@ -67,15 +67,15 @@ export default function InstitutionalVerificationPage() {
           method: 'POST',
           body: JSON.stringify({
             name: request.institution_name,
-            type: request.institution_type,
+            institution_type: request.institution_type,
             city: request.city,
             state: request.state,
             country: request.country,
-            email: request.official_email,
+            official_email: request.official_email,
             phone: request.phone,
             website: request.website,
-            official: true,
-            verified: true,
+            status: 'active',
+            verified_at: new Date().toISOString(),
           }),
         });
         institutionId = newInstitution[0]?.id;
