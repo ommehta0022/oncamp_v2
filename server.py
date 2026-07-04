@@ -511,6 +511,18 @@ def require_institution_admin(user: CurrentUser) -> dict[str, Any]:
 @app.get("/v1/health")
 def health() -> dict[str, Any]:
     firebase_configured = bool(FIREBASE_SERVICE_ACCOUNT_PATH or FIREBASE_SERVICE_ACCOUNT_JSON)
+    # Always re-read from env at request time to get Railway's live values
+    _tw_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    _tw_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    _tw_phone = os.getenv("TWILIO_PHONE_NUMBER", "")
+    _twilio_ok = bool(_tw_sid and _tw_token and _tw_phone)
+    _dev = os.getenv("DEV_MODE", "false").lower() == "true"
+    if _dev:
+        _provider = "dev_mode"
+    elif _twilio_ok:
+        _provider = "twilio"
+    else:
+        _provider = "firebase_phone_auth"
     return {
         "status": "ok",
         "supabaseConfigured": db.enabled,
@@ -518,8 +530,9 @@ def health() -> dict[str, Any]:
         "redisReachable": redis.ping() if redis.enabled else False,
         "firebaseConfigured": firebase_configured,
         "firebaseProjectId": firebase_project_id(),
-        "otpProviderConfigured": firebase_configured,
-        "otpProvider": "firebase_phone_auth",
+        "otpProviderConfigured": _twilio_ok or firebase_configured,
+        "otpProvider": _provider,
+        "twilioConfigured": _twilio_ok,
         "timestamp": now_iso(),
     }
 
@@ -527,22 +540,28 @@ def health() -> dict[str, Any]:
 @app.get("/v1/integrations/health")
 def integrations_health() -> dict[str, Any]:
     firebase_configured = bool(FIREBASE_SERVICE_ACCOUNT_PATH or FIREBASE_SERVICE_ACCOUNT_JSON)
-    twilio_configured = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER)
-    
+    # Always re-read from env at request time to get Railway's live values
+    _tw_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    _tw_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    _tw_phone = os.getenv("TWILIO_PHONE_NUMBER", "")
+    twilio_configured = bool(_tw_sid and _tw_token and _tw_phone)
+    _dev = os.getenv("DEV_MODE", "false").lower() == "true"
+    _dev_code = os.getenv("DEV_OTP_CODE", "123456")
+
     return {
         "supabase": {"configured": db.enabled},
         "upstashRedis": {"configured": redis.enabled, "reachable": redis.ping() if redis.enabled else False},
         "firebase": {"configured": firebase_configured, "projectId": firebase_project_id()},
         "twilio": {
             "configured": twilio_configured,
-            "phoneNumber": TWILIO_PHONE_NUMBER if twilio_configured else None,
-            "enabled": twilio_otp.enabled if twilio_otp else False
+            "phoneNumber": _tw_phone if twilio_configured else None,
+            "enabled": twilio_otp.enabled if twilio_otp else twilio_configured
         },
         "otp": {
-            "provider": "dev_mode" if DEV_MODE else ("twilio" if twilio_configured else "firebase_phone_auth"),
-            "configured": True if DEV_MODE else (twilio_configured or firebase_configured),
-            "devMode": DEV_MODE,
-            "devOtpCode": DEV_OTP_CODE if DEV_MODE else None
+            "provider": "dev_mode" if _dev else ("twilio" if twilio_configured else "firebase_phone_auth"),
+            "configured": True if _dev else (twilio_configured or firebase_configured),
+            "devMode": _dev,
+            "devOtpCode": _dev_code if _dev else None
         },
         "render": {"configured": bool(os.getenv("RENDER_API_KEY"))},
         "railway": {"configured": bool(os.getenv("RAILWAY_TOKEN"))},
