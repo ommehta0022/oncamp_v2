@@ -80,8 +80,13 @@ FIREBASE_SERVICE_ACCOUNT_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 
 JWT_SECRET = os.getenv("JWT_SECRET") or value_after("JWT_SECRET", read_secret_file("JWT")) or "dev-only-change-me"
 
+# Twilio Configuration
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")
+
 # Development OTP Configuration
-DEV_MODE = os.getenv("DEV_MODE", "true").lower() == "true"
+DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 DEV_OTP_CODE = os.getenv("DEV_OTP_CODE", "123456")
 
 app = FastAPI(title="OnCampus API", version="1.0.0")
@@ -148,6 +153,14 @@ class SupabaseRest:
 
 
 db = SupabaseRest()
+
+# Initialize Twilio OTP Service
+try:
+    from twilio_service import twilio_otp, send_otp_sms, verify_otp_code, hash_otp_code
+    print("✅ Twilio OTP service loaded")
+except ImportError as e:
+    print(f"⚠️  Twilio OTP not loaded: {e}")
+    twilio_otp = None
 
 # Include admin routes (AFTER db is initialized)
 try:
@@ -497,13 +510,20 @@ def health() -> dict[str, Any]:
 @app.get("/v1/integrations/health")
 def integrations_health() -> dict[str, Any]:
     firebase_configured = bool(FIREBASE_SERVICE_ACCOUNT_PATH or FIREBASE_SERVICE_ACCOUNT_JSON)
+    twilio_configured = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER)
+    
     return {
         "supabase": {"configured": db.enabled},
         "upstashRedis": {"configured": redis.enabled, "reachable": redis.ping() if redis.enabled else False},
         "firebase": {"configured": firebase_configured, "projectId": firebase_project_id()},
+        "twilio": {
+            "configured": twilio_configured,
+            "phoneNumber": TWILIO_PHONE_NUMBER if twilio_configured else None,
+            "enabled": twilio_otp.enabled if twilio_otp else False
+        },
         "otp": {
-            "provider": "dev_mode" if DEV_MODE else "firebase_phone_auth",
-            "configured": True if DEV_MODE else firebase_configured,
+            "provider": "dev_mode" if DEV_MODE else ("twilio" if twilio_configured else "firebase_phone_auth"),
+            "configured": True if DEV_MODE else (twilio_configured or firebase_configured),
             "devMode": DEV_MODE,
             "devOtpCode": DEV_OTP_CODE if DEV_MODE else None
         },
@@ -524,29 +544,168 @@ class VerifyOtpDevDto(BaseModel):
 
 
 @app.post("/v1/auth/otp/start")
-def start_otp_dev(payload: StartOtpDevDto) -> dict[str, Any]:
-    """Start OTP authentication - Development mode always returns success."""
+def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
+    """Start OTP authentication - Sends real SMS via Twilio or uses dev mode."""
     phone = payload.phone.strip()
 
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
 
+    # Development mode - return success without sending
+    if DEV_MODE:
+        return {
+            "success": True,
+            "challengeId": str(uuid.uuid4()),
+            "expiresInSeconds": 300,
+            "message": f"OTP sent to {phone}",
+            "devMode": True,
+            "devCode": DEV_OTP_CODE,
+        }
+    
+    # Production mode - use Twilio
+    if not twilio_otp or not twilio_otp.enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="OTP service not configured. Contact support."
+        )
+    
+    # Generate and send OTP
+    success, message, otp_code = send_otp_sms(phone)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    # Store OTP in database with expiration
+    challenge_id = str(uuid.uuid4())
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    
+    try:
+        db.post("otp_challenges", {
+            "id": challenge_id,
+            "phone": phone,
+            "code_hash": hash_otp_code(otp_code),
+            "attempts": 0,
+            "verified": False,
+            "expires_at": expires_at,
+            "created_at": now_iso(),
+        })
+    except Exception as e:
+        print(f"⚠️  Failed to store OTP challenge: {e}")
+        # Continue anyway - OTP was sent
+    
     return {
         "success": True,
-        "challengeId": str(uuid.uuid4()),
+        "challengeId": challenge_id,
         "expiresInSeconds": 300,
-        "message": f"OTP sent to {phone}",
-        "devMode": DEV_MODE,
-        "devCode": DEV_OTP_CODE if DEV_MODE else None,
+        "message": message,
+        "devMode": False,
     }
 
 
 @app.post("/v1/auth/otp/verify-dev")
 @app.post("/v1/auth/otp/verify-code")
-def verify_otp_dev(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
-    """Verify OTP code - Development mode accepts hardcoded OTP."""
+def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """Verify OTP code - Works with both dev mode and Twilio."""
     phone = payload.phone.strip()
     code = payload.code.strip()
+
+    if not phone or len(phone) < 10:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+
+    # Development mode - check against dev OTP
+    if DEV_MODE:
+        if code != DEV_OTP_CODE:
+            raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
+    else:
+        # Production mode - verify against stored OTP
+        try:
+            # Get OTP challenge from database
+            challenges = db.get("otp_challenges", {
+                "phone": f"eq.{phone}",
+                "verified": "eq.false",
+                "order": "created_at.desc",
+                "limit": "1"
+            })
+            
+            if not challenges:
+                raise HTTPException(status_code=400, detail="No OTP found for this number. Please request a new one.")
+            
+            challenge = challenges[0]
+            
+            # Check expiration
+            expires_at = datetime.fromisoformat(challenge["expires_at"].replace('Z', '+00:00'))
+            if datetime.now(timezone.utc) > expires_at:
+                raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
+            
+            # Check attempts
+            if challenge["attempts"] >= 3:
+                raise HTTPException(status_code=429, detail="Too many failed attempts. Please request a new OTP.")
+            
+            # Verify code
+            if not verify_otp_code(code, challenge["code_hash"]):
+                # Increment attempts
+                db.patch("otp_challenges", 
+                    {"id": f"eq.{challenge['id']}"}, 
+                    {"attempts": challenge["attempts"] + 1}
+                )
+                raise HTTPException(status_code=400, detail="Invalid OTP code. Please try again.")
+            
+            # Mark as verified
+            db.patch("otp_challenges",
+                {"id": f"eq.{challenge['id']}"},
+                {"verified": True, "verified_at": now_iso()}
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"⚠️  OTP verification error: {e}")
+            raise HTTPException(status_code=500, detail="Failed to verify OTP. Please try again.")
+    
+    # Find or create user by phone hash
+    hashed_phone = phone_hash(phone)
+    user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*"})
+    is_new_user = not bool(user_rows)
+    
+    if user_rows:
+        user = user_rows[0]
+    else:
+        user = db.post(
+            "users",
+            {
+                "id": str(uuid.uuid4()),
+                "phone_hash": hashed_phone,
+                "status": "active",
+                "account_type": "normal_user",
+                "updated_at": now_iso(),
+            },
+        )[0]
+
+    # Register device
+    device_id = x_device_id or str(uuid.uuid4())
+    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
+    device_data = {
+        "platform": payload.platform or "unknown",
+        "trusted": True,
+        "last_seen_at": now_iso(),
+    }
+    if existing_device:
+        db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
+    else:
+        db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
+    
+    # Generate tokens
+    role = user.get("account_type") or "normal_user"
+    access = create_access_token(user["id"], role)
+    refresh = str(uuid.uuid4())
+    
+    return {
+        "accessToken": access,
+        "refreshToken": refresh,
+        "userId": user["id"],
+        "isNewUser": is_new_user,
+        "user": serialize_user(user),
+    }
 
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
