@@ -155,12 +155,26 @@ class SupabaseRest:
 db = SupabaseRest()
 
 # Initialize Twilio OTP Service
+twilio_otp = None
+send_otp_sms = None
+verify_otp_code = None
+hash_otp_code = None
+
+# Try to import Twilio - this is critical for production
 try:
-    from twilio_service import twilio_otp, send_otp_sms, verify_otp_code, hash_otp_code
-    print("✅ Twilio OTP service loaded")
+    from twilio_service import twilio_otp as _twilio_otp, send_otp_sms as _send_otp_sms, verify_otp_code as _verify_otp_code, hash_otp_code as _hash_otp_code
+    twilio_otp = _twilio_otp
+    send_otp_sms = _send_otp_sms
+    verify_otp_code = _verify_otp_code
+    hash_otp_code = _hash_otp_code
+    print(f"✅ Twilio OTP service loaded successfully")
+    print(f"✅ Twilio configured: {twilio_otp.enabled if twilio_otp else False}")
 except ImportError as e:
-    print(f"⚠️  Twilio OTP not loaded: {e}")
-    twilio_otp = None
+    print(f"❌ CRITICAL: Twilio package not installed: {e}")
+    print(f"❌ Install with: pip install twilio>=9.0.0")
+except Exception as e:
+    print(f"❌ CRITICAL: Twilio service initialization failed: {e}")
+    print(f"❌ Check TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER")
 
 # Include admin routes (AFTER db is initialized)
 try:
