@@ -211,9 +211,9 @@ CREATE OR REPLACE VIEW blacklisted_users AS
 SELECT 
   tb.id,
   tb.user_id,
-  u.phone_number,
-  u.email,
+  u.phone_hash,
   u.name,
+  u.city,
   u.status as user_status,
   tb.reason,
   tb.blacklisted_at,
