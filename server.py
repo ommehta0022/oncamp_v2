@@ -1170,6 +1170,135 @@ def create_post(payload: CreatePostDto, user: CurrentUser = Depends(current_user
     )[0]
 
 
+class UpdatePostDto(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    mediaUrl: Optional[str] = None
+    mediaType: Optional[str] = None
+    visibility: Optional[str] = None
+
+
+@app.patch("/v1/posts/{post_id}")
+def update_post(post_id: str, payload: UpdatePostDto, user: CurrentUser = Depends(current_user)) -> Any:
+    """Update post - only author or institution admin can update"""
+    # Get post
+    posts = db.get("posts", {"id": f"eq.{post_id}", "select": "*", "limit": "1"})
+    if not posts:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    post = posts[0]
+    
+    # Check permissions: author, institution admin, or platform admin
+    is_author = post["author_id"] == user.id
+    is_inst_admin = False
+    if post.get("institution_id"):
+        inst_admins = db.get("institution_admins", {
+            "institution_id": f"eq.{post['institution_id']}",
+            "user_id": f"eq.{user.id}",
+            "status": "eq.active",
+            "select": "role"
+        })
+        is_inst_admin = bool(inst_admins)
+    
+    if not (is_author or is_inst_admin or user.role == "platform_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized to update this post")
+    
+    # Build update data
+    data: dict[str, Any] = {"updated_at": now_iso()}
+    if payload.title is not None:
+        data["title"] = payload.title
+    if payload.content is not None:
+        data["content"] = payload.content
+    if payload.mediaUrl is not None:
+        data["media_url"] = payload.mediaUrl
+    if payload.mediaType is not None:
+        data["media_type"] = payload.mediaType
+    if payload.visibility is not None:
+        data["visibility"] = payload.visibility
+    
+    if len(data) == 1:  # Only updated_at
+        return {"success": True, "message": "No changes provided"}
+    
+    result = db.patch("posts", {"id": f"eq.{post_id}"}, data)
+    return result[0] if result else {"success": True}
+
+
+@app.delete("/v1/posts/{post_id}")
+def delete_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    """Delete post - only author or institution admin can delete"""
+    # Get post
+    posts = db.get("posts", {"id": f"eq.{post_id}", "select": "*", "limit": "1"})
+    if not posts:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    post = posts[0]
+    
+    # Check permissions
+    is_author = post["author_id"] == user.id
+    is_inst_admin = False
+    if post.get("institution_id"):
+        inst_admins = db.get("institution_admins", {
+            "institution_id": f"eq.{post['institution_id']}",
+            "user_id": f"eq.{user.id}",
+            "status": "eq.active",
+            "select": "role"
+        })
+        is_inst_admin = bool(inst_admins)
+    
+    if not (is_author or is_inst_admin or user.role == "platform_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this post")
+    
+    # Soft delete
+    db.patch("posts", {"id": f"eq.{post_id}"}, {
+        "status": "deleted",
+        "deleted_at": now_iso(),
+        "updated_at": now_iso()
+    })
+    
+    return {"success": True, "message": "Post deleted successfully"}
+
+
+@app.post("/v1/posts/{post_id}/pin")
+def pin_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    """Pin/unpin post - only institution admin or group admin can pin"""
+    # Get post
+    posts = db.get("posts", {"id": f"eq.{post_id}", "select": "*", "limit": "1"})
+    if not posts:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    post = posts[0]
+    
+    # Check if user can pin (institution admin or group admin)
+    can_pin = False
+    if post.get("institution_id"):
+        inst_admins = db.get("institution_admins", {
+            "institution_id": f"eq.{post['institution_id']}",
+            "user_id": f"eq.{user.id}",
+            "status": "eq.active",
+            "select": "role"
+        })
+        can_pin = bool(inst_admins)
+    elif post.get("group_id"):
+        role = group_role(post["group_id"], user.id)
+        can_pin = role in {"owner", "admin", "moderator"}
+    
+    if not (can_pin or user.role == "platform_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized to pin this post")
+    
+    # Toggle pinned status
+    current_pinned = post.get("pinned", False)
+    result = db.patch("posts", {"id": f"eq.{post_id}"}, {
+        "pinned": not current_pinned,
+        "updated_at": now_iso()
+    })
+    
+    return {
+        "success": True,
+        "pinned": not current_pinned,
+        "message": "Post unpinned" if current_pinned else "Post pinned"
+    }
+
+
 @app.get("/v1/groups")
 def my_groups(user: CurrentUser = Depends(current_user)) -> Any:
     memberships = db.get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id,role"})
@@ -1713,6 +1842,73 @@ def create_group_api(payload: CreateGroupDto, user: CurrentUser = Depends(curren
     return serialize_group({**group, "member_count": 1}, "owner")
 
 
+class UpdateGroupDto(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    city: Optional[str] = None
+    category: Optional[str] = None
+    visibility: Optional[str] = None
+    joinPolicy: Optional[str] = None
+    postingMode: Optional[str] = None
+    avatarUrl: Optional[str] = None
+    rules: Optional[str] = None
+
+
+@app.patch("/v1/groups/{group_id}")
+def update_group(group_id: str, payload: UpdateGroupDto, user: CurrentUser = Depends(current_user)) -> Any:
+    """Update group details - only group admins can update"""
+    require_group_admin(group_id, user)
+    
+    # Build update data
+    data: dict[str, Any] = {"updated_at": now_iso()}
+    if payload.name is not None:
+        data["name"] = payload.name
+    if payload.description is not None:
+        data["description"] = payload.description
+    if payload.city is not None:
+        data["city"] = payload.city
+    if payload.category is not None:
+        data["category"] = payload.category
+    if payload.visibility is not None:
+        data["visibility"] = payload.visibility
+    if payload.joinPolicy is not None:
+        data["join_policy"] = payload.joinPolicy
+    if payload.postingMode is not None:
+        data["posting_mode"] = payload.postingMode
+    if payload.avatarUrl is not None:
+        data["avatar_url"] = payload.avatarUrl
+    if payload.rules is not None:
+        data["rules"] = payload.rules
+    
+    if len(data) == 1:  # Only updated_at
+        return {"success": True, "message": "No changes provided"}
+    
+    result = db.patch("groups", {"id": f"eq.{group_id}"}, data)
+    if not result:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    return result[0]
+
+
+@app.delete("/v1/groups/{group_id}")
+def delete_group(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    """Soft delete group - only group owner can delete"""
+    role = group_role(group_id, user.id)
+    if role != "owner" and user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only group owner can delete group")
+    
+    # Soft delete - set deleted_at timestamp
+    result = db.patch("groups", {"id": f"eq.{group_id}"}, {
+        "deleted_at": now_iso(),
+        "updated_at": now_iso()
+    })
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    return {"success": True, "message": "Group deleted successfully"}
+
+
 @app.get("/v1/groups/{group_id}/members")
 def get_group_members(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
     require_group_member(group_id, user)
@@ -1731,6 +1927,223 @@ def get_group_members(group_id: str, user: CurrentUser = Depends(current_user)) 
             "role": row.get("role"),
             "joinedAt": row.get("joined_at"),
         }
+        for row in members
+    ]
+
+
+@app.delete("/v1/groups/{group_id}/members/{user_id}")
+def remove_group_member(group_id: str, user_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    """Remove a member from the group - only admins can remove members"""
+    require_group_admin(group_id, user)
+    
+    # Check if trying to remove self
+    if user_id == user.id:
+        raise HTTPException(status_code=400, detail="Use leave endpoint to remove yourself")
+    
+    # Check target member's role
+    target_role = group_role(group_id, user_id)
+    if not target_role:
+        raise HTTPException(status_code=404, detail="Member not found in group")
+    
+    # Owner cannot be removed
+    if target_role == "owner":
+        raise HTTPException(status_code=403, detail="Cannot remove group owner")
+    
+    # Only owner can remove admins
+    current_role = group_role(group_id, user.id)
+    if target_role in {"admin", "moderator"} and current_role != "owner" and user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only owner can remove admins/moderators")
+    
+    # Remove member (set status to removed)
+    result = db.patch("group_members", {
+        "group_id": f"eq.{group_id}",
+        "user_id": f"eq.{user_id}"
+    }, {
+        "status": "removed",
+        "updated_at": now_iso()
+    })
+    
+    return {"success": True, "message": "Member removed successfully"}
+
+
+class UpdateMemberRoleDto(BaseModel):
+    role: str  # member, moderator, admin
+
+
+@app.patch("/v1/groups/{group_id}/members/{user_id}/role")
+def update_member_role(
+    group_id: str,
+    user_id: str,
+    payload: UpdateMemberRoleDto,
+    user: CurrentUser = Depends(current_user)
+) -> Any:
+    """Update member role - only owner can change roles"""
+    current_role = group_role(group_id, user.id)
+    if current_role != "owner" and user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only group owner can change member roles")
+    
+    # Cannot change owner role
+    target_role = group_role(group_id, user_id)
+    if not target_role:
+        raise HTTPException(status_code=404, detail="Member not found")
+    if target_role == "owner":
+        raise HTTPException(status_code=403, detail="Cannot change owner role")
+    
+    # Validate new role
+    valid_roles = {"member", "moderator", "admin"}
+    if payload.role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+    
+    # Update role
+    result = db.patch("group_members", {
+        "group_id": f"eq.{group_id}",
+        "user_id": f"eq.{user_id}"
+    }, {
+        "role": payload.role,
+        "updated_at": now_iso()
+    })
+    
+    return {"success": True, "message": f"Member role updated to {payload.role}"}
+
+
+class BanMemberDto(BaseModel):
+    reason: Optional[str] = None
+    duration: Optional[str] = None  # "permanent", "24h", "7d", "30d"
+
+
+@app.post("/v1/groups/{group_id}/members/{user_id}/ban")
+def ban_group_member(
+    group_id: str,
+    user_id: str,
+    payload: BanMemberDto,
+    user: CurrentUser = Depends(current_user)
+) -> Any:
+    """Ban a member from the group"""
+    require_group_admin(group_id, user)
+    
+    # Cannot ban owner
+    target_role = group_role(group_id, user_id)
+    if not target_role:
+        raise HTTPException(status_code=404, detail="Member not found")
+    if target_role == "owner":
+        raise HTTPException(status_code=403, detail="Cannot ban group owner")
+    
+    # Only owner can ban admins/moderators
+    current_role = group_role(group_id, user.id)
+    if target_role in {"admin", "moderator"} and current_role != "owner" and user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only owner can ban admins/moderators")
+    
+    # Calculate ban expiry
+    ban_until = None
+    if payload.duration and payload.duration != "permanent":
+        duration_map = {"24h": 1, "7d": 7, "30d": 30}
+        days = duration_map.get(payload.duration, 30)
+        ban_until = (datetime.utcnow() + timedelta(days=days)).isoformat()
+    
+    # Update member status to banned
+    db.patch("group_members", {
+        "group_id": f"eq.{group_id}",
+        "user_id": f"eq.{user_id}"
+    }, {
+        "status": "banned",
+        "updated_at": now_iso()
+    })
+    
+    # Create ban record
+    db.post("group_member_bans", {
+        "id": str(uuid.uuid4()),
+        "group_id": group_id,
+        "user_id": user_id,
+        "banned_by": user.id,
+        "reason": payload.reason,
+        "banned_until": ban_until,
+        "created_at": now_iso()
+    })
+    
+    return {"success": True, "message": "Member banned successfully"}
+
+
+@app.post("/v1/groups/{group_id}/members/{user_id}/unban")
+def unban_group_member(group_id: str, user_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    """Unban a member from the group"""
+    require_group_admin(group_id, user)
+    
+    # Update member status back to active
+    db.patch("group_members", {
+        "group_id": f"eq.{group_id}",
+        "user_id": f"eq.{user_id}",
+        "status": "eq.banned"
+    }, {
+        "status": "active",
+        "updated_at": now_iso()
+    })
+    
+    return {"success": True, "message": "Member unbanned successfully"}
+
+
+class MuteMemberDto(BaseModel):
+    duration: str = "24h"  # "1h", "24h", "7d"
+    reason: Optional[str] = None
+
+
+@app.post("/v1/groups/{group_id}/members/{user_id}/mute")
+def mute_group_member(
+    group_id: str,
+    user_id: str,
+    payload: MuteMemberDto,
+    user: CurrentUser = Depends(current_user)
+) -> Any:
+    """Mute a member in the group (cannot post messages)"""
+    require_group_admin(group_id, user)
+    
+    # Calculate mute expiry
+    duration_map = {"1h": 1/24, "24h": 1, "7d": 7}
+    days = duration_map.get(payload.duration, 1)
+    muted_until = (datetime.utcnow() + timedelta(days=days)).isoformat()
+    
+    # Create or update mute record
+    existing = db.get("group_member_mutes", {
+        "group_id": f"eq.{group_id}",
+        "user_id": f"eq.{user_id}",
+        "select": "id"
+    })
+    
+    if existing:
+        db.patch("group_member_mutes", {
+            "group_id": f"eq.{group_id}",
+            "user_id": f"eq.{user_id}"
+        }, {
+            "muted_until": muted_until,
+            "reason": payload.reason,
+            "muted_by": user.id,
+            "updated_at": now_iso()
+        })
+    else:
+        db.post("group_member_mutes", {
+            "id": str(uuid.uuid4()),
+            "group_id": group_id,
+            "user_id": user_id,
+            "muted_by": user.id,
+            "reason": payload.reason,
+            "muted_until": muted_until,
+            "created_at": now_iso()
+        })
+    
+    return {"success": True, "message": f"Member muted for {payload.duration}"}
+
+
+@app.post("/v1/groups/{group_id}/members/{user_id}/unmute")
+def unmute_group_member(group_id: str, user_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+    """Unmute a member in the group"""
+    require_group_admin(group_id, user)
+    
+    # Delete mute record
+    db.delete("group_member_mutes", {
+        "group_id": f"eq.{group_id}",
+        "user_id": f"eq.{user_id}"
+    })
+    
+    return {"success": True, "message": "Member unmuted successfully"}
         for row in members
     ]
 
@@ -2153,7 +2566,30 @@ async def upload_institution_logo(
     return {"url": public_url, "type": "institution_logo"}
 
 
-# ── 6. Institution document upload ──────────────────────────────
+# ── 6. Institution cover/background upload ──────────────────────
+@app.post("/v1/upload/institution-cover")
+async def upload_institution_cover(
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, str]:
+    """Upload institution cover/background image."""
+    allowed = {"image/png", "image/jpeg", "image/webp"}
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail=f"Only PNG/JPEG/WEBP allowed. Got: {file.content_type}")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_IMAGE_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File too large. Max {MAX_IMAGE_SIZE_MB} MB.")
+
+    ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
+    unique_name  = f"{uuid.uuid4()}.{ext}"
+    storage_path = f"institution-covers/{user.id}/{unique_name}"
+    public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
+
+    return {"url": public_url, "type": "institution_cover"}
+
+
+# ── 7. Institution document upload ──────────────────────────────
 @app.post("/v1/upload/institution-doc")
 async def upload_institution_doc(
     file: UploadFile = File(...),
