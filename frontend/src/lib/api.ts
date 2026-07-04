@@ -368,4 +368,42 @@ export const api = {
   search: {
     query: (q: string) => request(`/search?q=${encodeURIComponent(q)}`),
   },
+  uploadInstitutionLogo: async (formData: FormData) => {
+    const token = await getAccessToken();
+    const deviceId = await getDeviceId();
+    const response = await fetch(`${API_BASE_URL}/upload/institution-logo`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "x-device-id": deviceId,
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "Upload failed");
+    }
+    
+    return response.json() as Promise<{ url: string; type: string }>;
+  },
+  uploadInstitutionDoc: async (formData: FormData) => {
+    const token = await getAccessToken();
+    const deviceId = await getDeviceId();
+    const response = await fetch(`${API_BASE_URL}/upload/institution-doc`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "x-device-id": deviceId,
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "Upload failed");
+    }
+    
+    return response.json() as Promise<{ url: string; type: string }>;
+  },
 };

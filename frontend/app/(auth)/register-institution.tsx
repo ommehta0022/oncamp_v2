@@ -1,8 +1,10 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
@@ -16,10 +18,12 @@ export default function RegisterInstitution() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   const [form, setForm] = useState({
     name: "", type: "College", city: "", state: "", country: "India",
     email: "", phone: "", adminName: "", designation: "", website: "",
-    reason: "",
+    reason: "", logoUrl: "", documentUrl: "",
   });
   const set = (k: string, v: string) => setForm((s) => ({ ...s, [k]: v }));
 
@@ -27,6 +31,77 @@ export default function RegisterInstitution() {
     step === 1 ? form.name && form.city :
     step === 2 ? form.email && form.phone && form.adminName && form.designation :
     true;
+
+  const pickLogo = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setUploadingLogo(true);
+        const asset = result.assets[0];
+        
+        // Create FormData for upload
+        const formData = new FormData();
+        const uriParts = asset.uri.split('.');
+        const fileType = uriParts[uriParts.length - 1];
+        
+        formData.append('file', {
+          uri: asset.uri,
+          name: `logo.${fileType}`,
+          type: `image/${fileType}`,
+        } as any);
+
+        // Upload to backend
+        const response = await api.uploadInstitutionLogo(formData);
+        set('logoUrl', response.url);
+        setUploadingLogo(false);
+        Alert.alert('Success', 'Logo uploaded successfully');
+      }
+    } catch (error) {
+      setUploadingLogo(false);
+      Alert.alert('Upload Failed', 'Failed to upload logo. Please try again.');
+      console.error('Logo upload error:', error);
+    }
+  };
+
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.type === 'success') {
+        setUploadingDoc(true);
+        
+        // Create FormData for upload
+        const formData = new FormData();
+        const uriParts = result.uri.split('.');
+        const fileType = uriParts[uriParts.length - 1];
+        
+        formData.append('file', {
+          uri: result.uri,
+          name: result.name || `document.${fileType}`,
+          type: result.mimeType || `application/${fileType}`,
+        } as any);
+
+        // Upload to backend
+        const response = await api.uploadInstitutionDoc(formData);
+        set('documentUrl', response.url);
+        setUploadingDoc(false);
+        Alert.alert('Success', 'Document uploaded successfully');
+      }
+    } catch (error) {
+      setUploadingDoc(false);
+      Alert.alert('Upload Failed', 'Failed to upload document. Please try again.');
+      console.error('Document upload error:', error);
+    }
+  };
 
   const submit = async () => {
     setSubmitting(true);
@@ -42,12 +117,15 @@ export default function RegisterInstitution() {
         website: form.website,
         adminName: form.adminName,
         designation: form.designation,
+        logoUrl: form.logoUrl,
+        documentUrl: form.documentUrl,
       });
-    } catch {
-      // Keep the flow reviewable in browser during local development.
+      router.replace("/institution/dashboard");
+    } catch (error) {
+      Alert.alert('Submission Failed', 'Failed to submit registration. Please try again.');
+      console.error('Registration error:', error);
     } finally {
       setSubmitting(false);
-      router.replace("/institution/dashboard");
     }
   };
 
@@ -136,8 +214,20 @@ export default function RegisterInstitution() {
                 Upload institution logo and any official identification. Our team reviews within 48 hours.
               </Text>
 
-              <UploadBox label="Institution logo" hint="PNG or SVG, min 512px" />
-              <UploadBox label="Verification documents" hint="Registration / accreditation / govt. authorization" />
+              <UploadBox 
+                label="Institution logo" 
+                hint="PNG or SVG, min 512px" 
+                onPress={pickLogo}
+                uploading={uploadingLogo}
+                uploaded={!!form.logoUrl}
+              />
+              <UploadBox 
+                label="Verification documents" 
+                hint="Registration / accreditation / govt. authorization" 
+                onPress={pickDocument}
+                uploading={uploadingDoc}
+                uploaded={!!form.documentUrl}
+              />
 
               <Field label="Reason / use case" value={form.reason} onChange={(v) => set("reason", v)} placeholder="Briefly tell us why you're joining OnCampus" multiline />
 
@@ -213,17 +303,40 @@ function Field({
   );
 }
 
-function UploadBox({ label, hint }: { label: string; hint: string }) {
+function UploadBox({ label, hint, onPress, uploading, uploaded }: { 
+  label: string; 
+  hint: string; 
+  onPress: () => void;
+  uploading?: boolean;
+  uploaded?: boolean;
+}) {
   const { colors } = useTheme();
   return (
     <Pressable
-      style={[styles.upload, { borderColor: colors.borderStrong, backgroundColor: colors.surfaceSecondary }]}
+      onPress={onPress}
+      disabled={uploading}
+      style={[
+        styles.upload, 
+        { 
+          borderColor: uploaded ? colors.brandPrimary : colors.borderStrong, 
+          backgroundColor: uploaded ? colors.brandTertiary : colors.surfaceSecondary,
+          opacity: uploading ? 0.6 : 1,
+        }
+      ]}
     >
-      <View style={[styles.uploadIcon, { backgroundColor: colors.brandTertiary }]}>
-        <Ionicons name="cloud-upload-outline" size={22} color={colors.onBrandTertiary} />
+      <View style={[styles.uploadIcon, { backgroundColor: uploaded ? colors.brandPrimary : colors.brandTertiary }]}>
+        {uploading ? (
+          <Text style={{ color: colors.onBrandTertiary, fontSize: 18 }}>⏳</Text>
+        ) : uploaded ? (
+          <Ionicons name="checkmark-circle" size={22} color={colors.onBrandPrimary} />
+        ) : (
+          <Ionicons name="cloud-upload-outline" size={22} color={colors.onBrandTertiary} />
+        )}
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{label}</Text>
+        <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>
+          {uploading ? "Uploading..." : uploaded ? `${label} ✓` : label}
+        </Text>
         <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{hint}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />

@@ -1252,6 +1252,7 @@ class InstitutionRegistrationDto(BaseModel):
     website: Optional[str] = None
     adminName: str
     designation: Optional[str] = None
+    logoUrl: Optional[str] = None
     documentUrl: Optional[str] = None
 
 
@@ -1271,6 +1272,7 @@ def register_institution(payload: InstitutionRegistrationDto) -> Any:
             "website": payload.website,
             "admin_name": payload.adminName,
             "designation": payload.designation,
+            "logo_url": payload.logoUrl,
             "document_url": payload.documentUrl,
             "status": "pending",
         },
@@ -1279,34 +1281,51 @@ def register_institution(payload: InstitutionRegistrationDto) -> Any:
 
 @app.get("/v1/institutions/me/dashboard")
 def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    """Get institution dashboard data with error handling for null institution_id"""
     admin = require_institution_admin(user)
     institution_id = admin.get("institution_id")
+    
+    # Handle case where institution_id is None (pending verification)
     institution = None
     if institution_id:
-        rows = db.get("institutions", {"id": f"eq.{institution_id}", "select": "*"})
+        rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "*"})
         institution = rows[0] if rows else None
 
+    # Scope queries by institution_id if available
     scoped = {"institution_id": f"eq.{institution_id}"} if institution_id else {}
-    posts = db.get("posts", {**scoped, "select": "id,status,type,created_at", "order": "created_at.desc", "limit": "20"})
-    groups = db.get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,city,category,visibility,official"})
-    requests = db.get(
-        "institution_verification_requests",
-        {"institution_id": f"eq.{institution_id}", "select": "id,status,created_at", "order": "created_at.desc", "limit": "20"}
-        if institution_id
-        else {"select": "id,status,created_at", "order": "created_at.desc", "limit": "20"},
-    )
+    
+    # Fetch posts with error handling
+    posts = safe_get("posts", {**scoped, "select": "id,status,type,created_at", "order": "created_at.desc", "limit": "20"}) or []
+    
+    # Fetch groups with error handling
+    groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,city,category,visibility,official"}) or []
+    
+    # Fetch verification requests
+    if institution_id:
+        requests = safe_get(
+            "institution_verification_requests",
+            {"institution_id": f"eq.{institution_id}", "select": "id,status,created_at", "order": "created_at.desc", "limit": "20"}
+        ) or []
+    else:
+        # For admins without institution_id, check if they have any pending verification requests
+        requests = safe_get(
+            "institution_verification_requests",
+            {"official_email": f"eq.{user.email}" if hasattr(user, 'email') else None, "select": "id,status,created_at", "order": "created_at.desc", "limit": "20"}
+        ) or [] if hasattr(user, 'email') else []
+    
     return {
         "institution": institution,
         "role": admin.get("role", "platform_admin"),
         "counts": {
             "posts": len(posts),
             "groups": len(groups),
-            "members": sum(group_member_count(group["id"]) for group in groups),
+            "members": sum(group_member_count(group["id"]) for group in groups) if groups else 0,
             "verificationRequests": len(requests),
         },
         "recentPosts": posts,
         "groups": groups,
         "verificationRequests": requests,
+        "pendingVerification": institution_id is None,  # Flag to show pending verification state
     }
 
 
@@ -2111,7 +2130,30 @@ async def upload_message_media(
     return {"url": public_url, "mediaType": media_type}
 
 
-# ── 5. Institution document upload ──────────────────────────────
+# ── 5. Institution logo upload ──────────────────────────────────
+@app.post("/v1/upload/institution-logo")
+async def upload_institution_logo(
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, str]:
+    """Upload institution logo (PNG/SVG)."""
+    allowed = {"image/png", "image/svg+xml", "image/jpeg", "image/webp"}
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail=f"Only PNG/SVG/JPEG/WEBP allowed. Got: {file.content_type}")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_IMAGE_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File too large. Max {MAX_IMAGE_SIZE_MB} MB.")
+
+    ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "png"
+    unique_name  = f"{uuid.uuid4()}.{ext}"
+    storage_path = f"institution-logos/{user.id}/{unique_name}"
+    public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
+
+    return {"url": public_url, "type": "institution_logo"}
+
+
+# ── 6. Institution document upload ──────────────────────────────
 @app.post("/v1/upload/institution-doc")
 async def upload_institution_doc(
     file: UploadFile = File(...),

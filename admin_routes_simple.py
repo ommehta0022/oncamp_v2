@@ -716,6 +716,24 @@ async def get_city_metrics(admin: dict = Depends(get_current_admin)):
     return [{"city": city, "users": total} for city, total in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:20]]
 
 
+@router.get("/institutions/verification-requests")
+async def get_institution_verification_requests(
+    admin: dict = Depends(get_current_admin),
+    status: Optional[str] = Query(None, description="Filter by status: pending, approved, rejected, needs_changes, or all")
+):
+    """
+    Get institution verification requests with optional status filtering.
+    Used by admin panel to display institutions awaiting verification.
+    """
+    filters = {"select": "*", "order": "created_at.desc"}
+    if status and status != "all":
+        filters["status"] = f"eq.{status}"
+    
+    requests = safe_get("institution_verification_requests", filters)
+    log_admin_action(admin, "VIEW_INSTITUTION_REQUESTS", f"Viewed {len(requests)} institution verification requests")
+    return requests
+
+
 @router.get("/analytics/institutions")
 async def get_institution_metrics(admin: dict = Depends(get_current_admin)):
     institutions = safe_get("institutions", {"select": "id,name", "limit": "10000"})
