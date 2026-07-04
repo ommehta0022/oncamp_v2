@@ -3,6 +3,8 @@ import base64
 import hashlib
 import json
 import os
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
 from pathlib import Path
 import uuid
 from typing import Any, Optional

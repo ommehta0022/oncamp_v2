@@ -4,6 +4,9 @@ Sends verification codes via SMS using Twilio API
 """
 
 import os
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+
 import random
 import hashlib
 from typing import Optional, Tuple
