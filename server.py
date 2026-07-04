@@ -368,7 +368,62 @@ def current_user(
         token = authorization.removeprefix("Bearer ").strip()
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            return CurrentUser(id=payload["sub"], role=payload.get("role", "normal_user"))
+            user_id = payload["sub"]
+            
+            # SECURITY: Check if user is blacklisted (deleted/banned)
+            blacklist_check = safe_get("token_blacklist", {
+                "user_id": f"eq.{user_id}",
+                "select": "reason,expires_at",
+                "limit": "1"
+            })
+            
+            if blacklist_check:
+                blacklist = blacklist_check[0]
+                expires_at = blacklist.get("expires_at")
+                
+                # Check if blacklist is still active
+                if expires_at is None or datetime.fromisoformat(expires_at.replace('Z', '+00:00')) > datetime.now(timezone.utc):
+                    reason = blacklist.get("reason", "access_revoked")
+                    
+                    # Log the blocked attempt
+                    try:
+                        db.post("audit_logs", {
+                            "action": "BLOCKED_TOKEN_ATTEMPT",
+                            "target_type": "user",
+                            "target_id": user_id,
+                            "details": f"Blacklisted user attempted access: {reason}"
+                        })
+                    except:
+                        pass
+                    
+                    raise HTTPException(
+                        status_code=403, 
+                        detail="Access revoked. Your account has been deleted or banned."
+                    )
+            
+            # Also check user status directly
+            user_check = safe_get("users", {
+                "id": f"eq.{user_id}",
+                "select": "status",
+                "limit": "1"
+            })
+            
+            if user_check:
+                status = user_check[0].get("status")
+                if status in ("banned", "deleted"):
+                    raise HTTPException(
+                        status_code=403, 
+                        detail=f"Account {status}. Please contact support."
+                    )
+            else:
+                # User doesn't exist in database
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Account not found. Your account may have been deleted."
+                )
+            
+            return CurrentUser(id=user_id, role=payload.get("role", "normal_user"))
+            
         except jwt.PyJWTError:
             raise HTTPException(status_code=401, detail="Invalid access token")
 

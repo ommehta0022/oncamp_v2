@@ -807,15 +807,40 @@ async def mute_user(user_id: str, payload: MuteUserRequest, admin: dict = Depend
 
 @router.post("/users/{user_id}/ban")
 async def ban_user(user_id: str, payload: ReasonRequest = Body(default=ReasonRequest()), admin: dict = Depends(get_current_admin)):
+    # Ban the user
     result = safe_patch("users", {"id": f"eq.{user_id}"}, {"status": "banned", "updated_at": now_iso()})
+    
+    # Revoke all device tokens
     safe_patch("user_devices", {"user_id": f"eq.{user_id}"}, {"revoked_at": now_iso()})
+    
+    # SECURITY: Blacklist user tokens to force logout everywhere
+    try:
+        safe_post("token_blacklist", {
+            "user_id": user_id,
+            "reason": "user_banned",
+            "admin_id": get_admin_id(admin),
+            "expires_at": None,  # Permanent unless unbanned
+            "notes": payload.reason or "User banned by admin"
+        })
+    except Exception as e:
+        # Log but don't fail if blacklist fails
+        print(f"Warning: Failed to blacklist user tokens: {e}")
+    
     log_admin_action(admin, "USER_BAN", payload.reason or "User banned", "user", user_id)
     return result[0] if result else {"success": True}
 
 
 @router.post("/users/{user_id}/unban")
 async def unban_user(user_id: str, admin: dict = Depends(get_current_admin)):
+    # Unban the user
     result = safe_patch("users", {"id": f"eq.{user_id}"}, {"status": "active", "updated_at": now_iso()})
+    
+    # SECURITY: Remove from blacklist to allow login again
+    try:
+        db_client.delete("token_blacklist", {"user_id": f"eq.{user_id}", "reason": "eq.user_banned"})
+    except Exception as e:
+        print(f"Warning: Failed to remove from blacklist: {e}")
+    
     log_admin_action(admin, "USER_UNBAN", "User unbanned", "user", user_id)
     return result[0] if result else {"success": True}
 
@@ -836,6 +861,18 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
         raise HTTPException(status_code=404, detail="User not found")
 
     user_name = existing[0].get("name", "Unknown")
+    
+    # SECURITY: Blacklist user tokens BEFORE deletion to force immediate logout
+    try:
+        safe_post("token_blacklist", {
+            "user_id": user_id,
+            "reason": "user_deleted",
+            "admin_id": get_admin_id(admin),
+            "expires_at": None,  # Permanent
+            "notes": f"User '{user_name}' deleted by admin"
+        })
+    except Exception as e:
+        print(f"Warning: Failed to blacklist user tokens: {e}")
 
     # Cascade delete related data first (FK constraints)
     try:
