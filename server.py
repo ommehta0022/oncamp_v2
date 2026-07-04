@@ -669,7 +669,10 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
             challenge = challenges[0]
             
             # Check expiration
-            expires_at = datetime.fromisoformat(challenge["expires_at"].replace('Z', '+00:00'))
+            expires_at_str = challenge.get("expires_at", "")
+            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) > expires_at:
                 raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
             
