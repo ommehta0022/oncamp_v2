@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { api } from "@/src/lib/api";
+import { api, getAccessToken } from "@/src/lib/api";
 import { AppState, AppStateStatus } from "react-native";
 
 /**
  * Hook to fetch real-time badge counts for tabs
  * Updates every 30 seconds and when app returns to foreground
+ * Only fetches if user is authenticated
  */
 export function useTabBadges() {
   const [groupsUnread, setGroupsUnread] = useState(0);
@@ -12,6 +13,15 @@ export function useTabBadges() {
 
   const fetchBadges = async () => {
     try {
+      // Check if user is authenticated first
+      const token = await getAccessToken();
+      if (!token) {
+        // User not logged in, reset badges
+        setGroupsUnread(0);
+        setNotificationsUnread(0);
+        return;
+      }
+
       // Fetch groups with unread counts
       const groups = await api.groups.listMine();
       const totalUnread = groups.reduce((sum, g) => sum + (g.unread || 0), 0);
@@ -24,7 +34,11 @@ export function useTabBadges() {
         setNotificationsUnread(unreadCount > 99 ? 99 : unreadCount);
       }
     } catch (error) {
-      console.error("Failed to fetch tab badges:", error);
+      // Silently fail if authentication error
+      const message = error instanceof Error ? error.message : "";
+      if (!message.includes("Authentication required")) {
+        console.error("Failed to fetch tab badges:", error);
+      }
     }
   };
 
