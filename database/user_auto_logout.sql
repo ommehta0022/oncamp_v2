@@ -120,20 +120,17 @@ COMMENT ON TRIGGER trg_blacklist_on_user_delete ON users IS 'Auto-blacklist user
 CREATE OR REPLACE FUNCTION trigger_blacklist_on_user_ban()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- If user status changed to banned or deleted
-  IF NEW.status IN ('banned', 'deleted') AND OLD.status NOT IN ('banned', 'deleted') THEN
+  -- If user status changed to banned (only valid status for blocking)
+  IF NEW.status = 'banned' AND OLD.status != 'banned' THEN
     PERFORM blacklist_user_tokens(
       NEW.id,
-      CASE 
-        WHEN NEW.status = 'banned' THEN 'user_banned'
-        WHEN NEW.status = 'deleted' THEN 'user_deleted'
-      END,
+      'user_banned',
       NULL, -- Admin ID from context
       CASE 
-        WHEN NEW.status = 'banned' AND NEW.banned_until IS NOT NULL THEN NEW.banned_until
+        WHEN NEW.banned_until IS NOT NULL THEN NEW.banned_until
         ELSE NULL -- Permanent
       END,
-      CONCAT('User status changed to ', NEW.status)
+      'User status changed to banned'
     );
   END IF;
   
@@ -148,10 +145,10 @@ DROP TRIGGER IF EXISTS trg_blacklist_on_user_ban ON users;
 CREATE TRIGGER trg_blacklist_on_user_ban
   AFTER UPDATE OF status ON users
   FOR EACH ROW
-  WHEN (NEW.status IN ('banned', 'deleted'))
+  WHEN (NEW.status = 'banned')
   EXECUTE FUNCTION trigger_blacklist_on_user_ban();
 
-COMMENT ON TRIGGER trg_blacklist_on_user_ban ON users IS 'Auto-blacklist user tokens when user is banned or soft-deleted';
+COMMENT ON TRIGGER trg_blacklist_on_user_ban ON users IS 'Auto-blacklist user tokens when user is banned';
 
 -- ============================================================================
 -- 5. Function to check if user is blacklisted

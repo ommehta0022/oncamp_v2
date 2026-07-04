@@ -410,10 +410,10 @@ def current_user(
             
             if user_check:
                 status = user_check[0].get("status")
-                if status in ("banned", "deleted"):
+                if status == "banned":
                     raise HTTPException(
                         status_code=403, 
-                        detail=f"Account {status}. Please contact support."
+                        detail="Account banned. Please contact support."
                     )
             else:
                 # User doesn't exist in database
