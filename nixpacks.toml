@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["python311"]
+
+[phases.install]
+cmds = ["cd backend && pip install --upgrade pip", "cd backend && pip install -r requirements.txt"]
+
+[phases.build]
+cmds = ["cd backend && python check_twilio.py || true"]
+
+[start]
+cmd = "cd backend && python startup_check.py && uvicorn server:app --host 0.0.0.0 --port $PORT"
