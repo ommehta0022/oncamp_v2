@@ -182,7 +182,12 @@ class ApiClient {
     return response.data;
   }
 
-  // Groups
+  async deleteUser(id: string) {
+    const response = await this.client.delete(`/admin/users/${id}`);
+    return response.data;
+  }
+
+
   async getGroups(params?: {
     page?: number;
     limit?: number;

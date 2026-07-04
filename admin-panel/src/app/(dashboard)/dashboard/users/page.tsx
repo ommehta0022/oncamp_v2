@@ -9,6 +9,8 @@ import {
   Eye,
   CheckCircle,
   Clock,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 
 interface User {
@@ -37,6 +39,21 @@ export default function UsersPage() {
     page: 1,
     limit: 1000,
     total: 0,
+  });
+
+  // Delete modal state
+  const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    user: User | null;
+    confirmText: string;
+    deleting: boolean;
+    error: string | null;
+  }>({
+    open: false,
+    user: null,
+    confirmText: "",
+    deleting: false,
+    error: null,
   });
 
   useEffect(() => {
@@ -90,6 +107,34 @@ export default function UsersPage() {
     URL.revokeObjectURL(url);
   };
 
+  const openDeleteModal = (user: User) => {
+    setDeleteModal({ open: true, user, confirmText: "", deleting: false, error: null });
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteModal({ open: false, user: null, confirmText: "", deleting: false, error: null });
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteModal.user) return;
+    if (deleteModal.confirmText !== "DELETE") {
+      setDeleteModal((prev) => ({ ...prev, error: 'Type "DELETE" exactly to confirm.' }));
+      return;
+    }
+    setDeleteModal((prev) => ({ ...prev, deleting: true, error: null }));
+    try {
+      await api.deleteUser(deleteModal.user.id);
+      setUsers((prev) => prev.filter((u) => u.id !== deleteModal.user!.id));
+      closeDeleteModal();
+    } catch (err: any) {
+      setDeleteModal((prev) => ({
+        ...prev,
+        deleting: false,
+        error: err?.response?.data?.detail || "Failed to delete user. Please try again.",
+      }));
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const styles = {
       active: "bg-green-100 text-green-800",
@@ -101,6 +146,86 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
+      {/* Delete Confirmation Modal */}
+      {deleteModal.open && deleteModal.user && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Modal Header */}
+            <div className="bg-red-50 px-6 py-4 flex items-center space-x-3 border-b border-red-100">
+              <div className="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-red-900">Delete User Permanently</h3>
+                <p className="text-sm text-red-600">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-4 space-y-1">
+                <p className="text-sm font-medium text-gray-700">User to be deleted:</p>
+                <p className="text-base font-bold text-gray-900">{deleteModal.user.name || "Unknown"}</p>
+                <p className="text-sm text-gray-500">ID: {deleteModal.user.id}</p>
+                <p className="text-sm text-gray-500">Institution: {deleteModal.user.institution || "—"}</p>
+              </div>
+
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-700">
+                  <strong>Warning:</strong> This will permanently delete the user and all their data including messages, group memberships, and devices from the database.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Type <span className="font-mono font-bold text-red-600">DELETE</span> to confirm
+                </label>
+                <input
+                  type="text"
+                  value={deleteModal.confirmText}
+                  onChange={(e) => setDeleteModal((prev) => ({ ...prev, confirmText: e.target.value, error: null }))}
+                  placeholder="Type DELETE"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 font-mono"
+                  onKeyDown={(e) => e.key === "Enter" && handleDeleteUser()}
+                  autoFocus
+                />
+                {deleteModal.error && (
+                  <p className="mt-2 text-sm text-red-600">{deleteModal.error}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex space-x-3 justify-end">
+              <button
+                onClick={closeDeleteModal}
+                disabled={deleteModal.deleting}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteUser}
+                disabled={deleteModal.deleting || deleteModal.confirmText !== "DELETE"}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                {deleteModal.deleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Permanently Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -267,12 +392,22 @@ export default function UsersPage() {
                       {new Date(user.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => router.push(`/dashboard/users/${user.id}`)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        <Eye className="w-5 h-5" />
-                      </button>
+                      <div className="flex items-center justify-end space-x-3">
+                        <button
+                          onClick={() => router.push(`/dashboard/users/${user.id}`)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="View user"
+                        >
+                          <Eye className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => openDeleteModal(user)}
+                          className="text-red-500 hover:text-red-700 transition-colors"
+                          title="Delete user permanently"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

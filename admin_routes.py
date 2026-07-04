@@ -451,6 +451,54 @@ async def verify_user(
     
     return result
 
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    admin: dict = Depends(get_current_admin)
+):
+    """Permanently delete a user and all their data from the database"""
+    # Check user exists first
+    existing = db.query("users", filters={"id": user_id})
+    if not existing.get("data"):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_name = existing["data"][0].get("name", "Unknown")
+
+    # Delete related data first (FK constraints)
+    try:
+        db.execute_query(f"DELETE FROM user_devices WHERE user_id = '{user_id}'")
+    except Exception:
+        pass
+    try:
+        db.execute_query(f"DELETE FROM group_members WHERE user_id = '{user_id}'")
+    except Exception:
+        pass
+    try:
+        db.execute_query(f"DELETE FROM messages WHERE sender_id = '{user_id}'")
+    except Exception:
+        pass
+    try:
+        db.execute_query(f"DELETE FROM notifications WHERE user_id = '{user_id}'")
+    except Exception:
+        pass
+
+    # Finally hard-delete the user row
+    db.delete("users", user_id)
+
+    # Log the action
+    try:
+        db.insert("audit_logs", {
+            "admin_id": admin["id"],
+            "action": "USER_DELETE",
+            "target_type": "user",
+            "target_id": user_id,
+            "details": f"Permanently deleted user: {user_name}"
+        })
+    except Exception:
+        pass
+
+    return {"success": True, "message": f"User '{user_name}' permanently deleted"}
+
 # ============================================================================
 # GROUP MANAGEMENT
 # ============================================================================
