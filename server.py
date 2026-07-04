@@ -504,6 +504,7 @@ def require_institution_admin(user: CurrentUser) -> dict[str, Any]:
     raise HTTPException(status_code=403, detail="Institution admin access required")
 
 
+@app.get("/")
 @app.get("/health")
 @app.get("/v1/health")
 def health() -> dict[str, Any]:
