@@ -111,7 +111,8 @@ admin-panel/.next/
 /*.md
 !README.md
 !CHANGELOG.md
-/*.txt
+# /*.txt  # removed - requirements.txt must be tracked
+!requirements.txt
 *.sql
 *.ps1
 *.sh
