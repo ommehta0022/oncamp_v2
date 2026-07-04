@@ -251,11 +251,12 @@ def rest_get(table: str, params: Optional[dict[str, Any]] = None, count: bool = 
 
 
 def count_rows(table: str, filters: Optional[dict[str, Any]] = None) -> int:
-    params = {"select": "*", **(filters or {})}
+    params = {"limit": "0", **(filters or {})}
     try:
         _, total = rest_get(table, params, count=True)
         return total
-    except HTTPException:
+    except Exception as e:
+        print(f"count_rows failed for table {table}: {e}")
         return 0
 
 
