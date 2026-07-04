@@ -77,16 +77,37 @@ export default function DashboardLayout({
     // Fetch badge counts
     const fetchStats = async () => {
       try {
-        const [dashboard, settings, notifications, institutions] = await Promise.all([
+        const [dashboard, settings, notifications] = await Promise.all([
           api.getDashboard(),
           api.getSettings(),
           api.getAdminNotificationStats(),
-          api.get('/database/query?table=institution_verification_requests&status=eq.pending&select=count').catch(() => ({ count: 0 })),
         ]);
+        
+        // Fetch pending institutions count separately
+        let institutionsCount = 0;
+        try {
+          const token = localStorage.getItem('admin_token');
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/database/query?table=institution_verification_requests&status=eq.pending&select=count`,
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            institutionsCount = data?.length || 0;
+          }
+        } catch (error) {
+          console.error('Failed to fetch institutions count:', error);
+        }
+        
         setStats({
           pendingReports: dashboard.pendingReports || 0,
           unresolvedErrors: dashboard.unresolvedErrors || 0,
-          pendingInstitutions: institutions?.length || 0,
+          pendingInstitutions: institutionsCount,
         });
         if (settings?.appName) {
           setPlatformName(settings.appName);
