@@ -337,7 +337,7 @@ export const api = {
       request(`/groups/${groupId}/join-requests/${requestId}/reject`, { method: "POST" }),
   },
   institutions: {
-    register: (body: unknown) => request("/institutions/register", { method: "POST", auth: false, body }),
+    register: (body: unknown) => request("/institutions/register", { method: "POST", body }),  // FIXED: Now requires auth
     dashboard: () => request("/institutions/me/dashboard"),
     analytics: () => request("/institutions/me/analytics"),
     updateMe: (body: unknown) => request("/institutions/me", { method: "PATCH", body }),

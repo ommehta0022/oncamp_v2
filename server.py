@@ -1386,11 +1386,23 @@ class InstitutionRegistrationDto(BaseModel):
 
 
 @app.post("/v1/institutions/register")
-def register_institution(payload: InstitutionRegistrationDto) -> Any:
+def register_institution(payload: InstitutionRegistrationDto, user: CurrentUser = Depends(current_user)) -> Any:
+    """Register institution for verification - requires authentication"""
+    # Check if user already has a pending request
+    existing = safe_get("institution_verification_requests", {
+        "submitted_by": f"eq.{user.id}",
+        "status": "eq.pending",
+        "select": "id"
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="You already have a pending verification request")
+    
+    # Create verification request
     return db.post(
         "institution_verification_requests",
         {
             "id": str(uuid.uuid4()),
+            "submitted_by": user.id,  # Link to current user
             "institution_name": payload.institutionName,
             "institution_type": payload.institutionType,
             "city": payload.city,
@@ -1404,6 +1416,7 @@ def register_institution(payload: InstitutionRegistrationDto) -> Any:
             "logo_url": payload.logoUrl,
             "document_url": payload.documentUrl,
             "status": "pending",
+            "created_at": now_iso(),
         },
     )[0]
 
@@ -1411,8 +1424,15 @@ def register_institution(payload: InstitutionRegistrationDto) -> Any:
 @app.get("/v1/institutions/me/dashboard")
 def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     """Get institution dashboard data with error handling for null institution_id"""
-    admin = require_institution_admin(user)
-    institution_id = admin.get("institution_id")
+    # Check if user is institution admin
+    admin_rows = safe_get("institution_admins", {
+        "user_id": f"eq.{user.id}",
+        "status": "eq.active",
+        "select": "institution_id,role"
+    })
+    
+    admin = admin_rows[0] if admin_rows else None
+    institution_id = admin.get("institution_id") if admin else None
     
     # Handle case where institution_id is None (pending verification)
     institution = None
@@ -1429,22 +1449,20 @@ def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str
     # Fetch groups with error handling
     groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,city,category,visibility,official"}) or []
     
-    # Fetch verification requests
-    if institution_id:
-        requests = safe_get(
-            "institution_verification_requests",
-            {"institution_id": f"eq.{institution_id}", "select": "id,status,created_at", "order": "created_at.desc", "limit": "20"}
-        ) or []
-    else:
-        # For admins without institution_id, check if they have any pending verification requests
-        requests = safe_get(
-            "institution_verification_requests",
-            {"official_email": f"eq.{user.email}" if hasattr(user, 'email') else None, "select": "id,status,created_at", "order": "created_at.desc", "limit": "20"}
-        ) or [] if hasattr(user, 'email') else []
+    # Fetch verification requests - CRITICAL FIX: fetch by submitted_by user_id
+    requests = safe_get(
+        "institution_verification_requests",
+        {
+            "submitted_by": f"eq.{user.id}",
+            "select": "id,status,institution_name,logo_url,document_url,created_at,review_notes",
+            "order": "created_at.desc",
+            "limit": "20"
+        }
+    ) or []
     
     return {
         "institution": institution,
-        "role": admin.get("role", "platform_admin"),
+        "role": admin.get("role") if admin else None,
         "counts": {
             "posts": len(posts),
             "groups": len(groups),
