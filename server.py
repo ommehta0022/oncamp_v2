@@ -2162,8 +2162,7 @@ def unmute_group_member(group_id: str, user_id: str, user: CurrentUser = Depends
     })
     
     return {"success": True, "message": "Member unmuted successfully"}
-        for row in members
-    ]
+
 
 @app.get("/v1/groups/{group_id}/join-requests")
 def get_join_requests(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
