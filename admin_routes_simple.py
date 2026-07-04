@@ -12,13 +12,19 @@ import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, EmailStr
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+import bcrypt
 import jwt
 import requests
 
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-change-me")
+
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -318,7 +324,7 @@ def token_pair(admin: dict[str, Any]) -> tuple[str, str]:
             "email": admin["email"],
             "role": admin["role"],
             "type": "admin",
-            "exp": datetime.utcnow() + timedelta(days=7),
+            "exp": datetime.utcnow() + timedelta(minutes=15),  # SECURITY: Short-lived tokens
         },
         JWT_SECRET,
         algorithm="HS256",
@@ -327,7 +333,7 @@ def token_pair(admin: dict[str, Any]) -> tuple[str, str]:
         {
             "user_id": admin["id"],
             "type": "admin_refresh",
-            "exp": datetime.utcnow() + timedelta(days=30),
+            "exp": datetime.utcnow() + timedelta(days=7),  # Reduced from 30 to 7 days
         },
         JWT_SECRET,
         algorithm="HS256",
@@ -381,40 +387,190 @@ def daily_count(table: str, day: date) -> int:
 
 
 # ============================================================================
+# SECURITY FUNCTIONS (CRITICAL - Phase 1)
+# ============================================================================
+
+def hash_password_bcrypt(password: str) -> str:
+    """Hash password using bcrypt (SECURE)"""
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
+
+
+def verify_password_bcrypt(password: str, password_hash: str) -> bool:
+    """Verify password against bcrypt hash"""
+    try:
+        password_bytes = password.encode('utf-8')
+        hash_bytes = password_hash.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hash_bytes)
+    except Exception:
+        return False
+
+
+def verify_password_legacy(password: str, password_hash: str, algorithm: str) -> bool:
+    """Verify password against legacy hash (for migration)"""
+    if algorithm == "sha256":
+        computed = hashlib.sha256(password.encode()).hexdigest()
+        return computed == password_hash
+    return False
+
+
+def check_rate_limit(email: str) -> tuple[bool, Optional[str]]:
+    """Check rate limit for login attempts. Returns (is_allowed, error_message)"""
+    try:
+        window_start = (datetime.utcnow() - timedelta(minutes=15)).isoformat()
+        attempts = safe_get("failed_login_attempts", {
+            "email": f"eq.{email}",
+            "last_attempt": f"gte.{window_start}",
+        })
+        
+        if not attempts:
+            return True, None
+        
+        recent_count = len(attempts)
+        
+        # Check lockout (10 attempts = 1 hour lockout)
+        if recent_count >= 10:
+            first_attempt = attempts[0].get("last_attempt", "")
+            if first_attempt:
+                lockout_time = datetime.fromisoformat(first_attempt.replace('Z', '+00:00'))
+                lockout_end = lockout_time + timedelta(hours=1)
+                if datetime.now(timezone.utc) < lockout_end:
+                    remaining = (lockout_end - datetime.now(timezone.utc)).seconds // 60
+                    return False, f"Too many failed attempts. Account locked for {remaining} more minutes."
+        
+        # Check rate limit (5 attempts in 15 minutes)
+        if recent_count >= 5:
+            return False, "Too many login attempts. Please try again in 15 minutes."
+        
+        return True, None
+    except Exception:
+        return True, None  # Fail open for availability
+
+
+def record_failed_login(email: str, ip_address: str, reason: str = "invalid_credentials") -> None:
+    """Record failed login attempt"""
+    try:
+        safe_post("failed_login_attempts", {
+            "email": email,
+            "ip_address": ip_address,
+            "reason": reason,
+            "last_attempt": datetime.utcnow().isoformat(),
+        })
+    except Exception:
+        pass
+
+
+def clear_failed_attempts(email: str) -> None:
+    """Clear failed attempts after successful login"""
+    try:
+        safe_patch(
+            "failed_login_attempts",
+            {"email": f"eq.{email}"},
+            {"reason": "cleared_after_success"}
+        )
+    except Exception:
+        pass
+
+
+def extract_ip_address(request: Request) -> str:
+    """Extract IP address from request (handle proxies)"""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+# ============================================================================
 # AUTHENTICATION
 # ============================================================================
 
 
 @router.post("/auth/login", response_model=AdminLoginResponse)
-async def admin_login(request: AdminLoginRequest):
-    password_hash = hashlib.sha256(request.password.encode()).hexdigest()
-
+@limiter.limit("5/minute")  # SECURITY: Rate limiting
+async def admin_login(request: Request, login_request: AdminLoginRequest):
+    """
+    Admin login with enhanced security:
+    - Rate limiting (5 attempts per minute)
+    - Bcrypt password hashing
+    - Account lockout after 10 failed attempts
+    - Automatic hash migration from SHA256 to bcrypt
+    """
+    ip_address = extract_ip_address(request)
+    
+    # SECURITY: Check rate limit
+    allowed, error_msg = check_rate_limit(login_request.email)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=error_msg)
+    
+    # Get admin user
     admins = safe_get(
         "admin_users",
         {
-            "email": f"eq.{request.email}",
+            "email": f"eq.{login_request.email}",
             "select": "*",
             "limit": "1",
         },
     )
     admin = admins[0] if admins else None
-    if not admin or admin.get("password_hash") != password_hash or admin.get("is_active") is False:
-        safe_post(
-            "failed_login_attempts",
-            {
-                "email": request.email,
-                "ip_address": "unknown",
-                "reason": "invalid_credentials",
-                "last_attempt": now_iso(),
-            },
-        )
+    
+    if not admin:
+        record_failed_login(login_request.email, ip_address, "user_not_found")
         raise HTTPException(status_code=401, detail="Invalid email or password")
-
+    
+    # Check if admin is active
+    if admin.get("is_active") is False:
+        record_failed_login(login_request.email, ip_address, "account_disabled")
+        raise HTTPException(status_code=403, detail="Account is disabled")
+    
+    # Get hash algorithm (default to sha256 for existing users)
+    hash_algorithm = admin.get("hash_algorithm", "sha256")
+    password_hash = admin.get("password_hash", "")
+    
+    # SECURITY: Verify password based on algorithm
+    password_valid = False
+    needs_rehash = False
+    
+    if hash_algorithm == "bcrypt":
+        password_valid = verify_password_bcrypt(login_request.password, password_hash)
+    elif hash_algorithm == "sha256":
+        # Legacy SHA256 verification
+        password_valid = verify_password_legacy(login_request.password, password_hash, "sha256")
+        needs_rehash = True  # Mark for rehashing to bcrypt
+    else:
+        # Unknown algorithm
+        record_failed_login(login_request.email, ip_address, "unknown_hash_algorithm")
+        raise HTTPException(status_code=500, detail="Invalid password configuration")
+    
+    if not password_valid:
+        record_failed_login(login_request.email, ip_address, "invalid_password")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # SECURITY: Rehash password if using legacy SHA256
+    if needs_rehash:
+        new_hash = hash_password_bcrypt(login_request.password)
+        safe_patch(
+            "admin_users",
+            {"id": f"eq.{admin['id']}"},
+            {
+                "password_hash": new_hash,
+                "hash_algorithm": "bcrypt",
+                "password_changed_at": datetime.utcnow().isoformat()
+            }
+        )
+    
+    # SECURITY: Clear failed attempts on successful login
+    clear_failed_attempts(login_request.email)
+    
+    # Generate tokens with short expiry
     access_token, refresh_token = token_pair(admin)
+    
+    # Log successful login
     log_admin_action(
         {"user_id": admin["id"], "email": admin["email"], "role": admin["role"]},
         "AUTH_LOGIN",
-        "Admin logged in",
+        f"Admin logged in from {ip_address}",
     )
 
     return AdminLoginResponse(

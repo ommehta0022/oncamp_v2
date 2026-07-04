@@ -18,6 +18,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Upl
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 BACKEND_DIR = Path(__file__).resolve().parent
 load_dotenv(BACKEND_DIR / ".env")
@@ -91,7 +94,13 @@ TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")
 DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 DEV_OTP_CODE = os.getenv("DEV_OTP_CODE", "123456")
 
+# Initialize FastAPI app
 app = FastAPI(title="OnCampus API", version="1.0.0")
+
+# SECURITY: Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
