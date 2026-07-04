@@ -83,13 +83,13 @@ class TwilioOTPService:
     
     def create_message(self, code: str, app_name: str = "OnCampus") -> str:
         """Create OTP message text"""
-        return f"""Your {app_name} verification code is: {code}
+        return f"""Your {app_name} verification OTP is: {code}
 
-This code expires in {self.otp_expiry_minutes} minutes.
+This OTP expires in {self.otp_expiry_minutes} minutes.
 
-Do not share this code with anyone.
+Do not share this OTP with anyone.
 
-If you didn't request this code, please ignore this message."""
+If you didn't request this OTP, please ignore this message."""
     
     def send_otp(
         self, 
