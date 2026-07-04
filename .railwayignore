@@ -1,0 +1,9 @@
+# Railway ignore file
+node_modules/
+.git/
+.vscode/
+__pycache__/
+*.pyc
+.env
+.env.local
+*.log
