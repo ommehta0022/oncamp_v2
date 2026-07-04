@@ -1,11 +1,11 @@
 [phases.setup]
-nixPkgs = ["python311"]
+nixPkgs = ["python311", "pip"]
 
 [phases.install]
-cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
+cmds = ["python3 -m pip install --upgrade pip", "python3 -m pip install -r requirements.txt"]
 
 [phases.build]
-cmds = ["python check_twilio.py || echo 'Twilio check skipped'"]
+cmds = ["python3 startup_check.py || echo 'Startup check skipped'"]
 
 [start]
-cmd = "python startup_check.py && uvicorn server:app --host 0.0.0.0 --port $PORT"
+cmd = "python3 startup_check.py && python3 -m uvicorn server:app --host 0.0.0.0 --port $PORT"
