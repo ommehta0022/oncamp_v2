@@ -1796,6 +1796,8 @@ def serialize_notification_preferences(row: dict[str, Any], user_id: str) -> dic
     }
 
 
+
+
 @app.get("/v1/users/me/notification-preferences")
 def get_notification_preferences(user: CurrentUser = Depends(current_user)) -> Any:
     rows = safe_get("notification_preferences", {"user_id": f"eq.{user.id}", "select": "*"})
@@ -2044,3 +2046,11 @@ async def upload_institution_doc(
     public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
 
     return {"url": public_url, "type": "institution_document"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    is_dev = os.environ.get("DEV_MODE", "true").lower() == "true"
+    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=is_dev)
