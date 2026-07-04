@@ -670,6 +670,45 @@ async def verify_user(user_id: str, payload: VerifyUserRequest = Body(default=Ve
     return result[0] if result else {"success": True}
 
 
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
+    """Permanently delete a user and all related data from the database"""
+    # Verify user exists
+    existing = safe_get("users", {"id": f"eq.{user_id}", "select": "id,name", "limit": "1"})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_name = existing[0].get("name", "Unknown")
+
+    # Cascade delete related data first (FK constraints)
+    try:
+        db_client.delete("user_devices", {"user_id": f"eq.{user_id}"})
+    except Exception:
+        pass
+    try:
+        db_client.delete("group_members", {"user_id": f"eq.{user_id}"})
+    except Exception:
+        pass
+    try:
+        db_client.delete("messages", {"sender_id": f"eq.{user_id}"})
+    except Exception:
+        pass
+    try:
+        db_client.delete("notifications", {"user_id": f"eq.{user_id}"})
+    except Exception:
+        pass
+    try:
+        db_client.delete("otp_challenges", {"phone": f"eq.{user_id}"})
+    except Exception:
+        pass
+
+    # Hard-delete the user row
+    db_client.delete("users", {"id": f"eq.{user_id}"})
+
+    log_admin_action(admin, "USER_DELETE", f"Permanently deleted user: {user_name}", "user", user_id)
+    return {"success": True, "message": f"User '{user_name}' permanently deleted"}
+
+
 # ============================================================================
 # GROUP MANAGEMENT
 # ============================================================================
