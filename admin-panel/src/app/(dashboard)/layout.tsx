@@ -20,6 +20,7 @@ import {
   LogOut,
   Bell,
   Send,
+  School,
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
 import { api } from "@/lib/api";
@@ -28,6 +29,7 @@ const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Users", href: "/dashboard/users", icon: Users },
   { name: "Groups", href: "/dashboard/groups", icon: UsersRound },
+  { name: "Institutions", href: "/dashboard/institutional-verification", icon: School, badge: true },
   { name: "Moderation", href: "/dashboard/moderation", icon: ShieldAlert, badge: true },
   { name: "Audit Logs", href: "/dashboard/audit-logs", icon: FileText },
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
@@ -53,7 +55,7 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [platformName, setPlatformName] = useState("OnCampus");
-  const [stats, setStats] = useState({ pendingReports: 0, unresolvedErrors: 0 });
+  const [stats, setStats] = useState({ pendingReports: 0, unresolvedErrors: 0, pendingInstitutions: 0 });
   const [notificationStats, setNotificationStats] = useState<any>({
     unread: 0,
     recent: [],
@@ -75,14 +77,16 @@ export default function DashboardLayout({
     // Fetch badge counts
     const fetchStats = async () => {
       try {
-        const [dashboard, settings, notifications] = await Promise.all([
+        const [dashboard, settings, notifications, institutions] = await Promise.all([
           api.getDashboard(),
           api.getSettings(),
           api.getAdminNotificationStats(),
+          api.get('/database/query?table=institution_verification_requests&status=eq.pending&select=count').catch(() => ({ count: 0 })),
         ]);
         setStats({
           pendingReports: dashboard.pendingReports || 0,
           unresolvedErrors: dashboard.unresolvedErrors || 0,
+          pendingInstitutions: institutions?.length || 0,
         });
         if (settings?.appName) {
           setPlatformName(settings.appName);
@@ -163,6 +167,8 @@ export default function DashboardLayout({
               const badgeCount = item.badge
                 ? item.name === "Moderation"
                   ? stats.pendingReports
+                  : item.name === "Institutions"
+                  ? stats.pendingInstitutions
                   : stats.unresolvedErrors
                 : 0;
 

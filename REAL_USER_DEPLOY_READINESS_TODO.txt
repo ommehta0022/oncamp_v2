@@ -1,0 +1,517 @@
+ONCAMP V2 - REAL USER DEPLOY READINESS TODO
+Last reviewed: 2026-07-03
+
+Purpose
+This file is the final production checklist before serving the app to real users.
+It covers backend endpoints, frontend features, settings, admin/institution flows,
+and the dummy/unwired UI that was removed and should be rebuilt only with real APIs.
+
+Current important rule from owner
+- Keep dummy OTP code 123456 for now.
+- Everything else should use real backend API and Supabase data.
+
+
+1. ABSOLUTE BLOCKERS BEFORE REAL USERS
+
+[ ] Run Supabase extension SQL manually
+    File: supabase-production-user-institution-extension.sql
+    Required because the app/backend now use these columns/tables:
+    - users.handle
+    - users.bio
+    - users.profile_completed
+    - users.onboarding_completed_at
+    - users.onboarding_skipped
+    - users.default_avatar_key
+    - expanded institutions fields
+    - institution_admins improvements
+    - user_settings
+    - notification_preferences
+    - saved_posts
+    - user_blocks
+    - user_follows
+    - post_views
+    - message_reads
+
+[ ] Confirm Supabase schema matches backend expectations
+    Check all enum values used by backend:
+    - group_members.status must allow active, removed
+    - posts.status must allow published
+    - post_requests.status must allow pending, approved, rejected
+    - notifications/read fields must exist as expected
+
+[ ] Keep or replace dummy OTP deliberately
+    Current state:
+    - Frontend OTP uses api.auth.verifyOtpDev(phone, code)
+    - Backend allows DEV_OTP_CODE, default 123456
+    - This now creates/fetches a real Supabase user and returns real backend JWTs.
+    Before true public launch:
+    - Replace with Firebase phone auth / real OTP provider.
+    - Set DEV_MODE=false.
+    - Remove /v1/auth/otp/verify-dev and /v1/auth/otp/verify-code from public production.
+    - Do not expose devCode from /v1/auth/otp/start in production.
+
+[ ] Configure production secrets in deployment
+    Required:
+    - SUPABASE_URL
+    - SUPABASE_SERVICE_ROLE_KEY
+    - JWT_SECRET
+    - Firebase service account / project id if using real OTP
+    - Supabase storage bucket configuration if using uploads
+    - CORS_ORIGINS locked to production app domains
+
+[ ] Review database security before opening public traffic
+    Backend uses service role for Supabase REST.
+    Required:
+    - Keep service role only on backend.
+    - Never expose SUPABASE_SERVICE_ROLE_KEY to frontend.
+    - Add rate limits for auth, posting, comments, messages, joins, uploads.
+    - Add moderation/report workflow before public communities grow.
+    - Add audit logs for institution admin actions.
+
+[ ] Run final production smoke test with an empty database
+    Test with no users, no groups, no posts, no notifications.
+    Expected:
+    - Feed empty state only.
+    - Groups empty state only.
+    - Profile shows real user or "Complete your profile"; no fake name.
+    - Admin dashboards show zero real counts; no fake charts or fake activity.
+    - Search returns no records; no recent/trending dummy data.
+    - Saved/blocked/notifications show empty states only.
+
+
+2. BACKEND ENDPOINT STATUS AND REMAINING WORK
+
+Health and integrations
+- GET /health
+- GET /v1/health
+- GET /v1/integrations/health
+Status: Working health endpoints.
+Remaining:
+[ ] Make sure health does not expose sensitive dev OTP details in public production.
+
+Auth and session
+- POST /v1/auth/otp/start
+- POST /v1/auth/otp/verify-dev
+- POST /v1/auth/otp/verify-code
+- POST /v1/auth/otp/verify
+- GET /v1/auth/me
+- GET /v1/users/me
+- POST /v1/auth/logout
+Status:
+- Dummy OTP is intentionally kept.
+- Dummy OTP now returns real backend session and real Supabase user.
+- /auth/me and /users/me fetch real user from Supabase.
+Remaining:
+[ ] Replace dummy OTP for real launch.
+[ ] Add refresh token endpoint if app needs long-lived sessions.
+[ ] Store refresh tokens/revocation in DB instead of only returning UUID.
+[ ] Add auth rate limiting and failed-attempt lockouts.
+[ ] Confirm logout invalidates refresh/session records once refresh storage exists.
+
+User profile and stats
+- PATCH /v1/auth/me
+- PATCH /v1/users/me
+- GET /v1/users/me/stats
+Status:
+- Profile edit saves to Supabase.
+- Profile setup saves to Supabase.
+- Skip now stores onboardingSkipped/defaultAvatarKey instead of fake text.
+- Stats use real groups/posts/follow rows.
+Remaining:
+[ ] Add handle validation and reserved words.
+[ ] Add profile image upload UI connected to /v1/upload/avatar.
+[ ] Add duplicate handle error handling in frontend.
+[ ] Add user follow/unfollow frontend if followers/following are user-facing.
+
+Feed and posts
+- GET /v1/feed
+- POST /v1/posts
+- GET /v1/posts/{post_id}
+- POST /v1/posts/{post_id}/comments
+- POST /v1/posts/{post_id}/reaction
+- DELETE /v1/posts/{post_id}/reaction
+Status:
+- Feed fetches real Supabase posts/authors/groups/counts.
+- Create post saves to backend.
+- Post detail fetches real post/comments.
+- Comments save to backend.
+- Likes save/delete in backend.
+Remaining:
+[ ] Add post media upload UI connected to /v1/upload/post-media.
+[ ] Add post delete/edit/moderation endpoints and UI.
+[ ] Add report post/comment endpoint and UI.
+[ ] Add pagination/infinite scroll for feed/comments.
+[ ] Add permission checks for who can post in groups/institutions.
+
+Saved posts
+- GET /v1/saved-posts
+- POST /v1/saved-posts
+- DELETE /v1/saved-posts/{post_id}
+Status:
+- Saved list/bookmark/unbookmark use backend.
+Remaining:
+[ ] Add pagination if saved posts can grow.
+
+Groups and discovery
+- GET /v1/groups
+- GET /v1/discovery/groups
+- GET /v1/groups/{group_id}
+- POST /v1/groups
+- POST /v1/groups/{group_id}/join
+- POST /v1/groups/{group_id}/leave
+- GET /v1/groups/{group_id}/members
+Status:
+- My groups, discover, group info, create group, join/leave, members use backend.
+- No dummy groups remain.
+Remaining:
+[ ] Add group edit endpoint/UI.
+[ ] Add group avatar/cover upload UI connected to /v1/upload/group-avatar/{group_id}.
+[ ] Add group role management endpoint/UI for owners/admins.
+[ ] Add remove/ban member endpoint/UI.
+[ ] Add pagination for members/discovery.
+
+Group messages
+- GET /v1/groups/{group_id}/messages
+- POST /v1/groups/{group_id}/messages
+- POST /v1/upload/message-media/{group_id}
+Status:
+- Chat fetches real messages.
+- Sending now appends only backend-saved messages, not fake local-only messages.
+- Message read tracking exists through message_reads.
+Remaining:
+[ ] Add real-time subscriptions or polling for new messages.
+[ ] Add message delivery/read status from backend; current status is static "sent".
+[ ] Add attachment UI only after message media upload is fully wired.
+[ ] Add message delete/edit/report endpoints and UI.
+[ ] Add chat search endpoint/UI before restoring search icon.
+[ ] Add pagination/backfill for old messages.
+
+Join requests
+- GET /v1/groups/{group_id}/join-requests
+- POST /v1/groups/{group_id}/join-requests/{request_id}/approve
+- POST /v1/groups/{group_id}/join-requests/{request_id}/reject
+Status:
+- Admin request screens use backend.
+Remaining:
+[ ] Add better permission checks and audit log for approvals/rejections.
+[ ] Add notifications when request status changes.
+
+Post requests
+- POST /v1/groups/{group_id}/post-requests
+- GET /v1/groups/{group_id}/post-requests
+- POST /v1/groups/{group_id}/post-requests/{request_id}/approve
+- POST /v1/groups/{group_id}/post-requests/{request_id}/reject
+Status:
+- Submit/review/approve/reject use backend.
+- Upload poster UI was removed because attachment upload is not wired.
+Remaining:
+[ ] Add attachment table/storage fields for post request media.
+[ ] Add upload endpoint/UI for poster/request documents.
+[ ] Add notification to requester after approval/rejection.
+[ ] Add admin comment/reason fields.
+
+Notifications
+- GET /v1/notifications
+- PATCH /v1/notifications/read-all
+- PATCH /v1/notifications/{notification_id}/read
+- POST /v1/notifications/register-device
+Status:
+- Notification list and read-all use backend.
+- No dummy notifications remain.
+Remaining:
+[ ] Wire push token registration from app startup/device permission flow.
+[ ] Add server-side notification creation for joins, approvals, comments, mentions.
+[ ] Add push provider send pipeline.
+[ ] Add per-notification mark-read UI if desired.
+
+User settings
+- GET /v1/users/me/settings
+- PATCH /v1/users/me/settings
+- GET /v1/users/me/notification-preferences
+- PATCH /v1/users/me/notification-preferences
+Status:
+- Privacy settings save to backend.
+- Storage/download preferences save to backend.
+- Notification preferences save to backend.
+Remaining:
+[ ] Theme is local AsyncStorage only; add backend sync if cross-device theme is required.
+[ ] Language is fixed English; add i18n before restoring language selector.
+[ ] Add validation/schema for settings JSON.
+
+Blocked users
+- GET /v1/blocked-users
+Status:
+- Blocked list fetches real backend data.
+Remaining:
+[ ] Add block user endpoint/UI.
+[ ] Add unblock endpoint/UI.
+[ ] Enforce blocks in feed/search/comments/messages if required.
+
+Search
+- GET /v1/search
+Status:
+- Search fetches real groups/users/posts.
+- No dummy recent/trending search rows.
+Remaining:
+[ ] Improve search across handles, institutions, post titles, group descriptions.
+[ ] Add pagination.
+[ ] Respect privacy/block settings.
+
+Institution registration/admin
+- POST /v1/institutions/register
+- GET /v1/institutions/me/dashboard
+- GET /v1/institutions/me/analytics
+- PATCH /v1/institutions/me
+- GET /v1/institutions/me/admins
+- POST /v1/upload/institution-doc
+Status:
+- Institution registration writes backend.
+- Dashboard, analytics, settings, branding, admins, verification screens use backend/Supabase data.
+- Fake institution stats/charts/activity were removed.
+Remaining:
+[ ] Complete institution approval workflow for platform admins.
+[ ] Add admin invite endpoint/UI before restoring "Invite admin".
+[ ] Add institution document upload UI connected to /v1/upload/institution-doc.
+[ ] Add public institution profile page if needed.
+[ ] Add stronger role checks for institution admin endpoints.
+[ ] Add audit log for branding/settings/verification policy changes.
+
+Uploads
+- POST /v1/upload/avatar
+- POST /v1/upload/post-media
+- POST /v1/upload/group-avatar/{group_id}
+- POST /v1/upload/message-media/{group_id}
+- POST /v1/upload/institution-doc
+Status:
+- Backend upload endpoints exist.
+- Unwired upload/photo controls were removed from UI.
+Remaining:
+[ ] Test Supabase storage bucket config in production.
+[ ] Add frontend upload flows with progress/error states.
+[ ] Add file type/size validation.
+[ ] Add virus/malware scanning or moderation for public uploads.
+[ ] Add signed URL/public URL policy.
+
+
+3. FRONTEND FEATURE STATUS AND REMAINING WORK
+check full ui and all profile and admin for instutution and all ligin an dregister to all setings full check for real api supabase are connected for send and get data for real users.
+Auth screens
+- welcome.tsx
+- login.tsx
+- otp.tsx
+- signup.tsx
+- profile-setup.tsx
+- register-institution.tsx
+Status:
+- Login starts backend OTP challenge.
+- OTP keeps 123456 but stores real backend/Supabase session.
+- Profile setup saves real user profile to backend.
+- Register institution saves to backend.
+Remaining:
+[ ] Replace dummy OTP before public launch.
+[ ] Signup screen must be reviewed: if it only navigates to setup without creating backend user, connect it or remove it.
+[ ] Country code selector removed; add real selector only if backend supports country handling.
+[ ] Institution SSO button removed; add only with real SSO provider.
+
+Tabs
+- feed.tsx
+- groups.tsx
+- discover.tsx
+- notifications.tsx
+- profile.tsx
+Status:
+- All display real backend data or clean empty states.
+- No seeded posts/groups/messages/notifications.
+Remaining:
+[ ] Add pagination and loading skeletons.
+[ ] Add error retry UI instead of silent empty state for network/server failures.
+[ ] Add real-time refresh for notifications/messages if desired.
+
+Post screens
+- create-post.tsx
+- post/[id].tsx
+- saved.tsx
+Status:
+- Create post saves to backend.
+- Post detail/comments use backend.
+- Saved posts use backend.
+Remaining:
+[ ] Media attachments were removed; add back with real upload API.
+[ ] Add edit/delete/report moderation workflow.
+
+Group screens
+- group/[id].tsx
+- group/info/[id].tsx
+- group/members/[id].tsx
+- group/requests/[id].tsx
+- group/post-request/[id].tsx
+- group/admin/[id].tsx
+- group/admin/post-requests/[id].tsx
+Status:
+- Chat, members, group info, requests, post requests, admin views use backend.
+Remaining:
+[ ] Add real-time message updates.
+[ ] Add group search inside chat before restoring chat search icon.
+[ ] Add attachments before restoring attach button.
+[ ] Add upload for post request poster before restoring upload box.
+[ ] Add member management before making member/admin rows interactive.
+
+Institution screens
+- institution/dashboard.tsx
+- institution/analytics.tsx
+- institution/settings.tsx
+- institution/branding.tsx
+- institution/verification.tsx
+- institution/admins.tsx
+Status:
+- All show real institution data/counts/analytics from backend.
+Remaining:
+[ ] Add admin invite API/UI before restoring invite admin.
+[ ] Add institution document upload UI before showing upload controls.
+[ ] Add verification approval/rejection flow for platform admin.
+
+Settings screens
+- settings/index.tsx
+- settings/edit-profile.tsx
+- settings/privacy.tsx
+- settings/notifications.tsx
+- settings/storage.tsx
+- settings/blocked.tsx
+- settings/theme.tsx
+- settings/language.tsx
+- settings/help.tsx
+- settings/about.tsx
+- settings/invite.tsx
+Status:
+- Edit profile saves to backend.
+- Privacy saves to backend.
+- Notifications save to backend.
+- Storage/download preferences save to backend.
+- Blocked users list uses backend.
+- About/help are clean static screens without fake contacts/legal links.
+- Invite route is hidden from settings.
+- Language route is read-only English.
+Remaining:
+[ ] Add profile photo upload before restoring Change Photo.
+[ ] Add legal URLs before restoring Terms/Privacy/Open-source links.
+[ ] Add support contact config before showing email/live chat/social handles.
+[ ] Add invite/referral API before restoring Invite Friends.
+[ ] Add i18n before restoring language picker.
+[ ] Add backend theme sync if theme must follow user across devices.
+[ ] Add unblock button after unblock endpoint exists.
+
+
+4. UI/FEATURES REMOVED BECAUSE THEY WERE DUMMY OR UNWIRED
+
+Removed/hidden now:
+- frontend/src/data/mock.ts
+- Fake feed posts/groups/messages/notifications/users.
+- Fake analytics KPI arrays/charts/top posts/top groups.
+- Fake storage usage values like 142.8 MB, 72 MB, 48 MB.
+- Fake invite/referral link and joined-friends count.
+- Fake support email/live chat/social handles.
+- Dead Settings Security row.
+- Institution SSO button.
+- Multi-language selector with no i18n.
+- Profile Change Photo button.
+- Profile share/invite button.
+- Create group cover picker.
+- Create post attachment toolbar.
+- Feed ellipsis menu.
+- Feed repost action.
+- Discover filter button.
+- Group chat search icon.
+- Group chat attach button.
+- Group chat mic send state.
+- Group pinned-message clickable wrapper.
+- Post request upload poster/image box.
+- Institution admin invite button.
+- Static admin/member rows that looked clickable.
+
+Add back only after real backend/API support:
+[ ] Referral/invite links and counters.
+[ ] Support contact configuration.
+[ ] Legal links configuration.
+[ ] SSO provider.
+[ ] i18n language switching.
+[ ] Profile/group/post/message/institution file uploads.
+[ ] Chat search.
+[ ] Post/group/member action menus.
+[ ] Repost/share feature.
+[ ] Admin invite workflow.
+
+
+5. DATA CLEANLINESS CHECKS BEFORE LAUNCH
+
+[ ] Create a brand-new account in an empty Supabase project.
+Expected:
+- No dummy feed posts.
+- No dummy groups.
+- No dummy unread messages.
+- No dummy notifications.
+- No fake saved posts.
+- No fake blocked users.
+- Profile shows real DB user and prompts completion.
+- Profile setup skip does not write fake city/course values.
+
+[ ] Create a real group.
+Expected:
+- Group appears in My Groups and Discover only through Supabase.
+- Group member count comes from group_members.
+- Chat has no messages until a real user sends one.
+
+[ ] Create a real post.
+Expected:
+- Post appears in feed from Supabase.
+- Like/bookmark/comment persist after refresh.
+- Post detail fetches comments/counts from backend.
+
+[ ] Register an institution.
+Expected:
+- Institution registration writes to institution verification tables.
+- Institution dashboard shows real zero counts until real groups/posts/members exist.
+- Branding/settings edits persist in Supabase.
+
+[ ] Admin actions.
+Expected:
+- Join request approve/reject persists.
+- Post request approve/reject persists.
+- Analytics uses real post/view/comment/reaction/request data.
+
+[ ] Settings persistence.
+Expected:
+- Edit profile persists.
+- Privacy persists.
+- Notification prefs persist.
+- Storage/download preferences persist.
+- Logout clears local session.
+
+
+6. FINAL TECHNICAL CHECKS
+
+Run these before every release:
+- python -m py_compile backend/server.py
+- cd frontend
+- npx tsc --noEmit
+- rg scan for dummy strings, excluding the intentionally allowed OTP dev path
+
+Suggested dummy scan:
+rg -n "Test User|test-access-token|test-refresh-token|OnCampus user|Not specified|support@|aarav|iitb|IIT|Bombay|Mumbai|142.8|72 MB|48 MB|22 MB|mock|dummy|sample|hardcoded|fake|seed|demo|unavailable|No invite|not configured|not tracked" frontend/app frontend/src backend -S -g "!frontend/app/(auth)/otp.tsx" -g "!backend/server.py" -g "!frontend/src/lib/firebasePhoneAuth.native.ts" -g "!backend/auth.controller.ts.bak" -g "!frontend/package-lock.json" -g "!frontend/scripts/**"
+
+
+7. CURRENT VERIFICATION STATUS
+
+Last checks completed:
+- backend/server.py compiled successfully.
+- frontend npx tsc --noEmit passed.
+- Dummy string scan passed outside the intentionally allowed dummy OTP/dev-auth path.
+
+Known intentional exception:
+- OTP 123456 remains by owner request.
+- Backend dev OTP endpoints remain by owner request.
+
+Recommended release decision:
+- Do not serve to real public users until Supabase SQL is applied, secrets are verified, rate limits are added, and a decision is made about replacing dummy OTP.
+- It is acceptable for internal testing with real Supabase data if the team understands OTP is still dummy/dev mode.
+
+

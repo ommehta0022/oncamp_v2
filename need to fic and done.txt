@@ -1,0 +1,56 @@
+fix this all and resolve: 
+There are important uncommitted changes, mostly in frontend/.
+Important to keep/review:
+frontend/app.config.js and frontend/app.json
+These switch mobile API URL to the real Railway backend:
+https://perpetual-motivation-production-be1a.up.railway.app/v1
+Important for real device testing.
+
+frontend/package.json and frontend/package-lock.json
+Adds dependencies like expo-image-picker, expo-clipboard, @expo/react-native-action-sheet.
+Important if the changed mobile screens use image upload/action sheet features.
+
+Many frontend/app/... screens
+Auth, feed, groups, profile, post, settings, institution screens are heavily changed.
+These look like real mobile app feature/API/UI changes, not junk.
+
+frontend/src/lib/api.ts
+Adds many real API methods: auth normalization, settings, notification prefs, posts, saved posts, blocked users, search, etc.
+Important.
+
+frontend/src/data/mock.ts deleted
+Important if the goal is removing mock/dummy frontend data.
+But only commit after confirming all screens no longer depend on it.
+
+New files:
+frontend/src/lib/imageUpload.ts
+frontend/src/hooks/useTabBadges.ts
+frontend/src/components/ImageViewer.tsx
+frontend/app/settings/activity.tsx
+frontend/app/settings/data-export.tsx
+frontend/app/settings/report.tsx
+These are real app features, but some currently cause lint errors.
+
+Probably not important to commit:
+admin-panel/.next/
+Generated build output. Do not commit.
+
+Most admin-panel/*.md, setup .sql, deployment guide files
+Optional docs/setup files, not runtime code.
+
+backend/auth.controller.ts.bak
+Backup file. Usually do not commit.
+
+frontend/test-features.md, frontend/INSTALL_AND_INTEGRATE.md
+Optional docs.
+
+Needs fixing before committing mobile:
+frontend/src/lib/imageUpload.ts
+Uses ImagePicker.MediaType.Images; lint says this import/member is wrong for installed Expo version.
+
+frontend/app/settings/data-export.tsx
+
+frontend/app/settings/report.tsx
+Lint errors for unescaped apostrophes.
+Also these look partly placeholder: data export/report use setTimeout, not real backend APIs yet.
+most important:Fix existing unrelated lint errors in mobile
