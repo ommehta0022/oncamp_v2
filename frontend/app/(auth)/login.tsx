@@ -13,15 +13,31 @@ export default function Login() {
   const { colors } = useTheme();
   const router = useRouter();
   const [phone, setPhone] = useState("");
-  const cc = "+91";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // Validate phone number (10 digits)
+  const validatePhone = (value: string): boolean => {
+    const cleaned = value.replace(/\D/g, "");
+    return cleaned.length === 10;
+  };
+
+  const handlePhoneChange = (value: string) => {
+    // Only allow digits, max 10
+    const cleaned = value.replace(/\D/g, "").slice(0, 10);
+    setPhone(cleaned);
+    setError("");
+  };
+
   const sendOtp = async () => {
-    if (phone.length < 10 || submitting) return;
+    if (!validatePhone(phone) || submitting) return;
+    
     setSubmitting(true);
     setError("");
-    const fullPhone = `${cc}${phone.replace(/\D/g, "")}`;
+    
+    // Backend will handle adding +91
+    const fullPhone = `+91${phone}`;
+    
     try {
       const otp = await api.auth.startOtp(fullPhone);
       router.push({
@@ -29,6 +45,7 @@ export default function Login() {
         params: {
           phone: fullPhone,
           challengeId: otp.challengeId || "",
+          from: "login",
         },
       });
     } catch (err) {
@@ -58,20 +75,26 @@ export default function Login() {
             <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Phone number</Text>
             <View style={[styles.phoneRow, { borderColor: colors.borderStrong, backgroundColor: colors.surfaceSecondary }]}>
               <View style={styles.cc}>
-                <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>{cc}</Text>
+                <Text style={{ color: colors.muted, fontSize: font.lg, fontWeight: "500" }}>+91</Text>
               </View>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <TextInput
                 testID="phone-input"
                 value={phone}
-                onChangeText={setPhone}
-                placeholder="Phone number"
+                onChangeText={handlePhoneChange}
+                placeholder="10-digit mobile number"
                 placeholderTextColor={colors.muted}
                 keyboardType="phone-pad"
                 style={{ flex: 1, color: colors.onSurface, fontSize: font.lg, paddingHorizontal: spacing.md }}
-                maxLength={12}
+                maxLength={10}
+                autoFocus
               />
             </View>
+            {phone.length > 0 && phone.length < 10 && (
+              <Text style={{ color: colors.error, fontSize: font.xs, marginTop: spacing.xs }}>
+                Phone number must be 10 digits
+              </Text>
+            )}
           </View>
 
           <View style={{ marginTop: spacing["2xl"] }}>
@@ -79,7 +102,7 @@ export default function Login() {
               label="Send OTP"
               fullWidth
               size="lg"
-              disabled={phone.length < 10 || submitting}
+              disabled={!validatePhone(phone) || submitting}
               onPress={sendOtp}
               testID="send-otp-btn"
             />

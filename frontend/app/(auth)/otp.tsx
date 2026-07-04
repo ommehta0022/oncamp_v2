@@ -16,12 +16,15 @@ export default function Otp() {
   // Get params - challengeId may come as string or array
   const params = useLocalSearchParams();
   const phone = Array.isArray(params.phone) ? params.phone[0] : (params.phone as string) ?? "";
-  // challengeId is available in params if needed for backend OTP verification
+  const from = Array.isArray(params.from) ? params.from[0] : (params.from as string) ?? "login";
+  const name = Array.isArray(params.name) ? params.name[0] : (params.name as string) ?? "";
+  const email = Array.isArray(params.email) ? params.email[0] : (params.email as string) ?? "";
   
   const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [seconds, setSeconds] = useState(30);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
   const [error, setError] = useState("");
   const inputs = useRef<(TextInput | null)[]>([]);
 
@@ -74,14 +77,26 @@ export default function Otp() {
   };
 
   const resend = async () => {
-    if (!phone || seconds > 0) return;
+    if (!phone || seconds > 0 || resending) return;
+    
+    setResending(true);
     setError("");
+    
     try {
+      // Send new OTP
+      await api.auth.startOtp(phone);
+      
+      // Reset state
       setSeconds(30);
       setDigits(["", "", "", "", "", ""]);
       inputs.current[0]?.focus();
+      
+      // Show success message briefly
+      setError(""); // Clear any previous errors
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not resend OTP.");
+    } finally {
+      setResending(false);
     }
   };
 
@@ -99,7 +114,7 @@ export default function Otp() {
 
           <Text style={[styles.h1, { color: colors.onSurface }]}>Verify your number</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
-            Enter the 6-digit code sent to {phone || "+91 XXXXX XXXXX"}
+            Enter the 6-digit OTP sent to {phone || "+91 XXXXX XXXXX"}
           </Text>
 
           <View style={styles.otpRow}>
@@ -130,13 +145,13 @@ export default function Otp() {
           <View style={{ marginTop: spacing.xl, alignItems: "center" }}>
             {seconds > 0 ? (
               <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>
-                Resend code in{" "}
+                Resend OTP in{" "}
                 <Text style={{ color: colors.onSurface, fontWeight: "500" }}>{seconds}s</Text>
               </Text>
             ) : (
-              <Pressable onPress={resend}>
-                <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>
-                  Resend code
+              <Pressable onPress={resend} disabled={resending}>
+                <Text style={{ color: resending ? colors.muted : colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>
+                  {resending ? "Sending..." : "Resend OTP"}
                 </Text>
               </Pressable>
             )}
