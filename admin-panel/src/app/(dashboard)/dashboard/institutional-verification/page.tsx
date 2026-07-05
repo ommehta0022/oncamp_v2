@@ -20,6 +20,7 @@ interface InstitutionVerificationRequest {
   website: string | null;
   admin_name: string;
   designation: string | null;
+  logo_url: string | null;
   document_url: string | null;
   status: VerificationStatus;
   review_notes: string | null;
@@ -74,6 +75,7 @@ export default function InstitutionalVerificationPage() {
             official_email: request.official_email,
             phone: request.phone,
             website: request.website,
+            logo_url: request.logo_url,
             status: 'active',
             verified_at: new Date().toISOString(),
           }),
@@ -193,6 +195,7 @@ export default function InstitutionalVerificationPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Logo</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Institution</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Admin</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
@@ -205,6 +208,22 @@ export default function InstitutionalVerificationPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {requests.map((request) => (
                 <tr key={request.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4">
+                    {request.logo_url ? (
+                      <img 
+                        src={request.logo_url} 
+                        alt="Logo" 
+                        className="w-10 h-10 object-contain border border-gray-200 rounded bg-white"
+                        onError={(e) => {
+                          e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"%3E%3Crect width="40" height="40" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-family="sans-serif" font-size="12"%3ENo Logo%3C/text%3E%3C/svg%3E';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-xs text-gray-400">
+                        No logo
+                      </div>
+                    )}
+                  </td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-gray-900">{request.institution_name}</div>
                     <div className="text-sm text-gray-500">{request.institution_type}</div>
@@ -314,6 +333,33 @@ export default function InstitutionalVerificationPage() {
                     </div>
                   </div>
                 </div>
+
+                {selectedRequest.logo_url && (
+                  <div>
+                    <h3 className="font-semibold text-gray-700 mb-2">Institution Logo</h3>
+                    <div className="flex items-center gap-4">
+                      <img 
+                        src={selectedRequest.logo_url} 
+                        alt="Institution Logo" 
+                        className="w-24 h-24 object-contain border border-gray-200 rounded-lg bg-white p-2"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
+                          if (nextSibling) nextSibling.classList.remove('hidden');
+                        }}
+                      />
+                      <div className="hidden text-sm text-gray-500">Logo unavailable</div>
+                      <a
+                        href={selectedRequest.logo_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        View Full Size →
+                      </a>
+                    </div>
+                  </div>
+                )}
 
                 {selectedRequest.document_url && (
                   <div>
