@@ -588,10 +588,10 @@ def health() -> dict[str, Any]:
     _tw_phone = os.getenv("TWILIO_PHONE_NUMBER", "")
     _twilio_ok = bool(_tw_sid and _tw_token and _tw_phone)
     _dev = os.getenv("DEV_MODE", "false").lower() == "true"
-    if _dev:
-        _provider = "dev_mode"
-    elif _twilio_ok:
+    if _twilio_ok:
         _provider = "twilio"
+    elif _dev:
+        _provider = "dev_mode"
     else:
         _provider = "firebase_phone_auth"
     return {
