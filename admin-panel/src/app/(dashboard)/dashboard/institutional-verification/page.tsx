@@ -75,13 +75,7 @@ export default function InstitutionalVerificationPage() {
 
   const requestChangesMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      // For needs_changes, we still update status to needs_changes via a generic patch or a new route.
-      // We can use the reject route but pass a flag, or we can just send an update here.
-      // Wait, there's no route for needs_changes, so let's just use raw query if the admin token allows it.
-      // But we just established raw query doesn't work. We'll use the reject endpoint for now as it's the safest fallback,
-      // but let's actually just send the review_notes, the backend logic handles it. Wait, the backend logic doesn't have a needs_changes endpoint.
-      // I'll update it to just use /reject and they can add needs_changes later.
-      await adminAPI(`/admin/institutions/verification-requests/${id}/reject`, {
+      await adminAPI(`/admin/institutions/verification-requests/${id}/request-changes`, {
         method: 'POST',
         body: JSON.stringify({ review_notes: notes }),
       });
@@ -328,8 +322,7 @@ export default function InstitutionalVerificationPage() {
                   />
                 </div>
               </div>
-
-              <div className="flex gap-3">
+              <div className="flex gap-3 mt-6">
                 {selectedRequest.status === 'pending' || selectedRequest.status === 'needs_changes' ? (
                   <>
                     <button

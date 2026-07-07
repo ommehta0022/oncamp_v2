@@ -1404,18 +1404,50 @@ class InstitutionRegistrationDto(BaseModel):
 def register_institution(payload: InstitutionRegistrationDto, user: Optional[CurrentUser] = Depends(optional_user)) -> Any:
     """Register institution for verification - allows unauthenticated submission"""
     
-    # Check if user already has a pending request (only if logged in)
+    # Check if user already has a pending or approved request (only if logged in)
     if user:
         existing = safe_get("institution_verification_requests", {
             "submitted_by": f"eq.{user.id}",
-            "status": "eq.pending",
-            "select": "id"
+            "select": "id,status",
+            "order": "created_at.desc",
+            "limit": "1"
         })
         if existing:
-            raise HTTPException(status_code=400, detail="You already have a pending verification request")
-    
-    # Create verification request
-    return db.post(
+            status = existing[0].get("status")
+            if status == "pending":
+                raise HTTPException(status_code=400, detail="You already have a pending verification request")
+            elif status == "approved":
+                raise HTTPException(status_code=400, detail="Your institution is already verified")
+            elif status == "needs_changes":
+                # Allow updating the existing request
+                request_id = existing[0]["id"]
+                db.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+                    "institution_name": payload.institutionName,
+                    "institution_type": payload.institutionType,
+                    "city": payload.city,
+                    "state": payload.state,
+                    "country": payload.country,
+                    "official_email": payload.officialEmail,
+                    "phone": payload.phone,
+                    "website": payload.website,
+                    "admin_name": payload.adminName,
+                    "designation": payload.designation,
+                    "document_url": payload.documentUrl,
+                    "logo_url": payload.logoUrl,
+                    "status": "pending",
+                    "review_notes": None
+                })
+                # Add notification for admin
+                db.post("admin_notifications", {
+                    "type": "institution_verification",
+                    "title": "Institution Request Updated",
+                    "message": f"Institution {payload.institutionName} updated their request.",
+                    "status": "unread"
+                })
+                return {"success": True, "message": "Verification request updated"}
+            
+    # Create new request
+    response = db.post(
         "institution_verification_requests",
         {
             "id": str(uuid.uuid4()),
@@ -1435,7 +1467,35 @@ def register_institution(payload: InstitutionRegistrationDto, user: Optional[Cur
             "status": "pending",
             "created_at": now_iso(),
         },
-    )[0]
+    )
+    
+    # Add notification for admin
+    db.post("admin_notifications", {
+        "type": "institution_verification",
+        "title": "New Institution Request",
+        "message": f"New verification request from {payload.institutionName}",
+        "status": "unread"
+    })
+    
+    return response[0]
+
+
+@app.get("/v1/institutions/my-request")
+def get_my_institution_request(user: CurrentUser = Depends(current_user)) -> Any:
+    """Fetch the current user's latest verification request status"""
+    existing = safe_get("institution_verification_requests", {
+        "submitted_by": f"eq.{user.id}",
+        "select": "*",
+        "order": "created_at.desc",
+        "limit": "1"
+    })
+    if not existing:
+        return {"has_request": False}
+    
+    return {
+        "has_request": True,
+        "request": existing[0]
+    }
 
 
 @app.get("/v1/institutions/me/dashboard")

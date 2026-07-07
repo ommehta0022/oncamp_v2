@@ -818,7 +818,9 @@ async def approve_institution_verification(
     # 3. Create institution if doesn't exist
     institution_id = req.get("institution_id")
     if not institution_id:
+        institution_id = str(uuid.uuid4())
         new_inst = db.post("institutions", {
+            "id": institution_id,
             "name": req.get("institution_name"),
             "institution_type": req.get("institution_type"),
             "city": req.get("city"),
@@ -828,7 +830,7 @@ async def approve_institution_verification(
             "phone": req.get("phone"),
             "website": req.get("website"),
             "logo_url": req.get("logo_url"),
-            "status": "active",
+            "status": "approved",
             "verified_at": datetime.now(timezone.utc).isoformat()
         })
         # Note: Depending on PostgREST setup, POST might return the object if Prefer: return=representation is set
@@ -839,9 +841,6 @@ async def approve_institution_verification(
             fetched = safe_get("institutions", {"name": f"eq.{req.get('institution_name')}", "official_email": f"eq.{req.get('official_email')}"})
             if fetched:
                 institution_id = fetched[0]["id"]
-        elif isinstance(new_inst, list) and len(new_inst) > 0:
-            institution_id = new_inst[0].get("id")
-            
     # 4. Create admin and update user
     submitted_by = req.get("submitted_by")
     if submitted_by and institution_id:
@@ -880,6 +879,25 @@ async def reject_institution_verification(
     })
     
     log_admin_action(admin, "REJECT_INSTITUTION_REQUEST", f"Rejected request {request_id}")
+    return {"success": True}
+
+@router.post("/institutions/verification-requests/{request_id}/request-changes")
+async def request_changes_institution_verification(
+    request_id: str,
+    payload: dict = Body(...),
+    admin: dict = Depends(get_current_admin)
+):
+    require_super_admin(admin)
+    review_notes = payload.get("review_notes", "")
+    
+    db.update("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+        "status": "needs_changes",
+        "review_notes": review_notes,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_by": admin.get("id")
+    })
+    
+    log_admin_action(admin, "REQUEST_CHANGES_INSTITUTION_REQUEST", f"Requested changes for {request_id}")
     return {"success": True}
 async def get_institution_metrics(admin: dict = Depends(get_current_admin)):
     institutions = safe_get("institutions", {"select": "id,name", "limit": "10000"})

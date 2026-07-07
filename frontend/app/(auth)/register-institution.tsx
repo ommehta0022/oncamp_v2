@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -20,6 +20,13 @@ export default function RegisterInstitution() {
   const [submitting, setSubmitting] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
+  
+  // Status check states
+  const [checkingStatus, setCheckingStatus] = useState(true);
+  const [requestStatus, setRequestStatus] = useState<string | null>(null);
+  const [reviewNotes, setReviewNotes] = useState<string>("");
+  const [isUpdating, setIsUpdating] = useState(false);
+
   const [form, setForm] = useState({
     name: "", type: "College", city: "", state: "", country: "India",
     email: "", phone: "", adminName: "", designation: "", website: "",
@@ -27,6 +34,48 @@ export default function RegisterInstitution() {
     logoName: "", documentName: "",
   });
   const set = (k: string, v: string) => setForm((s) => ({ ...s, [k]: v }));
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) {
+          setCheckingStatus(false);
+          return;
+        }
+        const data = await api.institutions.myRequest();
+        if (data.has_request && data.request) {
+          setRequestStatus(data.request.status);
+          setReviewNotes(data.request.review_notes || "");
+          
+          if (data.request.status === 'needs_changes' || data.request.status === 'pending') {
+            setForm({
+              name: data.request.institution_name || "",
+              type: data.request.institution_type || "College",
+              city: data.request.city || "",
+              state: data.request.state || "",
+              country: data.request.country || "India",
+              email: data.request.official_email || "",
+              phone: data.request.phone || "",
+              adminName: data.request.admin_name || "",
+              designation: data.request.designation || "",
+              website: data.request.website || "",
+              reason: data.request.reason || "",
+              logoUrl: data.request.logo_url || "",
+              documentUrl: data.request.document_url || "",
+              logoName: data.request.logo_url ? "Uploaded Logo" : "",
+              documentName: data.request.document_url ? "Uploaded Document" : "",
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching request status:", error);
+      } finally {
+        setCheckingStatus(false);
+      }
+    };
+    fetchStatus();
+  }, []);
 
   const canNext =
     step === 1 ? form.name && form.city :
@@ -61,7 +110,6 @@ export default function RegisterInstitution() {
         const fileName = asset.fileName || `logo.${fileExt}`;
         
         if (Platform.OS === 'web') {
-          // On web, we must use the actual File object or fetch the blob
           if (asset.file) {
             formData.append('file', asset.file);
           } else {
@@ -70,7 +118,6 @@ export default function RegisterInstitution() {
             formData.append('file', blob, fileName);
           }
         } else {
-          // React Native
           formData.append('file', {
             uri: asset.uri,
             name: fileName,
@@ -78,7 +125,6 @@ export default function RegisterInstitution() {
           } as any);
         }
 
-        // Upload to backend
         const response = await api.uploadInstitutionLogo(formData);
         set('logoUrl', response.url);
         set('logoName', fileName);
@@ -110,7 +156,6 @@ export default function RegisterInstitution() {
 
         setUploadingDoc(true);
         
-        // Create FormData for upload
         const formData = new FormData();
         const uriParts = asset.uri.split('.');
         const fileExt = uriParts[uriParts.length - 1].toLowerCase();
@@ -118,7 +163,6 @@ export default function RegisterInstitution() {
         const fileName = asset.name || `document.${fileExt}`;
         
         if (Platform.OS === 'web') {
-          // On web, we must fetch the blob or use the file object
           if (asset.file) {
             formData.append('file', asset.file);
           } else {
@@ -134,7 +178,6 @@ export default function RegisterInstitution() {
           } as any);
         }
 
-        // Upload to backend
         const response = await api.uploadInstitutionDoc(formData);
         set('documentUrl', response.url);
         set('documentName', fileName);
@@ -168,7 +211,11 @@ export default function RegisterInstitution() {
       
       const token = await getAccessToken();
       if (token) {
-        router.replace("/institution/dashboard");
+        Alert.alert(
+          'Registration Updated',
+          'Your verification request has been successfully submitted.',
+          [{ text: 'OK', onPress: () => router.replace("/institution/dashboard") }]
+        );
       } else {
         Alert.alert(
           'Registration Submitted',
@@ -184,9 +231,142 @@ export default function RegisterInstitution() {
     }
   };
 
+  // Status check loading state
+  if (checkingStatus) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.surface }}>
+        <ActivityIndicator size="large" color={colors.brandPrimary} />
+      </View>
+    );
+  }
+
+  // Full Page Approved Template
+  if (requestStatus === 'approved') {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: spacing.xl }}>
+          <View style={[styles.iconWrap, { backgroundColor: colors.brandTertiary, width: 80, height: 80, borderRadius: 24, marginBottom: spacing.xl }]}>
+            <Ionicons name="checkmark-circle" size={40} color={colors.brandPrimary} />
+          </View>
+          <Text style={[styles.h1, { color: colors.onSurface, textAlign: "center" }]}>Congratulations!</Text>
+          <Text style={[styles.h2, { color: colors.onSurfaceTertiary, textAlign: "center", marginTop: spacing.md }]}>
+            Your institution has been approved. You are ready to start building your campus community!
+          </Text>
+          <View style={{ marginTop: 40, width: "100%" }}>
+            <Button
+              label="Continue to Dashboard"
+              fullWidth
+              size="lg"
+              onPress={() => router.replace("/institution/dashboard")}
+            />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Full Page Pending Template
+  if (requestStatus === 'pending') {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+        <Header title="Verification Status" onBack={() => router.back()} />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: spacing.xl }}>
+          <View style={[styles.iconWrap, { backgroundColor: colors.surfaceSecondary, width: 80, height: 80, borderRadius: 24, marginBottom: spacing.xl }]}>
+            <Ionicons name="time" size={40} color={colors.onSurfaceTertiary} />
+          </View>
+          <Text style={[styles.h1, { color: colors.onSurface, textAlign: "center" }]}>Verification Pending</Text>
+          <Text style={[styles.h2, { color: colors.onSurfaceTertiary, textAlign: "center", marginTop: spacing.md }]}>
+            Your institution registration is currently under review by our admin team. We will notify you once a decision is made.
+          </Text>
+          <View style={{ marginTop: 40, width: "100%" }}>
+            <Button
+              label="Go to Dashboard Preview"
+              fullWidth
+              size="lg"
+              onPress={() => router.replace("/institution/dashboard")}
+            />
+            <Pressable onPress={() => router.back()} style={{ alignItems: "center", paddingVertical: spacing.lg }}>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Back to Home</Text>
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Full Page Rejected Template
+  if (requestStatus === 'rejected') {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: spacing.xl }}>
+          <View style={[styles.iconWrap, { backgroundColor: '#fee2e2', width: 80, height: 80, borderRadius: 24, marginBottom: spacing.xl }]}>
+            <Ionicons name="close-circle" size={40} color="#dc2626" />
+          </View>
+          <Text style={[styles.h1, { color: colors.onSurface, textAlign: "center" }]}>Verification Rejected</Text>
+          
+          <View style={{ backgroundColor: '#fef2f2', padding: spacing.lg, borderRadius: radius.md, marginTop: spacing.xl, width: "100%", borderWidth: 1, borderColor: '#fecaca' }}>
+            <Text style={{ color: '#991b1b', fontWeight: "600", marginBottom: spacing.xs }}>Admin Notes:</Text>
+            <Text style={{ color: '#7f1d1d', lineHeight: 20 }}>{reviewNotes || "Your registration did not meet our verification criteria at this time."}</Text>
+          </View>
+          
+          <View style={{ marginTop: 40, width: "100%" }}>
+            <Button
+              label="Start Over"
+              fullWidth
+              size="lg"
+              onPress={() => {
+                // Clear state
+                setRequestStatus(null);
+                setForm({
+                  name: "", type: "College", city: "", state: "", country: "India",
+                  email: "", phone: "", adminName: "", designation: "", website: "",
+                  reason: "", logoUrl: "", documentUrl: "",
+                  logoName: "", documentName: "",
+                });
+                setStep(1);
+              }}
+            />
+            <Pressable onPress={() => router.back()} style={{ alignItems: "center", paddingVertical: spacing.lg }}>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Back to Home</Text>
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Full Page Needs Changes Template (if they haven't chosen to update yet)
+  if (requestStatus === 'needs_changes' && !isUpdating) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+        <Header title="Action Required" onBack={() => router.back()} />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: spacing.xl }}>
+          <View style={[styles.iconWrap, { backgroundColor: '#fef3c7', width: 80, height: 80, borderRadius: 24, marginBottom: spacing.xl }]}>
+            <Ionicons name="alert-circle" size={40} color="#d97706" />
+          </View>
+          <Text style={[styles.h1, { color: colors.onSurface, textAlign: "center" }]}>Updates Required</Text>
+          
+          <View style={{ backgroundColor: '#fffbeb', padding: spacing.lg, borderRadius: radius.md, marginTop: spacing.xl, width: "100%", borderWidth: 1, borderColor: '#fde68a' }}>
+            <Text style={{ color: '#92400e', fontWeight: "600", marginBottom: spacing.xs }}>Review Notes:</Text>
+            <Text style={{ color: '#b45309', lineHeight: 20 }}>{reviewNotes}</Text>
+          </View>
+          
+          <View style={{ marginTop: 40, width: "100%" }}>
+            <Button
+              label="Update Information"
+              fullWidth
+              size="lg"
+              onPress={() => setIsUpdating(true)} // Proceed to the form with pre-filled data
+            />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="register-institution-screen">
-      <Header title="Register institution" subtitle={`Step ${step} of 3`} onBack={() => step > 1 ? setStep(step - 1) : router.back()} />
+      <Header title={isUpdating ? "Update institution" : "Register institution"} subtitle={`Step ${step} of 3`} onBack={() => step > 1 ? setStep(step - 1) : router.back()} />
 
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
         <View style={{ flexDirection: "row", gap: spacing.xs }}>
@@ -204,6 +384,13 @@ export default function RegisterInstitution() {
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          
+          {isUpdating && (
+            <View style={{ backgroundColor: '#fffbeb', padding: spacing.md, borderRadius: radius.md, marginBottom: spacing.lg, borderWidth: 1, borderColor: '#fde68a' }}>
+              <Text style={{ color: '#92400e', fontWeight: "500", fontSize: font.sm }}>Please make the requested changes based on the review notes.</Text>
+            </View>
+          )}
+
           {step === 1 && (
             <>
               <View style={[styles.iconWrap, { backgroundColor: colors.brandTertiary }]}>
@@ -225,7 +412,7 @@ export default function RegisterInstitution() {
                     style={[
                       styles.chip,
                       {
-                        backgroundColor: form.type === t ? colors.brandPrimary : colors.surfaceTertiary,
+                         backgroundColor: form.type === t ? colors.brandPrimary : colors.surfaceTertiary,
                         borderColor: form.type === t ? colors.brandPrimary : colors.border,
                       },
                     ]}
@@ -311,7 +498,7 @@ export default function RegisterInstitution() {
               />
             ) : (
               <Button
-                label={submitting ? "Submitting..." : "Submit for verification"}
+                label={submitting ? "Submitting..." : (isUpdating ? "Submit Changes" : "Submit for verification")}
                 fullWidth
                 size="lg"
                 disabled={submitting}

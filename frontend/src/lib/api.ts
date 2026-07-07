@@ -337,11 +337,12 @@ export const api = {
       request(`/groups/${groupId}/join-requests/${requestId}/reject`, { method: "POST" }),
   },
   institutions: {
-    register: (body: unknown) => request("/institutions/register", { method: "POST", body }),  // FIXED: Now requires auth
+    register: (body: unknown) => request("/institutions/register", { method: "POST", body }),
     dashboard: () => request("/institutions/me/dashboard"),
     analytics: () => request("/institutions/me/analytics"),
     updateMe: (body: unknown) => request("/institutions/me", { method: "PATCH", body }),
     admins: () => request("/institutions/me/admins"),
+    myRequest: () => request("/institutions/my-request"),
   },
   notifications: {
     list: () => request("/notifications"),
