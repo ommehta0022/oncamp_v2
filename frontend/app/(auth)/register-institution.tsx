@@ -76,18 +76,19 @@ export default function RegisterInstitution() {
         copyToCacheDirectory: true,
       });
 
-      if (result.type === 'success') {
+      if (!result.canceled && result.assets && result.assets.length > 0) {
         setUploadingDoc(true);
+        const asset = result.assets[0];
         
         // Create FormData for upload
         const formData = new FormData();
-        const uriParts = result.uri.split('.');
+        const uriParts = asset.uri.split('.');
         const fileType = uriParts[uriParts.length - 1];
         
         formData.append('file', {
-          uri: result.uri,
-          name: result.name || `document.${fileType}`,
-          type: result.mimeType || `application/${fileType}`,
+          uri: asset.uri,
+          name: asset.name || `document.${fileType}`,
+          type: asset.mimeType || `application/${fileType}`,
         } as any);
 
         // Upload to backend
@@ -311,6 +312,16 @@ function UploadBox({ label, hint, onPress, uploading, uploaded }: {
   uploaded?: boolean;
 }) {
   const { colors } = useTheme();
+  
+  // Extract filename from URL if uploaded
+  const getFilename = (url: string) => {
+    if (!url) return label + " ✓";
+    const parts = url.split('/');
+    const lastPart = parts[parts.length - 1];
+    // Return max 25 chars
+    return lastPart.length > 25 ? "..." + lastPart.substring(lastPart.length - 22) : lastPart;
+  };
+
   return (
     <Pressable
       onPress={onPress}
@@ -335,9 +346,11 @@ function UploadBox({ label, hint, onPress, uploading, uploaded }: {
       </View>
       <View style={{ flex: 1 }}>
         <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>
-          {uploading ? "Uploading..." : uploaded ? `${label} ✓` : label}
+          {uploading ? "Uploading..." : uploaded ? "File uploaded" : label}
         </Text>
-        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{hint}</Text>
+        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>
+          {uploaded ? "Successfully attached" : hint}
+        </Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
     </Pressable>

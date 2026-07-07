@@ -436,6 +436,14 @@ def current_user(
 
     raise HTTPException(status_code=401, detail="Authentication required")
 
+def optional_user(authorization: Optional[str] = Header(default=None)) -> Optional[CurrentUser]:
+    if not authorization:
+        return None
+    try:
+        return current_user(authorization)
+    except HTTPException:
+        return None
+
 
 def require_publisher(user: CurrentUser) -> None:
     if user.role in {"institution_admin", "group_owner", "group_admin", "platform_admin"}:
@@ -1393,23 +1401,25 @@ class InstitutionRegistrationDto(BaseModel):
 
 
 @app.post("/v1/institutions/register")
-def register_institution(payload: InstitutionRegistrationDto, user: CurrentUser = Depends(current_user)) -> Any:
-    """Register institution for verification - requires authentication"""
-    # Check if user already has a pending request
-    existing = safe_get("institution_verification_requests", {
-        "submitted_by": f"eq.{user.id}",
-        "status": "eq.pending",
-        "select": "id"
-    })
-    if existing:
-        raise HTTPException(status_code=400, detail="You already have a pending verification request")
+def register_institution(payload: InstitutionRegistrationDto, user: Optional[CurrentUser] = Depends(optional_user)) -> Any:
+    """Register institution for verification - allows unauthenticated submission"""
+    
+    # Check if user already has a pending request (only if logged in)
+    if user:
+        existing = safe_get("institution_verification_requests", {
+            "submitted_by": f"eq.{user.id}",
+            "status": "eq.pending",
+            "select": "id"
+        })
+        if existing:
+            raise HTTPException(status_code=400, detail="You already have a pending verification request")
     
     # Create verification request
     return db.post(
         "institution_verification_requests",
         {
             "id": str(uuid.uuid4()),
-            "submitted_by": user.id,  # Link to current user
+            "submitted_by": user.id if user else None,  # Link to current user if exists
             "institution_name": payload.institutionName,
             "institution_type": payload.institutionType,
             "city": payload.city,
@@ -2571,9 +2581,9 @@ async def upload_message_media(
 @app.post("/v1/upload/institution-logo")
 async def upload_institution_logo(
     file: UploadFile = File(...),
-    user: CurrentUser = Depends(current_user),
+    user: Optional[CurrentUser] = Depends(optional_user),
 ) -> dict[str, str]:
-    """Upload institution logo (PNG/SVG)."""
+    """Upload institution logo (PNG/SVG). Allows unauthenticated."""
     allowed = {"image/png", "image/svg+xml", "image/jpeg", "image/webp"}
     if file.content_type not in allowed:
         raise HTTPException(status_code=400, detail=f"Only PNG/SVG/JPEG/WEBP allowed. Got: {file.content_type}")
@@ -2584,7 +2594,7 @@ async def upload_institution_logo(
 
     ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "png"
     unique_name  = f"{uuid.uuid4()}.{ext}"
-    storage_path = f"institution-logos/{user.id}/{unique_name}"
+    storage_path = f"institution-logos/public/{unique_name}"
     public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
 
     return {"url": public_url, "type": "institution_logo"}
@@ -2617,9 +2627,9 @@ async def upload_institution_cover(
 @app.post("/v1/upload/institution-doc")
 async def upload_institution_doc(
     file: UploadFile = File(...),
-    user: CurrentUser = Depends(current_user),
+    user: Optional[CurrentUser] = Depends(optional_user),
 ) -> dict[str, str]:
-    """Upload a verification document for institution registration."""
+    """Upload a verification document for institution registration. Allows unauthenticated."""
     allowed = ALLOWED_IMAGE_TYPES | ALLOWED_DOC_TYPES
     if file.content_type not in allowed:
         raise HTTPException(status_code=400, detail=f"Only images/PDFs allowed. Got: {file.content_type}")
@@ -2630,7 +2640,7 @@ async def upload_institution_doc(
 
     ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "pdf"
     unique_name  = f"{uuid.uuid4()}.{ext}"
-    storage_path = f"institution-docs/{user.id}/{unique_name}"
+    storage_path = f"institution-docs/public/{unique_name}"
     public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
 
     return {"url": public_url, "type": "institution_document"}
