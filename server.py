@@ -105,7 +105,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",")],
+    allow_origins=[
+        "https://admin-panel-gray-rho.vercel.app",
+        "https://oncampus-admin.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:4000",
+        *[origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()],
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
