@@ -608,6 +608,61 @@ async def admin_logout(admin: dict = Depends(get_current_admin)):
     return {"success": True}
 
 
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/auth/reset-password")
+async def reset_admin_password(payload: ResetPasswordRequest):
+    """
+    Reset admin password. Generates a random temporary password,
+    stores it hashed, and returns it to the caller.
+    No email service required — password is shown directly in UI.
+    """
+    import random
+    import string
+
+    # Check admin exists
+    admins = safe_get(
+        "admin_users",
+        {"email": f"eq.{payload.email}", "select": "*", "limit": "1"},
+    )
+    if not admins:
+        # Return success even if not found to avoid email enumeration
+        raise HTTPException(status_code=404, detail="No admin account found with that email address.")
+
+    admin = admins[0]
+
+    if not admin.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Account is disabled.")
+
+    # Generate a secure 12-char temporary password
+    chars = string.ascii_letters + string.digits + "!@#$"
+    temp_password = "".join(random.choices(chars, k=12))
+
+    # Hash with SHA256
+    new_hash = hashlib.sha256(temp_password.encode()).hexdigest()
+
+    # Update the admin_users row
+    safe_patch(
+        "admin_users",
+        {"id": f"eq.{admin['id']}"},
+        {
+            "password_hash": new_hash,
+            "hash_algorithm": "sha256",
+            "password_changed_at": datetime.utcnow().isoformat(),
+        },
+    )
+
+    return {
+        "success": True,
+        "message": "Password has been reset successfully.",
+        "tempPassword": temp_password,
+        "email": payload.email,
+    }
+
+
+
 @router.get("/auth/me")
 async def get_current_admin_user(admin: dict = Depends(get_current_admin)):
     admins = safe_get("admin_users", {"id": f"eq.{get_admin_id(admin)}", "select": "*", "limit": "1"})
