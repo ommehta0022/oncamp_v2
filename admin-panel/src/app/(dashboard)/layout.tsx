@@ -88,7 +88,7 @@ export default function DashboardLayout({
         try {
           const token = localStorage.getItem('admin_token');
           const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/database/query?table=institution_verification_requests&status=eq.pending&select=count`,
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/admin/institutions/verification-requests?status=pending`,
             {
               headers: {
                 'Authorization': `Bearer ${token}`,

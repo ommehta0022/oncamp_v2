@@ -9,7 +9,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { api } from "@/src/lib/api";
+import { api, getAccessToken } from "@/src/lib/api";
 
 const TYPES = ["School", "College", "University", "Coaching", "Department", "Club body"];
 
@@ -24,6 +24,7 @@ export default function RegisterInstitution() {
     name: "", type: "College", city: "", state: "", country: "India",
     email: "", phone: "", adminName: "", designation: "", website: "",
     reason: "", logoUrl: "", documentUrl: "",
+    logoName: "", documentName: "",
   });
   const set = (k: string, v: string) => setForm((s) => ({ ...s, [k]: v }));
 
@@ -41,24 +42,46 @@ export default function RegisterInstitution() {
         quality: 1,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        setUploadingLogo(true);
+      if (!result.canceled && result.assets && result.assets[0]) {
         const asset = result.assets[0];
+        
+        // Validation: 5MB limit
+        if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+          Alert.alert("File Too Large", "Please select an image smaller than 5MB.");
+          return;
+        }
+
+        setUploadingLogo(true);
         
         // Create FormData for upload
         const formData = new FormData();
         const uriParts = asset.uri.split('.');
-        const fileType = uriParts[uriParts.length - 1];
+        const fileExt = uriParts[uriParts.length - 1].toLowerCase();
+        const fileType = fileExt === 'jpg' ? 'jpeg' : fileExt;
+        const fileName = asset.fileName || `logo.${fileExt}`;
         
-        formData.append('file', {
-          uri: asset.uri,
-          name: `logo.${fileType}`,
-          type: `image/${fileType}`,
-        } as any);
+        if (Platform.OS === 'web') {
+          // On web, we must use the actual File object or fetch the blob
+          if (asset.file) {
+            formData.append('file', asset.file);
+          } else {
+            const res = await fetch(asset.uri);
+            const blob = await res.blob();
+            formData.append('file', blob, fileName);
+          }
+        } else {
+          // React Native
+          formData.append('file', {
+            uri: asset.uri,
+            name: fileName,
+            type: asset.mimeType || `image/${fileType}`,
+          } as any);
+        }
 
         // Upload to backend
         const response = await api.uploadInstitutionLogo(formData);
         set('logoUrl', response.url);
+        set('logoName', fileName);
         setUploadingLogo(false);
         Alert.alert('Success', 'Logo uploaded successfully');
       }
@@ -77,23 +100,44 @@ export default function RegisterInstitution() {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setUploadingDoc(true);
         const asset = result.assets[0];
+        
+        // Validation: 5MB limit
+        if (asset.size && asset.size > 5 * 1024 * 1024) {
+          Alert.alert("File Too Large", "Please select a document smaller than 5MB.");
+          return;
+        }
+
+        setUploadingDoc(true);
         
         // Create FormData for upload
         const formData = new FormData();
         const uriParts = asset.uri.split('.');
-        const fileType = uriParts[uriParts.length - 1];
+        const fileExt = uriParts[uriParts.length - 1].toLowerCase();
+        const fileType = fileExt === 'jpg' ? 'jpeg' : fileExt;
+        const fileName = asset.name || `document.${fileExt}`;
         
-        formData.append('file', {
-          uri: asset.uri,
-          name: asset.name || `document.${fileType}`,
-          type: asset.mimeType || `application/${fileType}`,
-        } as any);
+        if (Platform.OS === 'web') {
+          // On web, we must fetch the blob or use the file object
+          if (asset.file) {
+            formData.append('file', asset.file);
+          } else {
+            const res = await fetch(asset.uri);
+            const blob = await res.blob();
+            formData.append('file', blob, fileName);
+          }
+        } else {
+          formData.append('file', {
+            uri: asset.uri,
+            name: fileName,
+            type: asset.mimeType || `application/${fileType}`,
+          } as any);
+        }
 
         // Upload to backend
         const response = await api.uploadInstitutionDoc(formData);
         set('documentUrl', response.url);
+        set('documentName', fileName);
         setUploadingDoc(false);
         Alert.alert('Success', 'Document uploaded successfully');
       }
@@ -121,7 +165,17 @@ export default function RegisterInstitution() {
         logoUrl: form.logoUrl,
         documentUrl: form.documentUrl,
       });
-      router.replace("/institution/dashboard");
+      
+      const token = await getAccessToken();
+      if (token) {
+        router.replace("/institution/dashboard");
+      } else {
+        Alert.alert(
+          'Registration Submitted',
+          'Your institution registration has been submitted successfully. We will contact you at your official email once it is reviewed.',
+          [{ text: 'OK', onPress: () => router.replace("/(auth)/welcome") }]
+        );
+      }
     } catch (error) {
       Alert.alert('Submission Failed', 'Failed to submit registration. Please try again.');
       console.error('Registration error:', error);
@@ -221,6 +275,7 @@ export default function RegisterInstitution() {
                 onPress={pickLogo}
                 uploading={uploadingLogo}
                 uploaded={!!form.logoUrl}
+                filename={form.logoName}
               />
               <UploadBox 
                 label="Verification documents" 
@@ -228,6 +283,7 @@ export default function RegisterInstitution() {
                 onPress={pickDocument}
                 uploading={uploadingDoc}
                 uploaded={!!form.documentUrl}
+                filename={form.documentName}
               />
 
               <Field label="Reason / use case" value={form.reason} onChange={(v) => set("reason", v)} placeholder="Briefly tell us why you're joining OnCampus" multiline />
@@ -304,22 +360,22 @@ function Field({
   );
 }
 
-function UploadBox({ label, hint, onPress, uploading, uploaded }: { 
+function UploadBox({ label, hint, onPress, uploading, uploaded, filename }: { 
   label: string; 
   hint: string; 
   onPress: () => void;
   uploading?: boolean;
   uploaded?: boolean;
+  filename?: string;
 }) {
   const { colors } = useTheme();
   
-  // Extract filename from URL if uploaded
-  const getFilename = (url: string) => {
-    if (!url) return label + " ✓";
-    const parts = url.split('/');
-    const lastPart = parts[parts.length - 1];
-    // Return max 25 chars
-    return lastPart.length > 25 ? "..." + lastPart.substring(lastPart.length - 22) : lastPart;
+  // Extract filename safely
+  const getFilename = () => {
+    if (filename) {
+      return filename.length > 25 ? "..." + filename.substring(filename.length - 22) : filename;
+    }
+    return "File uploaded";
   };
 
   return (
@@ -346,7 +402,7 @@ function UploadBox({ label, hint, onPress, uploading, uploaded }: {
       </View>
       <View style={{ flex: 1 }}>
         <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>
-          {uploading ? "Uploading..." : uploaded ? "File uploaded" : label}
+          {uploading ? "Uploading..." : uploaded ? getFilename() : label}
         </Text>
         <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>
           {uploaded ? "Successfully attached" : hint}

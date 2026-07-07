@@ -792,7 +792,95 @@ async def get_institution_verification_requests(
     return requests
 
 
-@router.get("/analytics/institutions")
+@router.post("/institutions/verification-requests/{request_id}/approve")
+async def approve_institution_verification(
+    request_id: str,
+    payload: dict = Body(...),
+    admin: dict = Depends(get_current_admin)
+):
+    require_super_admin(admin)
+    review_notes = payload.get("review_notes", "")
+    
+    # 1. Update verification request status
+    db.update("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+        "status": "approved",
+        "review_notes": review_notes,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_by": admin.get("id")
+    })
+    
+    # 2. Get the request data
+    req_data = safe_get("institution_verification_requests", {"id": f"eq.{request_id}"})
+    if not req_data:
+        raise HTTPException(status_code=404, detail="Request not found")
+    req = req_data[0]
+    
+    # 3. Create institution if doesn't exist
+    institution_id = req.get("institution_id")
+    if not institution_id:
+        new_inst = db.post("institutions", {
+            "name": req.get("institution_name"),
+            "institution_type": req.get("institution_type"),
+            "city": req.get("city"),
+            "state": req.get("state"),
+            "country": req.get("country"),
+            "official_email": req.get("official_email"),
+            "phone": req.get("phone"),
+            "website": req.get("website"),
+            "logo_url": req.get("logo_url"),
+            "status": "active",
+            "verified_at": datetime.now(timezone.utc).isoformat()
+        })
+        # Note: Depending on PostgREST setup, POST might return the object if Prefer: return=representation is set
+        # If not, we might need to query it back or generate the UUID here.
+        # But we'll assume the front-end logic works, let's just generate a UUID here for safety if new_inst is empty
+        if not new_inst:
+            # Re-fetch by name and email
+            fetched = safe_get("institutions", {"name": f"eq.{req.get('institution_name')}", "official_email": f"eq.{req.get('official_email')}"})
+            if fetched:
+                institution_id = fetched[0]["id"]
+        elif isinstance(new_inst, list) and len(new_inst) > 0:
+            institution_id = new_inst[0].get("id")
+            
+    # 4. Create admin and update user
+    submitted_by = req.get("submitted_by")
+    if submitted_by and institution_id:
+        db.post("institution_admins", {
+            "id": str(uuid.uuid4()),
+            "institution_id": institution_id,
+            "user_id": submitted_by,
+            "role": "owner",
+            "status": "active"
+        })
+        db.update("users", {"id": f"eq.{submitted_by}"}, {
+            "account_type": "institution_admin",
+            "can_create_posts": True,
+            "can_create_groups": True,
+            "verified": True
+        })
+        
+    log_admin_action(admin, "APPROVE_INSTITUTION_REQUEST", f"Approved request {request_id}")
+    return {"success": True}
+
+
+@router.post("/institutions/verification-requests/{request_id}/reject")
+async def reject_institution_verification(
+    request_id: str,
+    payload: dict = Body(...),
+    admin: dict = Depends(get_current_admin)
+):
+    require_super_admin(admin)
+    review_notes = payload.get("review_notes", "")
+    
+    db.update("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+        "status": "rejected",
+        "review_notes": review_notes,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_by": admin.get("id")
+    })
+    
+    log_admin_action(admin, "REJECT_INSTITUTION_REQUEST", f"Rejected request {request_id}")
+    return {"success": True}
 async def get_institution_metrics(admin: dict = Depends(get_current_admin)):
     institutions = safe_get("institutions", {"select": "id,name", "limit": "10000"})
     memberships = safe_get("user_institutions", {"select": "institution_id", "limit": "10000"})
