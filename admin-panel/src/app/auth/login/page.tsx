@@ -24,6 +24,7 @@ export default function LoginPage() {
   // Forgot password state
   const [view, setView] = useState<"login" | "forgot" | "reset-success">("login");
   const [forgotEmail, setForgotEmail] = useState("");
+  const [securityCode, setSecurityCode] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotError, setForgotError] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -64,7 +65,7 @@ export default function LoginPage() {
       const res = await fetch(`${RAILWAY_URL}/admin/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: forgotEmail }),
+        body: JSON.stringify({ email: forgotEmail, security_code: securityCode }),
       });
 
       const data = await res.json();
@@ -168,7 +169,7 @@ export default function LoginPage() {
 
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <button
-              onClick={() => { setView("login"); setForgotError(""); }}
+              onClick={() => { setView("login"); setForgotError(""); setSecurityCode(""); }}
               className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-6 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -205,6 +206,27 @@ export default function LoginPage() {
                     placeholder="admin@oncampus.app"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Security Code
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <KeyRound className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    type="password"
+                    value={securityCode}
+                    onChange={(e) => setSecurityCode(e.target.value)}
+                    required
+                    maxLength={10}
+                    className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter security code"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Contact your system administrator for the security code.</p>
               </div>
 
               <button

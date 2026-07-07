@@ -610,19 +610,22 @@ async def admin_logout(admin: dict = Depends(get_current_admin)):
 
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
+    security_code: str
 
 
 @router.post("/auth/reset-password")
 async def reset_admin_password(payload: ResetPasswordRequest):
     """
-    Reset admin password. Generates a random temporary password,
-    stores it hashed, and returns it to the caller.
-    No email service required — password is shown directly in UI.
+    Reset admin password. Requires a security code (2006) to prevent
+    unauthorized resets. Generates a random temporary password and
+    returns it directly — no email service required.
     """
     import random
     import string
 
-    # Check admin exists
+    # Validate security code
+    if payload.security_code != "2006":
+        raise HTTPException(status_code=403, detail="Invalid security code. Please contact your system administrator.")
     admins = safe_get(
         "admin_users",
         {"email": f"eq.{payload.email}", "select": "*", "limit": "1"},
