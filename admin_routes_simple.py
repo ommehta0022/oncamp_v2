@@ -324,7 +324,7 @@ def token_pair(admin: dict[str, Any]) -> tuple[str, str]:
             "email": admin["email"],
             "role": admin["role"],
             "type": "admin",
-            "exp": datetime.utcnow() + timedelta(minutes=15),  # SECURITY: Short-lived tokens
+            "exp": datetime.utcnow() + timedelta(hours=8),  # 8-hour sessions
         },
         JWT_SECRET,
         algorithm="HS256",

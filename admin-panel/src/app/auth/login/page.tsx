@@ -31,7 +31,12 @@ export default function LoginPage() {
         router.push(`/auth/2fa?email=${encodeURIComponent(email)}`);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || "Invalid email or password");
+      const msg =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Invalid email or password";
+      setError(msg);
     } finally {
       setLoading(false);
     }
