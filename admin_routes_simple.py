@@ -802,7 +802,7 @@ async def approve_institution_verification(
     review_notes = payload.get("review_notes", "")
     
     # 1. Update verification request status
-    db.update("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+    db_client.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
         "status": "approved",
         "review_notes": review_notes,
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -819,7 +819,7 @@ async def approve_institution_verification(
     institution_id = req.get("institution_id")
     if not institution_id:
         institution_id = str(uuid.uuid4())
-        new_inst = db.post("institutions", {
+        new_inst = db_client.post("institutions", {
             "id": institution_id,
             "name": req.get("institution_name"),
             "institution_type": req.get("institution_type"),
@@ -844,18 +844,28 @@ async def approve_institution_verification(
     # 4. Create admin and update user
     submitted_by = req.get("submitted_by")
     if submitted_by and institution_id:
-        db.post("institution_admins", {
+        db_client.post("institution_admins", {
             "id": str(uuid.uuid4()),
             "institution_id": institution_id,
             "user_id": submitted_by,
             "role": "owner",
             "status": "active"
         })
-        db.update("users", {"id": f"eq.{submitted_by}"}, {
+        db_client.patch("users", {"id": f"eq.{submitted_by}"}, {
             "account_type": "institution_admin",
             "can_create_posts": True,
             "can_create_groups": True,
             "verified": True
+        })
+        
+        # 5. Notify the user
+        db_client.post("notifications", {
+            "id": str(uuid.uuid4()),
+            "user_id": submitted_by,
+            "type": "verification_update",
+            "title": "Institution Verified",
+            "body": f"Your institution {req.get('institution_name')} has been verified. Welcome aboard!",
+            "created_at": datetime.now(timezone.utc).isoformat()
         })
         
     log_admin_action(admin, "APPROVE_INSTITUTION_REQUEST", f"Approved request {request_id}")
@@ -871,12 +881,26 @@ async def reject_institution_verification(
     require_super_admin(admin)
     review_notes = payload.get("review_notes", "")
     
-    db.update("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+    db_client.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
         "status": "rejected",
         "review_notes": review_notes,
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
         "reviewed_by": admin.get("id")
     })
+    
+    req_data = safe_get("institution_verification_requests", {"id": f"eq.{request_id}"})
+    if req_data:
+        req = req_data[0]
+        submitted_by = req.get("submitted_by")
+        if submitted_by:
+            db_client.post("notifications", {
+                "id": str(uuid.uuid4()),
+                "user_id": submitted_by,
+                "type": "verification_update",
+                "title": "Verification Rejected",
+                "body": f"Your institution verification for {req.get('institution_name')} was rejected. Reason: {review_notes}",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
     
     log_admin_action(admin, "REJECT_INSTITUTION_REQUEST", f"Rejected request {request_id}")
     return {"success": True}
@@ -890,12 +914,26 @@ async def request_changes_institution_verification(
     require_super_admin(admin)
     review_notes = payload.get("review_notes", "")
     
-    db.update("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+    db_client.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
         "status": "needs_changes",
         "review_notes": review_notes,
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
         "reviewed_by": admin.get("id")
     })
+    
+    req_data = safe_get("institution_verification_requests", {"id": f"eq.{request_id}"})
+    if req_data:
+        req = req_data[0]
+        submitted_by = req.get("submitted_by")
+        if submitted_by:
+            db_client.post("notifications", {
+                "id": str(uuid.uuid4()),
+                "user_id": submitted_by,
+                "type": "verification_update",
+                "title": "Action Required: Verification",
+                "body": f"Changes requested for {req.get('institution_name')}. Notes: {review_notes}",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
     
     log_admin_action(admin, "REQUEST_CHANGES_INSTITUTION_REQUEST", f"Requested changes for {request_id}")
     return {"success": True}

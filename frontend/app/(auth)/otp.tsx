@@ -68,7 +68,12 @@ export default function Otp() {
         await AsyncStorage.setItem("oncampus.role", resolveRole(session.user.accountType, session.user.roles));
       }
       await AsyncStorage.setItem("oncampus.authed", "true");
-      router.replace(session.isNewUser || !session.user?.profileCompleted ? "/(auth)/profile-setup" : "/(tabs)/feed");
+      
+      if (session.user?.accountType === "institution_admin") {
+        router.replace("/institution/dashboard");
+      } else {
+        router.replace(session.isNewUser || !session.user?.profileCompleted ? "/(auth)/profile-setup" : "/(tabs)/feed");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not verify OTP.");
     } finally {

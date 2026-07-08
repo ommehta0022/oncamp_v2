@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert, ActivityIndicator, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { api, getAccessToken } from "@/src/lib/api";
+import { api, getAccessToken, saveSession } from "@/src/lib/api";
 
 const TYPES = ["School", "College", "University", "Coaching", "Department", "Club body"];
 
@@ -27,13 +28,27 @@ export default function RegisterInstitution() {
   const [reviewNotes, setReviewNotes] = useState<string>("");
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Verification states
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [showPhoneOtp, setShowPhoneOtp] = useState(false);
+  const [showEmailOtp, setShowEmailOtp] = useState(false);
+  const [phoneOtp, setPhoneOtp] = useState("");
+  const [emailOtp, setEmailOtp] = useState("");
+  const [verifyingPhone, setVerifyingPhone] = useState(false);
+
   const [form, setForm] = useState({
     name: "", type: "College", city: "", state: "", country: "India",
     email: "", phone: "", adminName: "", designation: "", website: "",
     reason: "", logoUrl: "", documentUrl: "",
     logoName: "", documentName: "",
   });
-  const set = (k: string, v: string) => setForm((s) => ({ ...s, [k]: v }));
+  const set = (k: string, v: string) => setForm((s) => {
+    // If they change email or phone, reset verification status
+    if (k === 'phone' && s.phone !== v) setPhoneVerified(false);
+    if (k === 'email' && s.email !== v) setEmailVerified(false);
+    return { ...s, [k]: v };
+  });
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -66,6 +81,11 @@ export default function RegisterInstitution() {
               logoName: data.request.logo_url ? "Uploaded Logo" : "",
               documentName: data.request.document_url ? "Uploaded Document" : "",
             });
+            // If they are updating an existing request, we can assume they verified previously
+            if (data.request.status === 'needs_changes') {
+              setPhoneVerified(true);
+              setEmailVerified(true);
+            }
           }
         }
       } catch (error) {
@@ -79,8 +99,72 @@ export default function RegisterInstitution() {
 
   const canNext =
     step === 1 ? form.name && form.city :
-    step === 2 ? form.email && form.phone && form.adminName && form.designation :
+    step === 2 ? form.email && form.phone && form.adminName && form.designation && phoneVerified && emailVerified :
     true;
+
+  // Phone Verification Logic
+  const handleStartPhoneVerify = async () => {
+    if (!form.phone || form.phone.length !== 10) {
+      Alert.alert("Invalid Phone", "Please enter a valid 10-digit phone number");
+      return;
+    }
+    setVerifyingPhone(true);
+    try {
+      const fullPhone = `+91${form.phone}`;
+      await api.auth.startOtp(fullPhone);
+      setPhoneOtp("");
+      setShowPhoneOtp(true);
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : "Failed to send OTP");
+    } finally {
+      setVerifyingPhone(false);
+    }
+  };
+
+  const handleSubmitPhoneOtp = async () => {
+    if (!phoneOtp || phoneOtp.length < 4) return;
+    setVerifyingPhone(true);
+    try {
+      const fullPhone = `+91${form.phone}`;
+      // Verify OTP which also logs the user in if successful
+      const session = await api.auth.verifyOtpDev(fullPhone, phoneOtp);
+      await saveSession(session.accessToken, session.refreshToken);
+      if (session.user) {
+        await AsyncStorage.setItem("oncampus.user", JSON.stringify(session.user));
+        const role = session.user.accountType === "institution_admin" ? "institution" : "user";
+        await AsyncStorage.setItem("oncampus.role", role);
+      }
+      await AsyncStorage.setItem("oncampus.authed", "true");
+      
+      setPhoneVerified(true);
+      setShowPhoneOtp(false);
+      Alert.alert("Success", "Phone number verified successfully!");
+    } catch (err) {
+      Alert.alert("Verification Failed", err instanceof Error ? err.message : "Invalid OTP code");
+    } finally {
+      setVerifyingPhone(false);
+    }
+  };
+
+  // Email Verification Logic
+  const handleStartEmailVerify = () => {
+    if (!form.email || !form.email.includes("@")) {
+      Alert.alert("Invalid Email", "Please enter a valid official email address");
+      return;
+    }
+    setEmailOtp("");
+    setShowEmailOtp(true);
+  };
+
+  const handleSubmitEmailOtp = () => {
+    if (emailOtp === "1234") {
+      setEmailVerified(true);
+      setShowEmailOtp(false);
+      Alert.alert("Success", "Email verified successfully!");
+    } else {
+      Alert.alert("Verification Failed", "Invalid OTP. Please enter 1234 for testing.");
+    }
+  };
 
   const pickLogo = async () => {
     try {
@@ -438,8 +522,24 @@ export default function RegisterInstitution() {
                 We need to verify you&apos;re authorized to represent this institution.
               </Text>
 
-              <Field label="Official email (domain)" value={form.email} onChange={(v) => set("email", v)} placeholder="admin@institution.edu" keyboardType="email-address" />
-              <Field label="Official phone" value={form.phone} onChange={(v) => set("phone", v)} placeholder="Official phone number" keyboardType="phone-pad" />
+              <VerifiableField 
+                label="Official email (domain)" 
+                value={form.email} 
+                onChange={(v) => set("email", v)} 
+                placeholder="admin@institution.edu" 
+                keyboardType="email-address"
+                verified={emailVerified}
+                onVerify={handleStartEmailVerify}
+              />
+              <VerifiableField 
+                label="Official phone" 
+                value={form.phone} 
+                onChange={(v) => set("phone", v)} 
+                placeholder="10-digit Official phone number" 
+                keyboardType="phone-pad"
+                verified={phoneVerified}
+                onVerify={handleStartPhoneVerify}
+              />
               <Field label="Admin name" value={form.adminName} onChange={(v) => set("adminName", v)} placeholder="Your full name" />
               <Field label="Designation" value={form.designation} onChange={(v) => set("designation", v)} placeholder="Your official role" />
               <Field label="Website" value={form.website} onChange={(v) => set("website", v)} placeholder="https://institution.edu" keyboardType="default" />
@@ -512,6 +612,55 @@ export default function RegisterInstitution() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Phone OTP Modal */}
+      <Modal visible={showPhoneOtp} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.h1, { color: colors.onSurface, marginTop: 0 }]}>Verify Phone</Text>
+            <Text style={[styles.h2, { color: colors.onSurfaceTertiary, marginBottom: spacing.lg }]}>
+              Enter the OTP sent to +91 {form.phone}
+            </Text>
+            <TextInput
+              value={phoneOtp}
+              onChangeText={setPhoneOtp}
+              placeholder="Enter OTP (e.g. 123456)"
+              placeholderTextColor={colors.muted}
+              keyboardType="number-pad"
+              style={[styles.modalInput, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.onSurface }]}
+            />
+            <View style={{ gap: spacing.md, marginTop: spacing.xl, width: "100%" }}>
+              <Button label={verifyingPhone ? "Verifying..." : "Verify"} fullWidth onPress={handleSubmitPhoneOtp} disabled={verifyingPhone || !phoneOtp} />
+              <Button label="Cancel" fullWidth variant="secondary" onPress={() => setShowPhoneOtp(false)} disabled={verifyingPhone} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Email OTP Modal */}
+      <Modal visible={showEmailOtp} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.h1, { color: colors.onSurface, marginTop: 0 }]}>Verify Email</Text>
+            <Text style={[styles.h2, { color: colors.onSurfaceTertiary, marginBottom: spacing.lg }]}>
+              Enter the OTP sent to {form.email} (Hint: use 1234)
+            </Text>
+            <TextInput
+              value={emailOtp}
+              onChangeText={setEmailOtp}
+              placeholder="Enter OTP (1234)"
+              placeholderTextColor={colors.muted}
+              keyboardType="number-pad"
+              style={[styles.modalInput, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.onSurface }]}
+            />
+            <View style={{ gap: spacing.md, marginTop: spacing.xl, width: "100%" }}>
+              <Button label="Verify" fullWidth onPress={handleSubmitEmailOtp} disabled={!emailOtp} />
+              <Button label="Cancel" fullWidth variant="secondary" onPress={() => setShowEmailOtp(false)} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -600,6 +749,49 @@ function UploadBox({ label, hint, onPress, uploading, uploaded, filename }: {
   );
 }
 
+function VerifiableField({
+  label, value, onChange, placeholder, keyboardType, verified, onVerify
+}: {
+  label: string; value: string; onChange: (v: string) => void; placeholder: string;
+  keyboardType?: "email-address" | "phone-pad" | "default";
+  verified: boolean; onVerify: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ marginTop: spacing.lg }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{label}</Text>
+        {verified ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Ionicons name="checkmark-circle" size={14} color={colors.success || "#10b981"} />
+            <Text style={{ color: colors.success || "#10b981", fontSize: font.xs, fontWeight: "600" }}>Verified</Text>
+          </View>
+        ) : (
+          <Pressable onPress={onVerify} disabled={!value} style={{ opacity: value ? 1 : 0.5 }}>
+            <Text style={{ color: colors.brandPrimary, fontSize: font.sm, fontWeight: "600" }}>Verify</Text>
+          </Pressable>
+        )}
+      </View>
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={colors.muted}
+        keyboardType={keyboardType || "default"}
+        autoCapitalize={keyboardType === "email-address" ? "none" : "sentences"}
+        editable={!verified} // disable editing after verification
+        style={{
+          backgroundColor: verified ? colors.surfaceTertiary : colors.surfaceSecondary,
+          borderColor: verified ? colors.border : colors.borderStrong, borderWidth: 1,
+          borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md,
+          color: verified ? colors.onSurfaceTertiary : colors.onSurface, fontSize: font.lg,
+          minHeight: 52,
+        }}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   iconWrap: { width: 60, height: 60, borderRadius: 18, alignItems: "center", justifyContent: "center", marginTop: spacing.lg },
   h1: { fontSize: 24, fontWeight: "500", letterSpacing: -0.5, marginTop: spacing.lg },
@@ -617,4 +809,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "flex-start", gap: spacing.sm,
     padding: spacing.md, borderRadius: radius.md, marginTop: spacing.lg,
   },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: spacing.lg },
+  modalContent: { width: "100%", padding: spacing.xl, borderRadius: radius.lg, alignItems: "center" },
+  modalInput: { width: "100%", borderWidth: 1, borderRadius: radius.md, padding: spacing.md, fontSize: font.lg, textAlign: "center" },
 });
