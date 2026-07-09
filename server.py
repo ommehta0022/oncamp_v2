@@ -1566,6 +1566,14 @@ def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str
     # Fetch groups with error handling
     groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,city,category,visibility,official"}) or []
     
+    # Batch fetch group members
+    group_ids = [g["id"] for g in groups]
+    if group_ids:
+        all_members = safe_get("group_members", {"group_id": f"in.({','.join(group_ids)})", "status": "eq.active", "select": "group_id"})
+        members_count = len(all_members) if all_members else 0
+    else:
+        members_count = 0
+    
     # Fetch verification requests - CRITICAL FIX: fetch by submitted_by user_id
     requests = safe_get(
         "institution_verification_requests",
@@ -1583,7 +1591,7 @@ def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str
         "counts": {
             "posts": len(posts),
             "groups": len(groups),
-            "members": sum(group_member_count(group["id"]) for group in groups) if groups else 0,
+            "members": members_count,
             "verificationRequests": len(requests),
         },
         "recentPosts": posts,
@@ -1603,16 +1611,44 @@ def institution_analytics(user: CurrentUser = Depends(current_user)) -> dict[str
         rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "*"})
         institution = rows[0] if rows else None
     groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,category"})
+    group_ids = [group["id"] for group in groups]
+    
+    if group_ids:
+        all_members = safe_get("group_members", {"group_id": f"in.({','.join(group_ids)})", "status": "eq.active", "select": "group_id"})
+        group_count_by_id = {}
+        for m in all_members:
+            group_count_by_id[m["group_id"]] = group_count_by_id.get(m["group_id"], 0) + 1
+    else:
+        group_count_by_id = {}
+
     posts = safe_get("posts", {**scoped, "select": "id,title,content,created_at", "order": "created_at.desc", "limit": "50"})
-    group_count_by_id = {group["id"]: group_member_count(group["id"]) for group in groups}
+    post_ids = [post["id"] for post in posts]
+    
+    if post_ids:
+        all_reactions = safe_get("post_reactions", {"post_id": f"in.({','.join(post_ids)})", "select": "post_id"})
+        all_comments = safe_get("post_comments", {"post_id": f"in.({','.join(post_ids)})", "deleted_at": "is.null", "select": "post_id"})
+        all_views = safe_get("post_views", {"post_id": f"in.({','.join(post_ids)})", "select": "post_id"})
+        
+        reaction_counts = {}
+        for r in all_reactions: reaction_counts[r["post_id"]] = reaction_counts.get(r["post_id"], 0) + 1
+            
+        comment_counts = {}
+        for c in all_comments: comment_counts[c["post_id"]] = comment_counts.get(c["post_id"], 0) + 1
+            
+        view_counts = {}
+        for v in all_views: view_counts[v["post_id"]] = view_counts.get(v["post_id"], 0) + 1
+    else:
+        reaction_counts, comment_counts, view_counts = {}, {}, {}
+
     post_metrics = []
     total_reactions = 0
     total_comments = 0
     total_views = 0
     for post in posts:
-        reactions = len(safe_get("post_reactions", {"post_id": f"eq.{post['id']}", "select": "user_id"}))
-        comments = len(safe_get("post_comments", {"post_id": f"eq.{post['id']}", "deleted_at": "is.null", "select": "id"}))
-        views = len(safe_get("post_views", {"post_id": f"eq.{post['id']}", "select": "user_id"}))
+        reactions = reaction_counts.get(post["id"], 0)
+        comments = comment_counts.get(post["id"], 0)
+        views = view_counts.get(post["id"], 0)
+        
         total_reactions += reactions
         total_comments += comments
         total_views += views
