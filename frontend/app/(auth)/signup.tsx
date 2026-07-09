@@ -8,7 +8,6 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import { api } from "@/src/lib/api";
-import { startFirebasePhoneAuth } from "@/src/lib/firebasePhoneAuth";
 
 export default function Signup() {
   const { colors } = useTheme();
@@ -77,33 +76,17 @@ export default function Signup() {
     const fullPhone = `+91${phone}`;
     
     try {
-      try {
-        await startFirebasePhoneAuth(fullPhone);
-        router.push({
-          pathname: "/(auth)/otp",
-          params: {
-            phone: fullPhone,
-            provider: "firebase",
-            from: "signup",
-            name,
-            email,
-          },
-        });
-      } catch (fbError) {
-        console.warn("Firebase auth failed, falling back to dev mode:", fbError);
-        const otp = await api.auth.startOtp(fullPhone);
-        router.push({
-          pathname: "/(auth)/otp",
-          params: {
-            phone: fullPhone,
-            provider: "dev",
-            challengeId: otp.challengeId || "",
-            from: "signup",
-            name,
-            email,
-          },
-        });
-      }
+      const otp = await api.auth.startOtp(fullPhone);
+      router.push({
+        pathname: "/(auth)/otp",
+        params: {
+          phone: fullPhone,
+          challengeId: otp.challengeId || "",
+          from: "signup",
+          name,
+          email,
+        },
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send OTP. Please try again.");
     } finally {

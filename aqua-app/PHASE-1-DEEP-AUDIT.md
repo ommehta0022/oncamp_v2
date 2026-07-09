@@ -76,11 +76,7 @@ blocked.unblock(userId)
 
 ### 1.3 — Auth Flow Audit & Fix
 
-**COMMAND 7**: Read `frontend/app/(auth)/login.tsx`, `signup.tsx`, `otp.tsx`, `profile-setup.tsx`, `welcome.tsx` completely.
-
 **COMMAND 8**: Verify that:
-- Login screen calls `/v1/auth/otp/start` correctly
-- OTP screen calls `/v1/auth/otp/verify` or `/v1/auth/otp/verify-code` correctly
 - Tokens (access + refresh) are saved to SecureStore
 - Token refresh happens automatically on 401 responses
 - Logout clears all tokens and navigates to welcome
@@ -102,7 +98,6 @@ blocked.unblock(userId)
 **COMMAND 11**: Read `frontend/app/_layout.tsx` and `frontend/app/(tabs)/_layout.tsx` completely.
 
 **COMMAND 12**: Verify ALL routes are registered and navigable:
-- `/(auth)/welcome` → `/(auth)/login` → `/(auth)/otp` → `/(auth)/profile-setup`
 - `/(tabs)/feed` → `/post/[id]` → `/user/[id]`
 - `/(tabs)/groups` → `/group/[id]` → `/group/info/[id]` → `/group/admin/[id]`
 - `/(tabs)/discover` → `/group/[id]`
@@ -143,9 +138,10 @@ blocked.unblock(userId)
 
 ### 1.6 — Error Handling & Loading States
 
-**COMMAND 18**: Audit EVERY screen for proper error handling:
+**COMMAND 18**: Audit EVERY screen for proper error handling and loading states:
+- **CRITICAL UI FIX**: Prevent "No data available" from flashing while data is being fetched. Empty states must ONLY show *after* `isLoading` becomes false and the data is confirmed empty.
+- During the initial fetch, display a professional, LinkedIn-style Skeleton Loading animation.
 - Network errors show a retry button, not a blank screen
-- Loading states show skeleton or spinner
 - Empty states show meaningful message with action button
 - 401 errors redirect to login
 - 403 errors show "access denied" message

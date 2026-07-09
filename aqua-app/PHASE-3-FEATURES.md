@@ -231,45 +231,6 @@
 - Download my data (posts, comments, messages, profile)
 - GDPR compliance
 
-## 3.7 — Complete Institution Admin Features
-
-**COMMAND 84**: Fix `app/institution/dashboard.tsx`:
-- Load data from `api.institutions.dashboard()`
-- KPI cards: Students, Groups, Posts, Active Today
-- Charts: User growth, engagement trends
-- Quick actions: Create Group, Post Announcement
-- Recent activity feed
-
-**COMMAND 85**: Fix `app/institution/analytics.tsx`:
-- Load data from `api.institutions.analytics()`
-- Time period selector (7d, 30d, 90d, all time)
-- Charts: Line chart for trends, bar chart for comparisons
-- Export data option
-
-**COMMAND 86**: Fix `app/institution/settings.tsx`:
-- Institution name, description, logo
-- Contact info
-- Verified status display
-- Admin management link
-
-**COMMAND 87**: Fix `app/institution/admins.tsx`:
-- List institution admins
-- Add admin (by user search)
-- Remove admin (with confirmation)
-- Role management
-
-**COMMAND 88**: Fix `app/institution/branding.tsx`:
-- Logo upload
-- Primary/secondary colors
-- Custom welcome message
-- Preview mode
-
-**COMMAND 89**: Fix `app/institution/verification.tsx`:
-- Verification status display
-- Upload verification documents
-- Verification progress steps
-- Contact support option
-
 ## 3.8 — Real-time Features
 
 **COMMAND 90**: Add Supabase Realtime subscription for messages:

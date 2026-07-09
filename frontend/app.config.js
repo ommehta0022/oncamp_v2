@@ -1,8 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 
-const appJson = require("./app.json");
-
 // Support both locations: important/all_set (real) and all_info_for_api_referance_only/all_set (legacy)
 const allSetDirCandidates = [
   path.resolve(__dirname, "../important/all_set"),
@@ -105,8 +103,7 @@ function firebaseWebConfig() {
   };
 }
 
-module.exports = () => {
-  const config = appJson.expo;
+module.exports = ({ config }) => {
   const googleServicesFile = path.resolve(__dirname, "../important/all_set/google-services.json");
   const googleServiceInfoFile = path.resolve(__dirname, "../important/all_set/GoogleService-Info.plist");
 

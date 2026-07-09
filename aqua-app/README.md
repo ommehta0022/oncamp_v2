@@ -49,6 +49,12 @@ aqua-app/
 - **FOLLOW EXISTING PATTERNS** in the codebase
 - **NO PLACEHOLDER UI** — everything must be real and functional
 
+### UI/UX DESIGN DIRECTIVE:
+- **NO MESSAGING APP THEMES**: Do NOT apply UI designs or themes that look like WhatsApp, Telegram, or generic chat apps.
+- **UNIQUE & POLISHED**: Make the UI unique, highly user-friendly, luxurious, and polished.
+- **LINKEDIN-LIKE AESTHETIC**: Aim for a professional, clean aesthetic (similar to LinkedIn's vibe), but **DO NOT** add their extra features. Only adapt the high-quality UI feel.
+- **CORE LOGIC IS OFF-LIMITS**: Focus strictly on refining and polishing the UI beautifully without touching or breaking the underlying core logic.
+
 ---
 
 ## Project Context

@@ -97,8 +97,22 @@ async function registerForPushNotificationsAsync() {
       console.log('Failed to get push token for push notification!');
       return null;
     }
+
     try {
-      const projectId = "oncampus-prod"; // We can replace with Constants.expoConfig?.extra?.eas?.projectId if configured
+      const Constants = require('expo-constants').default;
+      const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
+      
+      if (isExpoGo) {
+        console.log('Push notifications are not supported in Expo Go. Skipping token registration.');
+        return null;
+      }
+
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      if (!projectId) {
+         console.log('Missing eas.projectId in app.json. Skipping push token registration.');
+         return null;
+      }
+
       token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
       console.log('Push token:', token);
     } catch (e) {

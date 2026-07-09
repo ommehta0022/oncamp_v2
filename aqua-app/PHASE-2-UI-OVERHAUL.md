@@ -6,6 +6,12 @@
 
 > **TRACKING RULE**: Before starting any work, read `aqua-app/TASKS_REMAINING.md` and `aqua-app/TASKS_COMPLETED.md`. After completing each task, move it from REMAINING to COMPLETED with timestamp.
 
+> **UI/UX DESIGN DIRECTIVE (CRITICAL)**:
+> - **NO MESSAGING APP THEMES**: Do NOT apply UI designs or themes that look like WhatsApp, Telegram, or generic chat apps.
+> - **UNIQUE & POLISHED**: Make the UI unique, highly user-friendly, luxurious, and polished.
+> - **LINKEDIN-LIKE AESTHETIC**: Aim for a professional, clean aesthetic (similar to LinkedIn's vibe), but **DO NOT** add their extra features. Only adapt the high-quality UI feel.
+> - **CORE LOGIC IS OFF-LIMITS**: Focus strictly on refining and polishing the UI beautifully without touching or breaking the underlying core logic.
+
 ---
 
 ## 2.1 — Design System Overhaul
@@ -157,39 +163,7 @@ export const scalePress = (value: Animated.Value) =>
 
 ## 2.3 — Screen-by-Screen UI Polish
 
-**COMMAND 40**: Redesign `(auth)/welcome.tsx`:
-- Full-screen gradient background (brand green → dark)
-- App logo centered with scale-in animation
-- Tagline with typewriter effect
-- "Get Started" button with glow/pulse animation
-- "Already have an account? Login" link below
-- App version at bottom
-- Smooth page transition
 
-**COMMAND 41**: Redesign `(auth)/login.tsx`:
-- Clean card-based layout
-- Country code picker with flag emoji
-- Phone number input with formatting
-- "Continue" button with loading state
-- Terms of service link
-- Back button to welcome
-
-**COMMAND 42**: Redesign `(auth)/otp.tsx`:
-- 6-digit OTP input boxes (individual, auto-advance)
-- Countdown timer for resend (60 seconds)
-- Resend button appears after timer
-- Auto-submit when all 6 digits entered
-- Error shake animation on wrong code
-- Verify button with loading
-
-**COMMAND 43**: Redesign `(auth)/profile-setup.tsx`:
-- Step indicator (1/3, 2/3, 3/3)
-- Avatar upload with camera/gallery options
-- Name input with validation
-- Bio textarea with character count
-- City/course auto-suggest
-- "Skip for now" option
-- Celebration confetti on completion
 
 **COMMAND 44**: Redesign `(tabs)/feed.tsx`:
 - Floating new post button (FAB) with animation
