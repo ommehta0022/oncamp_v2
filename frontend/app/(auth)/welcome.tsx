@@ -1,139 +1,233 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, useWindowDimensions, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, Animated, Easing } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { font, spacing } from "@/src/theme/colors";
+import { font, spacing, radius } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
-import { onboardingSlides } from "@/src/data/onboarding";
+import { typography } from "@/src/theme/typography";
 
 export default function Welcome() {
-  const { width, height } = useWindowDimensions();
-  useTheme();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const scrollRef = useRef<ScrollView>(null);
-  const [index, setIndex] = useState(0);
-
+  
+  const scaleAnim = useRef(new Animated.Value(0.5)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  
+  const [tagline, setTagline] = useState("");
+  const fullTagline = "Connecting your campus, seamlessly.";
+  
+  // Typewriter effect
   useEffect(() => {
-    const t = setInterval(() => {
-      const next = (index + 1) % onboardingSlides.length;
-      scrollRef.current?.scrollTo({ x: next * width, animated: true });
-      setIndex(next);
-    }, 4500);
-    return () => clearInterval(t);
-  }, [index, width]);
+    let i = 0;
+    const typing = setInterval(() => {
+      setTagline(fullTagline.substring(0, i + 1));
+      i++;
+      if (i >= fullTagline.length) {
+        clearInterval(typing);
+      }
+    }, 50);
+    return () => clearInterval(typing);
+  }, []);
+
+  // Initial animations
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      })
+    ]).start();
+
+    // Pulse button
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        })
+      ])
+    ).start();
+  }, [scaleAnim, opacityAnim, pulseAnim]);
 
   return (
-    <View style={[styles.container, { backgroundColor: "#000" }]} testID="welcome-screen">
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
-        style={{ flex: 1 }}
+    <View style={styles.container} testID="welcome-screen">
+      <LinearGradient
+        colors={[colors.gradientStart || colors.brandPrimary, colors.gradientEnd || colors.brandTertiary, "#000000"]}
+        locations={[0, 0.4, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      
+      <Animated.View 
+        style={[
+          styles.content, 
+          { 
+            opacity: opacityAnim,
+            transform: [{ scale: scaleAnim }],
+            paddingTop: insets.top + spacing["3xl"]
+          }
+        ]}
       >
-        {onboardingSlides.map((slide, i) => (
-          <View key={i} style={{ width, height }}>
-            <Image source={{ uri: slide.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
-            <LinearGradient
-              colors={["rgba(0,0,0,0.35)", "rgba(0,0,0,0.15)", "rgba(0,0,0,0.85)", "rgba(0,0,0,0.98)"]}
-              locations={[0, 0.35, 0.75, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-          </View>
-        ))}
-      </ScrollView>
-
-      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        <View style={[styles.top, { paddingTop: insets.top + spacing.md }]}>
-          <View style={[styles.logoBadge, { backgroundColor: "#ffffff22", borderColor: "#ffffff33" }]}>
-            <Text style={styles.brand}>OC</Text>
-          </View>
-          <Text style={styles.brandLabel}>OnCampus</Text>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logoText}>OC</Text>
         </View>
+        <Text style={styles.brandTitle}>OnCampus</Text>
+        <Text style={styles.tagline}>{tagline}<Text style={{color: "transparent"}}>|</Text></Text>
+      </Animated.View>
 
-        <View style={styles.slideTextWrap} pointerEvents="none">
-          <Text style={styles.title}>{onboardingSlides[index]?.title}</Text>
-          <Text style={styles.subtitle}>{onboardingSlides[index]?.subtitle}</Text>
-        </View>
-
-        <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom + spacing.md, spacing.xl) }]}>
-          <View style={styles.dots}>
-            {onboardingSlides.map((_, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.dot,
-                  { backgroundColor: i === index ? "#fff" : "#ffffff55", width: i === index ? 24 : 6 },
-                ]}
-              />
-            ))}
-          </View>
-
+      <Animated.View 
+        style={[
+          styles.bottom, 
+          { 
+            paddingBottom: Math.max(insets.bottom + spacing.lg, spacing.xl),
+            opacity: opacityAnim
+          }
+        ]}
+      >
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <Button
-            label="Get started"
+            label="Get Started"
             fullWidth
-            size="lg"
+            size="xl"
             onPress={() => router.push("/(auth)/signup")}
             testID="welcome-get-started-btn"
+            style={{ 
+              backgroundColor: colors.surfaceSecondary, 
+              shadowColor: colors.surfaceSecondary,
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.5,
+              shadowRadius: 15,
+              elevation: 10,
+            }}
+            textStyle={{ color: colors.brandPrimary, fontWeight: "700" }}
           />
-          <Pressable
-            onPress={() => router.push("/(auth)/login")}
-            style={{ marginTop: spacing.md, alignItems: "center", paddingVertical: 8 }}
-            testID="welcome-login-btn"
-          >
-            <Text style={{ color: "#fff", fontSize: font.base }}>
-              Already have an account?{" "}
-              <Text style={{ fontWeight: "500", color: "#fff" }}>Log in</Text>
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push("/(auth)/register-institution")}
-            style={{ marginTop: 2, alignItems: "center", paddingVertical: 8 }}
-            testID="welcome-register-institution-btn"
-          >
-            <Text style={{ color: "#ffffffcc", fontSize: font.sm }}>
-              Represent a school or college?{" "}
-              <Text style={{ fontWeight: "500", color: "#fff" }}>Register your institution →</Text>
-            </Text>
-          </Pressable>
+        </Animated.View>
+
+        <View style={styles.linksContainer}>
+          <Text style={styles.loginText}>
+            Already have an account?{" "}
+          </Text>
+          <Button 
+            label="Log in" 
+            variant="link"
+            size="sm"
+            onPress={() => router.push("/(auth)/login")} 
+            textStyle={{ color: colors.surfaceSecondary }}
+            style={{ paddingHorizontal: 0, height: undefined, paddingVertical: 0 }}
+          />
         </View>
-      </View>
+
+        <Pressable
+          onPress={() => router.push("/(auth)/register-institution")}
+          style={styles.institutionLink}
+          testID="welcome-register-institution-btn"
+        >
+          <Text style={styles.institutionText}>
+            Represent a school or college?{" "}
+            <Text style={{ fontWeight: "700", color: "#fff" }}>Register your institution →</Text>
+          </Text>
+        </Pressable>
+        
+        <Text style={styles.version}>v2.0.0</Text>
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  top: {
+  container: { 
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  content: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    marginTop: -80, // Offset to center visually
+  },
+  logoContainer: {
+    width: 96,
+    height: 96,
+    borderRadius: 32,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xl,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  logoText: {
+    fontSize: 48,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -2,
+  },
+  brandTitle: {
+    ...typography.h1,
+    color: "#fff",
+    fontSize: 40,
+    letterSpacing: -1,
+    marginBottom: spacing.sm,
+  },
+  tagline: {
+    ...typography.body,
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 18,
+    textAlign: "center",
+    minHeight: 24, // Prevent jumping
+  },
+  bottom: {
+    paddingHorizontal: spacing.xl,
+    width: "100%",
+  },
+  linksContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.xl,
+    justifyContent: "center",
+    marginTop: spacing.xl,
+    marginBottom: spacing.md,
   },
-  logoBadge: {
-    width: 40, height: 40, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 1,
+  loginText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: font.base,
   },
-  brand: { color: "#fff", fontWeight: "500", fontSize: font.lg },
-  brandLabel: { color: "#fff", fontSize: font.lg, fontWeight: "500", letterSpacing: -0.3 },
-  slideTextWrap: {
-    position: "absolute",
-    left: spacing.xl,
-    right: spacing.xl,
-    bottom: 260,
+  institutionLink: {
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.lg,
   },
-  title: { color: "#fff", fontSize: 32, fontWeight: "500", letterSpacing: -0.6, lineHeight: 38 },
-  subtitle: { color: "#ffffffdd", fontSize: font.lg, marginTop: spacing.sm, lineHeight: 22 },
-  bottom: {
-    position: "absolute", left: 0, right: 0, bottom: 0,
-    paddingHorizontal: spacing.xl,
+  institutionText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: font.sm,
   },
-  dots: { flexDirection: "row", gap: 6, justifyContent: "center", marginBottom: spacing.xl },
-  dot: { height: 6, borderRadius: 3 },
+  version: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 10,
+    textAlign: "center",
+    letterSpacing: 1,
+  }
 });

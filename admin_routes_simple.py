@@ -324,7 +324,7 @@ def token_pair(admin: dict[str, Any]) -> tuple[str, str]:
             "email": admin["email"],
             "role": admin["role"],
             "type": "admin",
-            "exp": datetime.utcnow() + timedelta(hours=8),  # 8-hour sessions
+            "exp": datetime.utcnow() + timedelta(minutes=15),  # SECURITY: Short-lived tokens
         },
         JWT_SECRET,
         algorithm="HS256",
@@ -608,64 +608,6 @@ async def admin_logout(admin: dict = Depends(get_current_admin)):
     return {"success": True}
 
 
-class ResetPasswordRequest(BaseModel):
-    email: EmailStr
-    security_code: str
-
-
-@router.post("/auth/reset-password")
-async def reset_admin_password(payload: ResetPasswordRequest):
-    """
-    Reset admin password. Requires a security code (2006) to prevent
-    unauthorized resets. Generates a random temporary password and
-    returns it directly — no email service required.
-    """
-    import random
-    import string
-
-    # Validate security code
-    if payload.security_code != "2006":
-        raise HTTPException(status_code=403, detail="Invalid security code. Please contact your system administrator.")
-    admins = safe_get(
-        "admin_users",
-        {"email": f"eq.{payload.email}", "select": "*", "limit": "1"},
-    )
-    if not admins:
-        # Return success even if not found to avoid email enumeration
-        raise HTTPException(status_code=404, detail="No admin account found with that email address.")
-
-    admin = admins[0]
-
-    if not admin.get("is_active", True):
-        raise HTTPException(status_code=403, detail="Account is disabled.")
-
-    # Generate a secure 12-char temporary password
-    chars = string.ascii_letters + string.digits + "!@#$"
-    temp_password = "".join(random.choices(chars, k=12))
-
-    # Hash with SHA256
-    new_hash = hashlib.sha256(temp_password.encode()).hexdigest()
-
-    # Update the admin_users row
-    safe_patch(
-        "admin_users",
-        {"id": f"eq.{admin['id']}"},
-        {
-            "password_hash": new_hash,
-            "hash_algorithm": "sha256",
-            "password_changed_at": datetime.utcnow().isoformat(),
-        },
-    )
-
-    return {
-        "success": True,
-        "message": "Password has been reset successfully.",
-        "tempPassword": temp_password,
-        "email": payload.email,
-    }
-
-
-
 @router.get("/auth/me")
 async def get_current_admin_user(admin: dict = Depends(get_current_admin)):
     admins = safe_get("admin_users", {"id": f"eq.{get_admin_id(admin)}", "select": "*", "limit": "1"})
@@ -792,151 +734,7 @@ async def get_institution_verification_requests(
     return requests
 
 
-@router.post("/institutions/verification-requests/{request_id}/approve")
-async def approve_institution_verification(
-    request_id: str,
-    payload: dict = Body(...),
-    admin: dict = Depends(get_current_admin)
-):
-    require_super_admin(admin)
-    review_notes = payload.get("review_notes", "")
-    
-    # 1. Update verification request status
-    db_client.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
-        "status": "approved",
-        "review_notes": review_notes,
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
-        "reviewed_by": admin.get("id")
-    })
-    
-    # 2. Get the request data
-    req_data = safe_get("institution_verification_requests", {"id": f"eq.{request_id}"})
-    if not req_data:
-        raise HTTPException(status_code=404, detail="Request not found")
-    req = req_data[0]
-    
-    # 3. Create institution if doesn't exist
-    institution_id = req.get("institution_id")
-    if not institution_id:
-        institution_id = str(uuid.uuid4())
-        new_inst = db_client.post("institutions", {
-            "id": institution_id,
-            "name": req.get("institution_name"),
-            "institution_type": req.get("institution_type"),
-            "city": req.get("city"),
-            "state": req.get("state"),
-            "country": req.get("country"),
-            "official_email": req.get("official_email"),
-            "phone": req.get("phone"),
-            "website": req.get("website"),
-            "logo_url": req.get("logo_url"),
-            "status": "approved",
-            "verified_at": datetime.now(timezone.utc).isoformat()
-        })
-        # Note: Depending on PostgREST setup, POST might return the object if Prefer: return=representation is set
-        # If not, we might need to query it back or generate the UUID here.
-        # But we'll assume the front-end logic works, let's just generate a UUID here for safety if new_inst is empty
-        if not new_inst:
-            # Re-fetch by name and email
-            fetched = safe_get("institutions", {"name": f"eq.{req.get('institution_name')}", "official_email": f"eq.{req.get('official_email')}"})
-            if fetched:
-                institution_id = fetched[0]["id"]
-    # 4. Create admin and update user
-    submitted_by = req.get("submitted_by")
-    if submitted_by and institution_id:
-        db_client.post("institution_admins", {
-            "id": str(uuid.uuid4()),
-            "institution_id": institution_id,
-            "user_id": submitted_by,
-            "role": "owner",
-            "status": "active"
-        })
-        db_client.patch("users", {"id": f"eq.{submitted_by}"}, {
-            "account_type": "institution_admin",
-            "can_create_posts": True,
-            "can_create_groups": True,
-            "verified": True
-        })
-        
-        # 5. Notify the user
-        db_client.post("notifications", {
-            "id": str(uuid.uuid4()),
-            "user_id": submitted_by,
-            "type": "verification_update",
-            "title": "Institution Verified",
-            "body": f"Your institution {req.get('institution_name')} has been verified. Welcome aboard!",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-        
-    log_admin_action(admin, "APPROVE_INSTITUTION_REQUEST", f"Approved request {request_id}")
-    return {"success": True}
-
-
-@router.post("/institutions/verification-requests/{request_id}/reject")
-async def reject_institution_verification(
-    request_id: str,
-    payload: dict = Body(...),
-    admin: dict = Depends(get_current_admin)
-):
-    require_super_admin(admin)
-    review_notes = payload.get("review_notes", "")
-    
-    db_client.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
-        "status": "rejected",
-        "review_notes": review_notes,
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
-        "reviewed_by": admin.get("id")
-    })
-    
-    req_data = safe_get("institution_verification_requests", {"id": f"eq.{request_id}"})
-    if req_data:
-        req = req_data[0]
-        submitted_by = req.get("submitted_by")
-        if submitted_by:
-            db_client.post("notifications", {
-                "id": str(uuid.uuid4()),
-                "user_id": submitted_by,
-                "type": "verification_update",
-                "title": "Verification Rejected",
-                "body": f"Your institution verification for {req.get('institution_name')} was rejected. Reason: {review_notes}",
-                "created_at": datetime.now(timezone.utc).isoformat()
-            })
-    
-    log_admin_action(admin, "REJECT_INSTITUTION_REQUEST", f"Rejected request {request_id}")
-    return {"success": True}
-
-@router.post("/institutions/verification-requests/{request_id}/request-changes")
-async def request_changes_institution_verification(
-    request_id: str,
-    payload: dict = Body(...),
-    admin: dict = Depends(get_current_admin)
-):
-    require_super_admin(admin)
-    review_notes = payload.get("review_notes", "")
-    
-    db_client.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
-        "status": "needs_changes",
-        "review_notes": review_notes,
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
-        "reviewed_by": admin.get("id")
-    })
-    
-    req_data = safe_get("institution_verification_requests", {"id": f"eq.{request_id}"})
-    if req_data:
-        req = req_data[0]
-        submitted_by = req.get("submitted_by")
-        if submitted_by:
-            db_client.post("notifications", {
-                "id": str(uuid.uuid4()),
-                "user_id": submitted_by,
-                "type": "verification_update",
-                "title": "Action Required: Verification",
-                "body": f"Changes requested for {req.get('institution_name')}. Notes: {review_notes}",
-                "created_at": datetime.now(timezone.utc).isoformat()
-            })
-    
-    log_admin_action(admin, "REQUEST_CHANGES_INSTITUTION_REQUEST", f"Requested changes for {request_id}")
-    return {"success": True}
+@router.get("/analytics/institutions")
 async def get_institution_metrics(admin: dict = Depends(get_current_admin)):
     institutions = safe_get("institutions", {"select": "id,name", "limit": "10000"})
     memberships = safe_get("user_institutions", {"select": "institution_id", "limit": "10000"})

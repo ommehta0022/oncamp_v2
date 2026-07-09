@@ -107,19 +107,23 @@ function firebaseWebConfig() {
 
 module.exports = () => {
   const config = appJson.expo;
-  const googleServicesFile = "../important/all_set/google-services.json";
-  const googleServiceInfoFile = "../important/all_set/GoogleService-Info.plist";
+  const googleServicesFile = path.resolve(__dirname, "../important/all_set/google-services.json");
+  const googleServiceInfoFile = path.resolve(__dirname, "../important/all_set/GoogleService-Info.plist");
+
+  const androidConfig = { ...config.android };
+  if (fs.existsSync(googleServicesFile)) {
+    androidConfig.googleServicesFile = googleServicesFile;
+  }
+
+  const iosConfig = { ...config.ios };
+  if (fs.existsSync(googleServiceInfoFile)) {
+    iosConfig.googleServicesFile = googleServiceInfoFile;
+  }
 
   return {
     ...config,
-    android: {
-      ...config.android,
-      googleServicesFile,
-    },
-    ios: {
-      ...config.ios,
-      googleServicesFile: googleServiceInfoFile,
-    },
+    android: androidConfig,
+    ios: iosConfig,
     plugins: [
       ...config.plugins,
       // NOTE: @react-native-firebase plugins only needed for EAS native builds

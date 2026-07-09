@@ -7,7 +7,7 @@ interface AdminUser {
   email: string;
   role: "super_admin" | "moderator" | "admin";
   name?: string;
-  createdAt?: string;
+  createdAt: string;
 }
 
 interface AuthState {

@@ -18,6 +18,15 @@ export default function Blocked() {
     api.blocked.list().then(setBlockedUsers).catch(() => setBlockedUsers([]));
   }, []);
 
+  const handleUnblock = async (userId: string) => {
+    try {
+      await api.users.unblock(userId);
+      setBlockedUsers(prev => prev.filter(u => u.id !== userId));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
       <Header title="Blocked users" onBack={() => router.back()} />
@@ -33,8 +42,14 @@ export default function Blocked() {
               <Avatar uri={item.avatarUrl} name={item.name || "User"} size={44} verified={item.verified} />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{item.name || "User"}</Text>
-                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{item.city || "Blocked user"}</Text>
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{item.city || "Blocked user"}</Text>
               </View>
+              <Pressable
+                onPress={() => handleUnblock(item.id)}
+                style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: 16, backgroundColor: colors.surfaceSecondary }}
+              >
+                <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "600" }}>Unblock</Text>
+              </Pressable>
             </View>
           )}
         />

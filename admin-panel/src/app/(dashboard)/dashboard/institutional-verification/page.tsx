@@ -39,18 +39,74 @@ export default function InstitutionalVerificationPage() {
   const { data: requests, isLoading } = useQuery({
     queryKey: ['institutional-verification-requests', selectedStatus],
     queryFn: async () => {
-      const params = selectedStatus !== 'all' ? `status=${selectedStatus}` : '';
-      const response = await adminAPI(`/admin/institutions/verification-requests?${params}`);
+      const params = selectedStatus !== 'all' ? `status=eq.${selectedStatus}` : '';
+      const response = await adminAPI(`/database/query?table=institution_verification_requests&${params}&order=created_at.desc`);
       return response as InstitutionVerificationRequest[];
     },
   });
 
+  // Approve mutation
   const approveMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      await adminAPI(`/admin/institutions/verification-requests/${id}/approve`, {
-        method: 'POST',
-        body: JSON.stringify({ review_notes: notes }),
+      // Update verification request status
+      await adminAPI(`/database/query?table=institution_verification_requests&id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: 'approved',
+          review_notes: notes,
+          reviewed_at: new Date().toISOString(),
+        }),
       });
+
+      const request = requests?.find(r => r.id === id);
+      if (!request) return;
+
+      // Create institution if doesn't exist
+      let institutionId = request.institution_id;
+      if (!institutionId) {
+        const newInstitution = await adminAPI('/database/query?table=institutions', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: request.institution_name,
+            institution_type: request.institution_type,
+            city: request.city,
+            state: request.state,
+            country: request.country,
+            official_email: request.official_email,
+            phone: request.phone,
+            website: request.website,
+            logo_url: request.logo_url,
+            status: 'active',
+            verified_at: new Date().toISOString(),
+          }),
+        });
+        institutionId = newInstitution[0]?.id;
+      }
+
+      // Create institution admin record if user exists
+      if (request.submitted_by && institutionId) {
+        await adminAPI('/database/query?table=institution_admins', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            institution_id: institutionId,
+            user_id: request.submitted_by,
+            role: 'owner',
+            status: 'active',
+          }),
+        });
+
+        // Update user account type
+        await adminAPI(`/database/query?table=users&id=eq.${request.submitted_by}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            account_type: 'institution_admin',
+            can_create_posts: true,
+            can_create_groups: true,
+            verified: true,
+          }),
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['institutional-verification-requests'] });
@@ -59,11 +115,16 @@ export default function InstitutionalVerificationPage() {
     },
   });
 
+  // Reject mutation
   const rejectMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      await adminAPI(`/admin/institutions/verification-requests/${id}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({ review_notes: notes }),
+      await adminAPI(`/database/query?table=institution_verification_requests&id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: 'rejected',
+          review_notes: notes,
+          reviewed_at: new Date().toISOString(),
+        }),
       });
     },
     onSuccess: () => {
@@ -73,11 +134,16 @@ export default function InstitutionalVerificationPage() {
     },
   });
 
+  // Request changes mutation
   const requestChangesMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      await adminAPI(`/admin/institutions/verification-requests/${id}/request-changes`, {
-        method: 'POST',
-        body: JSON.stringify({ review_notes: notes }),
+      await adminAPI(`/database/query?table=institution_verification_requests&id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: 'needs_changes',
+          review_notes: notes,
+          reviewed_at: new Date().toISOString(),
+        }),
       });
     },
     onSuccess: () => {
@@ -322,7 +388,8 @@ export default function InstitutionalVerificationPage() {
                   />
                 </div>
               </div>
-              <div className="flex gap-3 mt-6">
+
+              <div className="flex gap-3">
                 {selectedRequest.status === 'pending' || selectedRequest.status === 'needs_changes' ? (
                   <>
                     <button

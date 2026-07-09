@@ -44,12 +44,20 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const nextUser = await api.auth.me();
-    setUser(nextUser);
-    await AsyncStorage.setItem(USER_CACHE_KEY, JSON.stringify(nextUser));
-    const nextRole = resolveRole(nextUser, null);
-    setRoleState(nextRole);
-    await AsyncStorage.setItem(STORAGE_KEY, nextRole);
+    try {
+      const nextUser = await api.auth.me();
+      setUser(nextUser);
+      await AsyncStorage.setItem(USER_CACHE_KEY, JSON.stringify(nextUser));
+      const nextRole = resolveRole(nextUser, null);
+      setRoleState(nextRole);
+      await AsyncStorage.setItem(STORAGE_KEY, nextRole);
+    } catch (e: any) {
+      if (e.message === "Authentication failed") {
+        setUser(null);
+        await AsyncStorage.removeItem(USER_CACHE_KEY);
+      }
+      throw e;
+    }
   }, []);
 
   const setRole = useCallback((r: Role) => {

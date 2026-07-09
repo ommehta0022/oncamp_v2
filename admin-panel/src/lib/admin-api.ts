@@ -3,7 +3,7 @@
  * This is used for institutional verification and other direct database operations
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://perpetual-motivation-production-be1a.up.railway.app";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export async function adminAPI(endpoint: string, options?: RequestInit) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;

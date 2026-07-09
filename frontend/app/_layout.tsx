@@ -10,6 +10,9 @@ import { ActionSheetProvider } from "@expo/react-native-action-sheet";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider, useTheme } from "@/src/theme/ThemeProvider";
 import { RoleProvider } from "@/src/context/RoleProvider";
+import { NotificationProvider } from "@/src/context/NotificationProvider";
+import { PushNotificationProvider } from "@/src/context/PushNotificationProvider";
+import { ToastProvider } from "@/src/components/Toast";
 import { api } from "@/src/lib/api";
 
 LogBox.ignoreAllLogs(true);
@@ -97,7 +100,13 @@ export default function RootLayout() {
         <ActionSheetProvider>
           <ThemeProvider>
             <RoleProvider>
-              <ThemedStack />
+              <NotificationProvider>
+                <PushNotificationProvider>
+                  <ToastProvider>
+                    <ThemedStack />
+                  </ToastProvider>
+                </PushNotificationProvider>
+              </NotificationProvider>
             </RoleProvider>
           </ThemeProvider>
         </ActionSheetProvider>

@@ -244,19 +244,28 @@ export async function uploadGroupAvatar(groupId: string, imageUri: string): Prom
       type,
     } as any);
 
-    const response = await api.post(`/upload/group-avatar/${groupId}`, formData, {
+    const token = await getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/upload/group-avatar/${groupId}`, {
+      method: "POST",
       headers: {
-        "Content-Type": "multipart/form-data",
+        "Authorization": token ? `Bearer ${token}` : "",
       },
+      body: formData,
     });
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Upload failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
     return {
-      url: response.data.url,
+      url: data.url,
       uploaded: true,
     };
   } catch (error: any) {
     console.error("Group avatar upload error:", error);
-    throw new Error(error.response?.data?.detail || "Failed to upload group avatar");
+    throw new Error(error.message || "Failed to upload group avatar");
   }
 }
 
@@ -276,19 +285,28 @@ export async function uploadMessageMedia(groupId: string, imageUri: string): Pro
       type,
     } as any);
 
-    const response = await api.post(`/upload/message-media/${groupId}`, formData, {
+    const token = await getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/upload/message-media/${groupId}`, {
+      method: "POST",
       headers: {
-        "Content-Type": "multipart/form-data",
+        "Authorization": token ? `Bearer ${token}` : "",
       },
+      body: formData,
     });
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Upload failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
     return {
-      url: response.data.url,
+      url: data.url,
       uploaded: true,
     };
   } catch (error: any) {
     console.error("Message media upload error:", error);
-    throw new Error(error.response?.data?.detail || "Failed to upload image");
+    throw new Error(error.message || "Failed to upload image");
   }
 }
 
@@ -308,18 +326,27 @@ export async function uploadInstitutionDoc(imageUri: string): Promise<UploadResu
       type,
     } as any);
 
-    const response = await api.post("/upload/institution-doc", formData, {
+    const token = await getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/upload/institution-doc`, {
+      method: "POST",
       headers: {
-        "Content-Type": "multipart/form-data",
+        "Authorization": token ? `Bearer ${token}` : "",
       },
+      body: formData,
     });
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Upload failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
     return {
-      url: response.data.url,
+      url: data.url,
       uploaded: true,
     };
   } catch (error: any) {
     console.error("Institution doc upload error:", error);
-    throw new Error(error.response?.data?.detail || "Failed to upload document");
+    throw new Error(error.message || "Failed to upload document");
   }
 }

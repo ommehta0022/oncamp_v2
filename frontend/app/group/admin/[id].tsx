@@ -76,6 +76,8 @@ export default function GroupAdmin() {
           <Row icon="person-add" title="Join requests" subtitle={`${joinRequests.length} pending`} color="#E87A5D" onPress={() => router.push(`/group/requests/${id}`)} badge={joinRequests.length ? String(joinRequests.length) : undefined} />
           <Divider />
           <Row icon="clipboard" title="Post / poster requests" subtitle={`${postRequests.filter((r) => r.status === "pending").length} pending review`} color="#4A788C" onPress={() => router.push(`/group/admin/post-requests/${id}`)} badge={postRequests.length ? String(postRequests.length) : undefined} />
+          <Divider />
+          <Row icon="settings" title="Settings" subtitle="Name, description, visibility" color="#8A4A8C" onPress={() => router.push(`/group/admin/settings?id=${id}`)} />
         </View>
       </ScrollView>
     </SafeAreaView>

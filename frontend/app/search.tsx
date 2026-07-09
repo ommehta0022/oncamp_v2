@@ -95,27 +95,49 @@ export default function Search() {
           ListEmptyComponent={<EmptyState icon="search" title="No results" message="No real database records match this search." />}
           renderItem={({ item }) => (
             <Pressable
-              style={styles.resultRow}
+              style={({ pressed }) => [
+                styles.resultRow,
+                { backgroundColor: pressed ? colors.surfaceSecondary : "transparent", borderBottomColor: colors.border }
+              ]}
               onPress={() => {
                 if (item.kind === "GROUP") router.push(`/group/info/${item.id}`);
                 if (item.kind === "POST") router.push(`/post/${item.id}`);
+                if (item.kind === "PERSON") router.push(`/user/${item.id}`);
               }}
             >
-              <Avatar uri={item.avatarUrl || item.mediaUrl} name={item.name || "Result"} size={44} verified={item.verified || item.official} />
+              {item.kind === "POST" ? (
+                <View style={[styles.postIconWrap, { backgroundColor: colors.brandPrimary + "15" }]}>
+                  <Ionicons name="document-text" size={24} color={colors.brandPrimary} />
+                </View>
+              ) : (
+                <Avatar uri={item.avatarUrl || item.mediaUrl} name={item.name || "Result"} size={48} verified={item.verified || item.official} />
+              )}
+              
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }} numberOfLines={1}>
-                  {item.name || item.title || "Post"}
-                </Text>
-                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={{ color: colors.onSurface, fontSize: 16, fontWeight: "600", letterSpacing: -0.2 }} numberOfLines={1}>
+                    {item.name || item.title || "Post"}
+                  </Text>
+                  {item.kind === "PERSON" && item.verified && <Ionicons name="checkmark-circle" size={14} color={colors.brandPrimary} />}
+                </View>
+                
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: 14, marginTop: 2, lineHeight: 20 }} numberOfLines={2}>
                   {item.kind === "PERSON"
-                    ? item.bio || item.city || "User"
+                    ? item.bio || item.handle || item.city || "User"
                     : item.kind === "POST"
                       ? item.content
-                      : `${item.city || "Campus"} - ${(item.memberCount || 0).toLocaleString()} members`}
+                      : `${item.category || "Campus"} • ${(item.memberCount || 0).toLocaleString()} members`}
                 </Text>
               </View>
-              <View style={[styles.tagBadge, { backgroundColor: colors.brandTertiary }]}>
-                <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "500" }}>
+              
+              <View style={[
+                styles.tagBadge, 
+                { backgroundColor: item.kind === "GROUP" ? colors.success + "20" : item.kind === "PERSON" ? colors.info + "20" : colors.warning + "20" }
+              ]}>
+                <Text style={{ 
+                  color: item.kind === "GROUP" ? colors.success : item.kind === "PERSON" ? colors.info : colors.warning, 
+                  fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 
+                }}>
                   {item.kind}
                 </Text>
               </View>
@@ -129,8 +151,9 @@ export default function Search() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 60 },
-  searchBox: { flex: 1, flexDirection: "row", alignItems: "center", height: 42, borderRadius: radius.pill, paddingHorizontal: spacing.md },
-  tab: { height: 34, paddingHorizontal: spacing.lg, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
-  resultRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-  tagBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
+  searchBox: { flex: 1, flexDirection: "row", alignItems: "center", height: 44, borderRadius: radius.pill, paddingHorizontal: spacing.md },
+  tab: { height: 36, paddingHorizontal: spacing.lg, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
+  resultRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  postIconWrap: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  tagBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
 });

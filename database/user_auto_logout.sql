@@ -1,4 +1,4 @@
-`-- ============================================================================
+-- ============================================================================
 -- User Auto-Logout System
 -- When admin deletes/bans user, automatically invalidate all their sessions
 -- ============================================================================
@@ -281,4 +281,3 @@ SELECT
   'Migration Complete' as status,
   (SELECT COUNT(*) FROM token_blacklist) as blacklist_entries,
   NOW() as completed_at;
-`

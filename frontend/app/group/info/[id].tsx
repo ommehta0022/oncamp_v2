@@ -12,6 +12,7 @@ import SettingsRow from "@/src/components/SettingsRow";
 import EmptyState from "@/src/components/EmptyState";
 import { useRole } from "@/src/context/RoleProvider";
 import { api, GroupDto } from "@/src/lib/api";
+import ReportModal from "@/src/components/ReportModal";
 
 export default function GroupInfo() {
   const { colors } = useTheme();
@@ -20,6 +21,7 @@ export default function GroupInfo() {
   const { role, isGroupAdmin } = useRole();
   const [group, setGroup] = useState<GroupDto | null>(null);
   const [members, setMembers] = useState<any[]>([]);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -39,6 +41,11 @@ export default function GroupInfo() {
       </SafeAreaView>
     );
   }
+
+  const handleReport = async (reason: string, details: string) => {
+    if (!id) return;
+    await api.reports.reportGroup(id, { reason, details });
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="group-info-screen">
@@ -134,10 +141,46 @@ export default function GroupInfo() {
 
         {group.role && (
           <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <SettingsRow 
+              icon={group.isPinned ? "pin" : "pin-outline"} 
+              title={group.isPinned ? "Unpin group" : "Pin group"} 
+              onPress={() => {
+                if (group.isPinned) {
+                  api.groups.unpinGroup(group.id).then(() => setGroup({ ...group, isPinned: false })).catch(() => {});
+                } else {
+                  api.groups.pinGroup(group.id).then(() => setGroup({ ...group, isPinned: true })).catch(() => {});
+                }
+                setGroup({ ...group, isPinned: !group.isPinned });
+              }} 
+            />
+            <SettingsRow 
+              icon={group.isMuted ? "volume-mute" : "volume-high-outline"} 
+              title={group.isMuted ? "Unmute group" : "Mute group"} 
+              subtitle="Stop receiving push notifications"
+              onPress={() => {
+                if (group.isMuted) {
+                  api.groups.unmuteGroup(group.id).then(() => setGroup({ ...group, isMuted: false })).catch(() => {});
+                } else {
+                  api.groups.muteGroup(group.id).then(() => setGroup({ ...group, isMuted: true })).catch(() => {});
+                }
+                setGroup({ ...group, isMuted: !group.isMuted });
+              }} 
+            />
             <SettingsRow icon="exit-outline" title="Leave group" destructive onPress={() => api.groups.leave(group.id).then(() => router.back()).catch(() => {})} />
           </View>
         )}
+
+        <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <SettingsRow icon="flag-outline" title="Report group" destructive onPress={() => setReportModalVisible(true)} />
+        </View>
       </ScrollView>
+      
+      <ReportModal
+        visible={reportModalVisible}
+        onClose={() => setReportModalVisible(false)}
+        onSubmit={handleReport}
+        title="Report Group"
+      />
     </SafeAreaView>
   );
 }

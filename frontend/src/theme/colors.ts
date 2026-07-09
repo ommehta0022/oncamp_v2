@@ -20,6 +20,7 @@ export const lightColors = {
   onWarning: "#181A19",
   error: "#D14D4D",
   onError: "#FFFFFF",
+  danger: "#D14D4D",
   info: "#4A788C",
   onInfo: "#FFFFFF",
   border: "#E6E3DF",
@@ -29,6 +30,23 @@ export const lightColors = {
   chatBg: "#F1EFED",
   bubbleOther: "#FFFFFF",
   bubbleOwn: "#2E5C4E",
+  background: "#F9F8F6",
+  card: "#FFFFFF",
+  overlay: "rgba(0,0,0,0.4)",
+  shadow: "#000000",
+  accent: "#E87A5D",
+  highlight: "#E7EFEA",
+  link: "#2E5C4E",
+  placeholder: "#8A8D8B",
+  skeleton: "#E6E3DF",
+  inputBg: "#F1EFED",
+  inputBorder: "#C2BDB8",
+  inputFocus: "#2E5C4E",
+  textPrimary: "#181A19",
+  textSecondary: "#4A4D4C",
+  textDisabled: "#8A8D8B",
+  gradientStart: "#2E5C4E",
+  gradientEnd: "#1B382F",
 };
 
 export const darkColors = {
@@ -53,6 +71,7 @@ export const darkColors = {
   onWarning: "#000000",
   error: "#E36666",
   onError: "#000000",
+  danger: "#E36666",
   info: "#5B96AE",
   onInfo: "#000000",
   border: "#2E3331",
@@ -62,6 +81,23 @@ export const darkColors = {
   chatBg: "#0E100F",
   bubbleOther: "#1A1D1C",
   bubbleOwn: "#3B7564",
+  background: "#121413",
+  card: "#1A1D1C",
+  overlay: "rgba(0,0,0,0.6)",
+  shadow: "#000000",
+  accent: "#E87A5D",
+  highlight: "#262A29",
+  link: "#8DC7B3",
+  placeholder: "#8A8D8B",
+  skeleton: "#262A29",
+  inputBg: "#1A1D1C",
+  inputBorder: "#4A4D4C",
+  inputFocus: "#3B7564",
+  textPrimary: "#F9F8F6",
+  textSecondary: "#C2BDB8",
+  textDisabled: "#8A8D8B",
+  gradientStart: "#3B7564",
+  gradientEnd: "#1A2E26",
 };
 
 export type ThemeColors = typeof lightColors;
@@ -74,6 +110,7 @@ export const spacing = {
   xl: 24,
   "2xl": 32,
   "3xl": 48,
+  xxl: 40,
 };
 
 export const radius = {
