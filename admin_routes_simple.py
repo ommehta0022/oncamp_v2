@@ -779,6 +779,44 @@ async def get_institution_verification_requests(
     return requests
 
 
+@router.post("/institutions/verification-requests/{request_id}/approve")
+async def approve_institution_verification(request_id: str, payload: dict = Body(...), admin: dict = Depends(get_current_admin)):
+    notes = payload.get("review_notes", "")
+    result = safe_patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+        "status": "approved",
+        "review_notes": notes,
+        "reviewed_by": admin.get("email"),
+        "reviewed_at": datetime.utcnow().isoformat()
+    })
+    log_admin_action(admin, "APPROVE_INSTITUTION_REQUEST", f"Approved institution verification request {request_id}")
+    return result
+
+
+@router.post("/institutions/verification-requests/{request_id}/reject")
+async def reject_institution_verification(request_id: str, payload: dict = Body(...), admin: dict = Depends(get_current_admin)):
+    notes = payload.get("review_notes", "")
+    result = safe_patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+        "status": "rejected",
+        "review_notes": notes,
+        "reviewed_by": admin.get("email"),
+        "reviewed_at": datetime.utcnow().isoformat()
+    })
+    log_admin_action(admin, "REJECT_INSTITUTION_REQUEST", f"Rejected institution verification request {request_id}")
+    return result
+
+
+@router.post("/institutions/verification-requests/{request_id}/request-changes")
+async def request_changes_institution_verification(request_id: str, payload: dict = Body(...), admin: dict = Depends(get_current_admin)):
+    notes = payload.get("review_notes", "")
+    result = safe_patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+        "status": "needs_changes",
+        "review_notes": notes,
+        "reviewed_by": admin.get("email"),
+        "reviewed_at": datetime.utcnow().isoformat()
+    })
+    log_admin_action(admin, "REQUEST_CHANGES_INSTITUTION_REQUEST", f"Requested changes for institution verification request {request_id}")
+    return result
+
 @router.get("/analytics/institutions")
 async def get_institution_metrics(admin: dict = Depends(get_current_admin)):
     institutions = safe_get("institutions", {"select": "id,name", "limit": "10000"})
