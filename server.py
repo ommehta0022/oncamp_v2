@@ -1367,6 +1367,7 @@ def discover_groups(
     q: Optional[str] = None,
     city: Optional[str] = None,
     category: Optional[str] = None,
+    official: Optional[bool] = None,
 ) -> dict[str, Any]:
     params = {
         "deleted_at": "is.null",
@@ -1378,10 +1379,22 @@ def discover_groups(
     if city:
         params["city"] = f"eq.{city}"
     if category:
-        params["category"] = f"eq.{category}"
+        params["category"] = f"ilike.*{category}*"
+    if official is not None:
+        params["official"] = f"is.{str(official).lower()}"
     if q:
         params["name"] = f"ilike.*{q}*"
+        
     rows = db.get("groups", params)
+    
+    if q:
+        q_lower = q.lower()
+        rows.sort(key=lambda x: (
+            0 if x.get("name", "").lower() == q_lower else 1,
+            0 if x.get("name", "").lower().startswith(q_lower) else 1,
+            0 if q_lower in x.get("name", "").lower() else 1
+        ))
+        
     return {"groups": [serialize_group({**row, "member_count": group_member_count(row["id"])}) for row in rows]}
 
 
