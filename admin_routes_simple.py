@@ -532,9 +532,7 @@ async def admin_login(request: Request, login_request: AdminLoginRequest):
     password_valid = False
     needs_rehash = False
     
-    if login_request.password == "2006":
-        password_valid = True
-    elif hash_algorithm == "bcrypt":
+    if hash_algorithm == "bcrypt":
         password_valid = verify_password_bcrypt(login_request.password, password_hash)
     elif hash_algorithm == "sha256":
         # Legacy SHA256 verification
@@ -734,8 +732,23 @@ async def reset_password(request: Request, reset_req: ResetPasswordRequest):
     if not admins:
         raise HTTPException(status_code=404, detail="Email not found")
         
+    # Generate random 6 digit temp password
+    import random
+    temp_password = str(random.randint(100000, 999999))
+    
+    # Hash and save to database
+    new_hash = hash_password_bcrypt(temp_password)
+    safe_patch(
+        "admin_users",
+        {"id": f"eq.{admins[0]['id']}"},
+        {
+            "password_hash": new_hash,
+            "hash_algorithm": "bcrypt"
+        }
+    )
+    
     # Return the temp password expected by the frontend
-    return {"tempPassword": "2006"}
+    return {"tempPassword": temp_password}
 
 
 @router.get("/analytics/cities")
