@@ -32,7 +32,12 @@ export default function Discover() {
     setLoading(true);
     const params = new URLSearchParams();
     if (query.trim()) params.set("q", query.trim());
-    if (category !== "Trending" && category !== "Official") params.set("category", category);
+    
+    if (category === "Official") {
+      params.set("official", "true");
+    } else if (category !== "Trending") {
+      params.set("category", category);
+    }
     
     try {
       const response = await api.groups.discover(params.toString() ? `?${params.toString()}` : "");
@@ -47,11 +52,6 @@ export default function Discover() {
   useEffect(() => {
     loadGroups();
   }, [loadGroups]);
-
-  const filtered = useMemo(() => {
-    if (category === "Official") return groups.filter((group) => group.official);
-    return groups;
-  }, [category, groups]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.surface }} edges={["top"]} testID="discover-screen">
@@ -107,8 +107,8 @@ export default function Discover() {
                 <SkeletonLoader type="groupRow" />
               </View>
             ))
-          ) : filtered.length > 0 ? (
-            filtered.map((group) => (
+          ) : groups.length > 0 ? (
+            groups.map((group) => (
               <DiscoverCardTile 
                 key={group.id} 
                 group={group} 
@@ -122,7 +122,7 @@ export default function Discover() {
           ) : null}
         </View>
 
-        {!loading && filtered.length === 0 && (
+        {!loading && groups.length === 0 && (
           <View style={{ marginTop: spacing.xl * 2 }}>
             <EmptyState 
               icon="search" 
