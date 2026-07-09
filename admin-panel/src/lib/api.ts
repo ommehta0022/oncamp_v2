@@ -368,7 +368,7 @@ class ApiClient {
   // Settings
   async getSettings() {
     try {
-      const response = await this.client.get("/admin/settings/platform");
+      const response = await this.client.get("/admin/settings");
       return response.data;
     } catch (error) {
       console.error("Failed to get settings:", error);
@@ -383,12 +383,12 @@ class ApiClient {
 
   // Platform Settings
   async getPlatformSettings() {
-    const response = await this.client.get("/admin/settings/platform");
+    const response = await this.client.get("/admin/settings");
     return response.data;
   }
 
   async updatePlatformSettings(data: any) {
-    const response = await this.client.patch("/admin/settings/platform", data);
+    const response = await this.client.patch("/admin/settings", data);
     return response.data;
   }
 

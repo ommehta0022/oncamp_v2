@@ -40,15 +40,21 @@ auth.logout()
 users.block(id)
 users.unblock(id)
 users.search(query)
+users.follow(id)
+users.unfollow(id)
 groups.removeMember(groupId, userId)
 groups.updateMemberRole(groupId, userId, role)
 groups.muteGroup(groupId)
 groups.unmuteGroup(groupId)
 groups.pinGroup(groupId)
 groups.searchMessages(groupId, query)
+groups.submitPostRequest(groupId, body)
 posts.repost(postId)
 posts.share(postId)
 posts.reportComment(commentId, body)
+posts.save(postId)
+posts.unsave(postId)
+posts.trackView(postId)
 notifications.unreadCount()
 notifications.delete(id)
 notifications.updatePreferences(body)
@@ -61,6 +67,7 @@ media.upload(formData)
 media.uploadAvatar(formData)
 blocked.block(userId)
 blocked.unblock(userId)
+reports.submit(targetType, targetId, reason)
 ```
 
 **COMMAND 6**: Add proper TypeScript types/interfaces for ALL API response shapes that are currently typed as `any` or `unknown`. Create interfaces in `api.ts` for:
@@ -184,6 +191,16 @@ export const cache = {
   clearAll: () => Promise<void>,
 };
 ```
+
+### 1.8 — Advanced User Features (Database Driven)
+
+**COMMAND 23**: Ensure the frontend consumes these advanced capabilities already supported by the database:
+- **Bookmarking System** (`saved_posts`): Create a "Saved" tab in the profile screen. Allow users to save posts and view them later.
+- **Social Graph** (`user_follows`): Ensure users can follow each other. The profile screen must show followers/following counts and lists.
+- **Content Moderation** (`content_reports` / `reports`): Add a "Report" button to all posts, comments, and user profiles, hooking up to the reporting API.
+- **Group Post Requests** (`group_post_requests`): Allow non-members to submit posts for approval in restricted groups. Add an admin UI within the group to approve/reject these.
+- **Post Analytics** (`post_views`): Display view counts (eye icon) on posts created by the user, utilizing the existing post views tracking table.
+- **Feature Flags** (`feature_flags`): Create a hook `useFeatureFlags()` that fetches active flags from the backend to conditionally hide/show experimental UI elements without app updates.
 
 ---
 

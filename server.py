@@ -117,6 +117,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def maintenance_mode_middleware(request: Request, call_next):
+    if request.url.path.startswith("/admin") or request.url.path.startswith("/health"):
+        return await call_next(request)
+        
+    try:
+        # Avoid direct DB object initialization overhead per request if possible,
+        # but since db is global here we can just do a quick fetch
+        settings = db.get("system_settings", {"key": "eq.maintenance_mode"})
+        if settings and len(settings) > 0 and settings[0].get("value") == True:
+            # We also try to get the message
+            msg_settings = db.get("system_settings", {"key": "eq.maintenance_message"})
+            message = "System under maintenance"
+            if msg_settings and len(msg_settings) > 0:
+                message = msg_settings[0].get("value", message)
+            
+            return JSONResponse(
+                status_code=503,
+                content={"message": message, "maintenance": True}
+            )
+    except Exception:
+        pass
+        
+    return await call_next(request)
+
 
 class SupabaseRest:
     def __init__(self) -> None:
