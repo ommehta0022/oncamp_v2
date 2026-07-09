@@ -1,50 +1,61 @@
-# Welcome to your Expo app 👋
+# OnCampus Frontend
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Welcome to the frontend application for OnCampus, the dedicated social platform built for academic institutions.
 
-## Get started
+## Tech Stack
+- **Framework**: React Native with Expo (SDK 54)
+- **Navigation**: Expo Router (File-based routing)
+- **Language**: TypeScript
+- **State & Data**: React hooks + custom caching (`src/lib/cache.ts`)
+- **Backend**: Express API with Supabase PostgreSQL
 
-1. Install dependencies
+## Setup Instructions
 
+1. **Install Dependencies**
    ```bash
    npm install
+   # or
+   yarn install
    ```
 
-2. Start the app
+2. **Environment Configuration**
+   The application communicates with a backend API. The API URL is determined in the following priority:
+   - `EXPO_PUBLIC_API_URL` environment variable
+   - `apiBaseUrl` in `app.json` `extra` configuration
+   - `http://localhost:4000/v1` (fallback)
 
+3. **Start Development Server**
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+## Build & Deployment
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+This project uses EAS (Expo Application Services) for building native binaries.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+1. **Prebuild (Optional)**
+   To generate native iOS and Android folders locally:
+   ```bash
+   npx expo prebuild --clean
+   ```
 
-## Get a fresh project
+2. **Build for Production**
+   ```bash
+   eas build --profile production --platform all
+   ```
 
-When you're ready, run:
+## Architecture Overview
 
-```bash
-npm run reset-project
-```
+- `app/` - File-based routing screens.
+  - `(auth)/` - Authentication flows (login, welcome).
+  - `(tabs)/` - Main tab navigation (Feed, Groups, Discover).
+  - `group/`, `post/`, `user/` - Entity-specific routes.
+- `src/components/` - Reusable UI components conforming to strict design tokens.
+- `src/lib/` - Utilities (API service, caching, image uploads).
+- `src/context/` - Global React Contexts (RoleProvider, PushNotificationProvider).
+- `src/theme/` - Design system tokens (colors, typography, shadows).
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Contributing Guidelines
+1. Ensure strict typing. Avoid `any`.
+2. Do not use inline arbitrary colors. Rely solely on `colors.ts` and `typography.ts`.
+3. Check code health by running `npx tsc --noEmit` and `npx expo-doctor` before opening PRs.

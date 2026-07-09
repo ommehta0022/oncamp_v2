@@ -9,14 +9,21 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.oncampus.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "OnCampus needs camera access to take photos",
+        "NSPhotoLibraryUsageDescription": "OnCampus needs photo library access to share images"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.oncampus.app",
+      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "VIBRATE"]
     },
     "web": {
       "bundler": "metro",
