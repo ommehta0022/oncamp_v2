@@ -1322,6 +1322,29 @@ async def get_admin_notification_stats(admin: dict = Depends(get_current_admin))
     }
 
 
+@router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: str,
+    admin: dict = Depends(get_current_admin),
+):
+    safe_patch(
+        "notifications",
+        {"id": f"eq.{notification_id}"},
+        {"read_at": now_iso()}
+    )
+    return {"success": True}
+
+
+@router.post("/notifications/read-all")
+async def mark_all_notifications_read(admin: dict = Depends(get_current_admin)):
+    safe_patch(
+        "notifications",
+        {"read_at": "is.null"},
+        {"read_at": now_iso()}
+    )
+    return {"success": True}
+
+
 @router.post("/notifications")
 async def send_admin_notification(
     payload: AdminNotificationRequest,
