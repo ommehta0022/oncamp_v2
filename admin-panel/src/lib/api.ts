@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://perpetual-motivation-production-be1a.up.railway.app";
 
 class ApiClient {
   private client: AxiosInstance;
@@ -368,7 +368,7 @@ class ApiClient {
   // Settings
   async getSettings() {
     try {
-      const response = await this.client.get("/admin/settings");
+      const response = await this.client.get("/admin/settings/platform");
       return response.data;
     } catch (error) {
       console.error("Failed to get settings:", error);
@@ -383,12 +383,12 @@ class ApiClient {
 
   // Platform Settings
   async getPlatformSettings() {
-    const response = await this.client.get("/admin/settings");
+    const response = await this.client.get("/admin/settings/platform");
     return response.data;
   }
 
   async updatePlatformSettings(data: any) {
-    const response = await this.client.patch("/admin/settings", data);
+    const response = await this.client.patch("/admin/settings/platform", data);
     return response.data;
   }
 

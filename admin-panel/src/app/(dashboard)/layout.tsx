@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
 import { api } from "@/lib/api";
-import { usePlatformSettings } from "@/contexts/PlatformSettingsContext";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -53,9 +52,9 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { user, isAuthenticated, isLoading, logout } = useAuthStore();
-  const { settings } = usePlatformSettings();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [platformName, setPlatformName] = useState("OnCampus");
   const [stats, setStats] = useState({ pendingReports: 0, unresolvedErrors: 0, pendingInstitutions: 0 });
   const [notificationStats, setNotificationStats] = useState<any>({
     unread: 0,
@@ -89,7 +88,7 @@ export default function DashboardLayout({
         try {
           const token = localStorage.getItem('admin_token');
           const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/database/query?table=institution_verification_requests&status=eq.pending&select=count`,
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/admin/institutions/verification-requests?status=pending`,
             {
               headers: {
                 'Authorization': `Bearer ${token}`,
@@ -110,6 +109,9 @@ export default function DashboardLayout({
           unresolvedErrors: dashboard.unresolvedErrors || 0,
           pendingInstitutions: institutionsCount,
         });
+        if (settings?.appName) {
+          setPlatformName(settings.appName);
+        }
         setNotificationStats({
           unread: notifications?.unread || 0,
           recent: notifications?.recent || [],
@@ -169,7 +171,7 @@ export default function DashboardLayout({
         <div className="flex flex-col h-full">
           {/* Header */}
           <div className="flex items-center justify-between h-16 px-4 border-b border-gray-800">
-            <h1 className="text-xl font-bold truncate">{settings.platform_name || "OnCampus"} Admin</h1>
+            <h1 className="text-xl font-bold truncate">{platformName} Admin</h1>
             <button
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden text-gray-400 hover:text-white"
