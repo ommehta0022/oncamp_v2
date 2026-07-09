@@ -219,7 +219,7 @@ function Field({
         />
       </View>
       {!!error && (
-        <Text style={{ color: colors.error, fontSize: font.xs, marginTop: spacing.xs }}>
+        <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.xs }}>
           {error}
         </Text>
       )}

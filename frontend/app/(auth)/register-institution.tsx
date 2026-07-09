@@ -58,7 +58,7 @@ export default function RegisterInstitution() {
           setCheckingStatus(false);
           return;
         }
-        const data = await api.institutions.myRequest();
+        const data = (await api.institutions.dashboard()) as any;
         if (data.has_request && data.request) {
           setRequestStatus(data.request.status);
           setReviewNotes(data.request.review_notes || "");
@@ -764,7 +764,7 @@ function VerifiableField({
         {verified ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Ionicons name="checkmark-circle" size={14} color={colors.success || "#10b981"} />
-            <Text style={{ color: colors.success || "#10b981", fontSize: font.xs, fontWeight: "600" }}>Verified</Text>
+            <Text style={{ color: colors.success || "#10b981", fontSize: font.sm, fontWeight: "600" }}>Verified</Text>
           </View>
         ) : (
           <Pressable onPress={onVerify} disabled={!value} style={{ opacity: value ? 1 : 0.5 }}>

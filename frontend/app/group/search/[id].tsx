@@ -97,12 +97,12 @@ export default function GroupSearch() {
               <Avatar uri={item.senderAvatar || ""} name={item.senderName} size={40} />
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 15, fontWeight: "600" }}>{item.senderName}</Text>
+                  <Text style={{ color: colors.textPrimary || colors.onSurface, fontWeight: "600" }}>{item.senderName}</Text>
                   <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 12 }}>
                     {new Date(item.createdAt).toLocaleDateString()}
                   </Text>
                 </View>
-                <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 14, marginTop: 4, ...typography.body }} numberOfLines={2}>
+                <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, marginTop: 4, ...typography.body }} numberOfLines={2}>
                   {item.content}
                 </Text>
               </View>

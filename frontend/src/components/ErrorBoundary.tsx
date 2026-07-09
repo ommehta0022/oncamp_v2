@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { spacing, colors } from "@/src/theme/colors";
+import { spacing, lightColors as colors } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 
 interface Props {

@@ -131,7 +131,7 @@ export default function EditProfile() {
                   width: 110, 
                   height: 110, 
                   borderRadius: 55, 
-                  backgroundColor: colors.surfaceVariant || colors.surfaceTertiary,
+                  backgroundColor: colors.surfaceTertiary,
                   alignItems: "center",
                   justifyContent: "center",
                   borderWidth: 3,
@@ -288,10 +288,8 @@ function Field({
           style={{
             flex: 1,
             color: colors.textPrimary || colors.onSurface,
-            fontSize: 16,
             paddingVertical: multiline ? spacing.md : 0,
             textAlignVertical: multiline ? "top" : "center",
-            fontWeight: "500",
             ...typography.body
           }}
         />

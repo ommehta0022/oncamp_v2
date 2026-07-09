@@ -355,6 +355,7 @@ export const api = {
         emailNotificationsEnabled?: boolean;
       }>("/platform/settings", { auth: false }),
     health: () => request("/health", { auth: false }),
+    featureFlags: () => request<Record<string, boolean>>("/settings/features", { auth: false }),
   },
   auth: {
     startOtp: (phone: string) =>
@@ -525,6 +526,7 @@ export const api = {
     react: (postId: string, type: string) => request<{ liked: boolean; reactions: number; userReaction: string }>(`/posts/${postId}/reaction`, { method: "POST", body: { type } }),
     repost: (postId: string) => request<FeedPostDto>(`/posts/${postId}/repost`, { method: "POST" }),
     share: (postId: string) => request<{ shared: boolean }>(`/posts/${postId}/share`, { method: "POST" }),
+    trackView: (postId: string) => request<{ viewed: boolean }>(`/posts/${postId}/view`, { method: "POST" }),
     reportComment: (commentId: string, body: unknown) => request(`/reports/comment/${commentId}`, { method: "POST", body }),
   },
   reports: {

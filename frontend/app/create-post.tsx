@@ -143,11 +143,11 @@ export default function CreatePost() {
               style={[styles.toolbarButton, { opacity: uploadingImage || submitting ? 0.5 : 1 }]}
             >
               {uploadingImage ? (
-                <ActivityIndicator size="small" color={colors.primary} />
+                <ActivityIndicator size="small" color={colors.brandPrimary} />
               ) : (
-                <Ionicons name="image-outline" size={24} color={colors.primary} />
+                <Ionicons name="image-outline" size={24} color={colors.brandPrimary} />
               )}
-              <Text style={[styles.toolbarText, { color: colors.primary }]}>
+              <Text style={[styles.toolbarText, { color: colors.brandPrimary }]}>
                 {uploadingImage ? "Uploading..." : "Add Photo"}
               </Text>
             </TouchableOpacity>

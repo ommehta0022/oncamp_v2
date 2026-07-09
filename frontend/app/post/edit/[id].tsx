@@ -19,7 +19,7 @@ export default function EditPost() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useRole();
-  const toast = useToast();
+  const { showToast } = useToast();
   
   const [loading, setLoading] = useState(true);
   const [post, setPost] = useState<FeedPostDto | null>(null);
@@ -90,7 +90,7 @@ export default function EditPost() {
       });
       
       if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      toast.show("Post updated successfully", "success");
+      showToast({ message: "Post updated successfully", variant: "success" });
       router.back();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update post");
@@ -137,10 +137,10 @@ export default function EditPost() {
                 <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={44} verified={user?.verified} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: font.base, fontWeight: "600" }}>{user?.name || "You"}</Text>
-                  {post.groupName && (
+                  {post.group && (
                     <View style={[styles.groupPicker, { backgroundColor: colors.brandSecondary || colors.brandTertiary }]}>
                       <Ionicons name="people" size={12} color={colors.onBrandTertiary || "#FFF"} />
-                      <Text style={{ color: colors.onBrandTertiary || "#FFF", fontSize: font.xs, fontWeight: "500" }}>{post.groupName}</Text>
+                      <Text style={{ color: colors.onBrandTertiary || "#FFF", fontSize: font.sm, fontWeight: "500" }}>{post.group.name}</Text>
                     </View>
                   )}
                 </View>

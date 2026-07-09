@@ -76,7 +76,7 @@ export default function Members() {
     opts.push({
       label: "View Profile",
       icon: "person-outline",
-      onPress: () => router.push(`/profile/${activeMenuMember.userId}`),
+      onPress: () => router.push((`/profile/${activeMenuMember.userId}`) as any),
     });
 
     if (isAdmin && activeMenuMember.userId !== user?.id) {

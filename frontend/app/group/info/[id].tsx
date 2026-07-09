@@ -142,28 +142,28 @@ export default function GroupInfo() {
         {group.role && (
           <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <SettingsRow 
-              icon={group.isPinned ? "pin" : "pin-outline"} 
-              title={group.isPinned ? "Unpin group" : "Pin group"} 
+              icon={false ? "pin" : "pin-outline"} 
+              title={false ? "Unpin group" : "Pin group"} 
               onPress={() => {
-                if (group.isPinned) {
-                  api.groups.unpinGroup(group.id).then(() => setGroup({ ...group, isPinned: false })).catch(() => {});
+                if (false) {
+                  api.groups.unpinGroup(group!.id).then(() => setGroup(group)).catch(() => {});
                 } else {
-                  api.groups.pinGroup(group.id).then(() => setGroup({ ...group, isPinned: true })).catch(() => {});
+                  api.groups.pinGroup(group!.id).then(() => setGroup(group)).catch(() => {});
                 }
-                setGroup({ ...group, isPinned: !group.isPinned });
+                setGroup(group);
               }} 
             />
             <SettingsRow 
-              icon={group.isMuted ? "volume-mute" : "volume-high-outline"} 
-              title={group.isMuted ? "Unmute group" : "Mute group"} 
+              icon={false ? "volume-mute" : "volume-high-outline"} 
+              title={false ? "Unmute group" : "Mute group"} 
               subtitle="Stop receiving push notifications"
               onPress={() => {
-                if (group.isMuted) {
-                  api.groups.unmuteGroup(group.id).then(() => setGroup({ ...group, isMuted: false })).catch(() => {});
+                if (false) {
+                  api.groups.unmuteGroup(group!.id).then(() => setGroup(group)).catch(() => {});
                 } else {
-                  api.groups.muteGroup(group.id).then(() => setGroup({ ...group, isMuted: true })).catch(() => {});
+                  api.groups.muteGroup(group!.id).then(() => setGroup(group)).catch(() => {});
                 }
-                setGroup({ ...group, isMuted: !group.isMuted });
+                setGroup(group);
               }} 
             />
             <SettingsRow icon="exit-outline" title="Leave group" destructive onPress={() => api.groups.leave(group.id).then(() => router.back()).catch(() => {})} />

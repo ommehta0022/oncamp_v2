@@ -115,7 +115,7 @@ export default function Verification() {
                     </View>
                     <View style={[styles.statusBadge, { backgroundColor: statusColor + "22" }]}>
                       <Ionicons name={getStatusIcon(request.status)} size={16} color={statusColor} />
-                      <Text style={{ color: statusColor, fontSize: font.xs, fontWeight: "600", marginLeft: 4 }}>
+                      <Text style={{ color: statusColor, fontSize: font.sm, fontWeight: "600", marginLeft: 4 }}>
                         {request.status.toUpperCase()}
                       </Text>
                     </View>
@@ -136,7 +136,7 @@ export default function Verification() {
                             <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>
                               Institution Logo
                             </Text>
-                            <Text style={{ color: colors.success, fontSize: font.xs, marginTop: 2 }}>
+                            <Text style={{ color: colors.success, fontSize: font.sm, marginTop: 2 }}>
                               ✓ Uploaded
                             </Text>
                           </View>
@@ -156,7 +156,7 @@ export default function Verification() {
                             <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>
                               Verification Document
                             </Text>
-                            <Text style={{ color: colors.success, fontSize: font.xs, marginTop: 2 }}>
+                            <Text style={{ color: colors.success, fontSize: font.sm, marginTop: 2 }}>
                               ✓ Uploaded
                             </Text>
                           </View>
@@ -169,7 +169,7 @@ export default function Verification() {
                   {/* Review Notes */}
                   {request.review_notes && (
                     <View style={[styles.notesSection, { backgroundColor: colors.surfaceTertiary }]}>
-                      <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.xs, fontWeight: "600", marginBottom: 4 }}>
+                      <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "600", marginBottom: 4 }}>
                         REVIEW NOTES
                       </Text>
                       <Text style={{ color: colors.onSurface, fontSize: font.sm, lineHeight: 18 }}>

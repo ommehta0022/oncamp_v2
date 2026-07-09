@@ -106,11 +106,11 @@ export default function ProfileSetup() {
             {avatarUri ? (
               <Image source={{ uri: avatarUri }} style={styles.avatarImage} contentFit="cover" />
             ) : (
-              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.surfaceVariant }]}>
+              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.surfaceTertiary }]}>
                 <Ionicons name="person" size={40} color={colors.onSurfaceTertiary} />
               </View>
             )}
-            <View style={[styles.cameraIcon, { backgroundColor: colors.primary, borderColor: colors.surface }]}>
+            <View style={[styles.cameraIcon, { backgroundColor: colors.brandPrimary, borderColor: colors.surface }]}>
               {uploadingAvatar ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (

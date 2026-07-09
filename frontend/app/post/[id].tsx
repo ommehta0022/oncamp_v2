@@ -198,7 +198,7 @@ export default function PostDetail() {
               </Pressable>
             </View>
             
-            <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 17, lineHeight: 26, marginTop: spacing.md, ...typography.body }}>
+            <Text style={{ color: colors.textPrimary || colors.onSurface, marginTop: spacing.md, ...typography.body }}>
               {post.content}
             </Text>
             
@@ -329,7 +329,7 @@ export default function PostDetail() {
           const wasLiked = post.liked;
           setPost({ ...post, liked: true, userReaction: type, counts: { ...post.counts, reactions: (post.counts?.reactions || 0) + (wasLiked ? 0 : 1) } });
           api.posts.react(id, type).then(r => {
-            setPost(p => ({ ...p, liked: r.liked, userReaction: r.userReaction || type, counts: { ...p.counts, reactions: r.reactions } }));
+            setPost((p: any) => ({ ...p, liked: r.liked, userReaction: r.userReaction || type, counts: { ...p.counts, reactions: r.reactions } }));
           }).catch(() => {
             load();
           });
@@ -361,10 +361,10 @@ function CommentRow({ comment, onLongPress }: { comment: any, onLongPress: () =>
         <Avatar uri={comment.user?.avatarUrl} name={comment.user?.name || "Member"} size={40} />
         <View style={{ flex: 1 }}>
           <View style={[styles.commentBubble, { backgroundColor: colors.surfaceSecondary || "#f5f5f5" }]}>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 14, fontWeight: "700", marginBottom: 2 }}>
+            <Text style={{ color: colors.textPrimary || colors.onSurface, marginBottom: 2, ...typography.bodyBold }}>
               {comment.user?.name || "Member"}
             </Text>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 15, lineHeight: 22, ...typography.body }}>
+            <Text style={{ color: colors.textPrimary || colors.onSurface, ...typography.body }}>
               {comment.content}
             </Text>
           </View>

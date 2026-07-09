@@ -80,7 +80,6 @@ export default function Settings() {
             icon="person-add" 
             title="Account Type" 
             value={role === "institution_admin" ? "Institution Admin" : "User"}
-            disabled 
           />
         </Section>
 
@@ -152,7 +151,7 @@ export default function Settings() {
                 <View style={{ marginTop: spacing.md }}>
                   <Button 
                     label="Open Institution Dashboard" 
-                    icon="business" 
+                    leftIcon={<Ionicons name="business" size={20} color="#fff" />}
                     variant="primary" 
                     onPress={() => router.push("/institution/dashboard")}
                     testID="open-institution-dashboard-btn"
@@ -169,8 +168,8 @@ export default function Settings() {
             variant="outline" 
             onPress={logout}
             style={{ borderColor: colors.error || "#ef4444" }}
-            labelStyle={{ color: colors.error || "#ef4444" }}
-            icon="log-out-outline"
+            textStyle={{ color: colors.error || "#ef4444" }}
+            leftIcon={<Ionicons name="log-out-outline" size={20} color={colors.error || "#ef4444"} />}
             testID="logout-btn"
           />
           <Text style={{ color: colors.textSecondary || colors.muted, fontSize: 12, fontWeight: "600", textAlign: "center", marginTop: spacing.xl, letterSpacing: 0.5 }}>
@@ -219,7 +218,7 @@ const styles = StyleSheet.create({
   profileCard: {
     flexDirection: "row", alignItems: "center", gap: spacing.md,
     marginHorizontal: spacing.xl, marginTop: spacing.lg, marginBottom: spacing.sm,
-    padding: spacing.md, borderRadius: radius.xl, borderWidth: 1,
+    padding: spacing.md, borderRadius: radius.lg, borderWidth: 1,
   },
   editIcon: {
     width: 36, height: 36, borderRadius: 18,

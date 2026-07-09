@@ -65,8 +65,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   menu: {
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     paddingTop: spacing.md,
   },
   header: {

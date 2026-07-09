@@ -34,8 +34,8 @@ export function LoadingSkeleton({ width = "100%", height = 20, borderRadius = 4,
     <Animated.View
       style={[
         {
-          width,
-          height,
+          width: width as any,
+          height: height as any,
           borderRadius,
           backgroundColor: colors.borderStrong,
           opacity,

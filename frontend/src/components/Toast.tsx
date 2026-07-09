@@ -25,7 +25,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<ToastOptions | null>(null);
   const slideAnim = useRef(new Animated.Value(-100)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
-  const timerRef = useRef<NodeJS.Timeout>();
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const showToast = useCallback((options: ToastOptions | string) => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -57,7 +57,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
     // Auto dismiss
     if (finalOpts.duration > 0) {
-      timerRef.current = setTimeout(() => {
+      timerRef.current = (setTimeout as any)(() => {
         hideToast();
       }, finalOpts.duration);
     }

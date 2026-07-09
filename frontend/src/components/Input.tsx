@@ -61,7 +61,7 @@ export default function Input({
             borderColor,
           },
           props.multiline && { height: 100, alignItems: "flex-start", paddingTop: spacing.md },
-          style
+          style as any
         ]}
       >
         {leftIcon && (

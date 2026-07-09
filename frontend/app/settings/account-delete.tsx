@@ -11,7 +11,7 @@ import { api, clearSession } from "@/src/lib/api";
 export default function AccountDelete() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { user, setUser } = useRole();
+  const { user, refreshUser } = useRole();
   const [confirmText, setConfirmText] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,7 +35,7 @@ export default function AccountDelete() {
               setLoading(true);
               await api.users.deleteMe();
               await clearSession();
-              setUser(null);
+              await refreshUser();
               router.replace("/(auth)/welcome");
             } catch (err) {
               Alert.alert("Error", "Failed to delete account. Please try again or contact support.");

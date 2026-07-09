@@ -127,8 +127,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modal: {
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     maxHeight: '90%',
   },
   header: {

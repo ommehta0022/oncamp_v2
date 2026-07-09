@@ -91,7 +91,7 @@ export default function Login() {
               />
             </View>
             {phone.length > 0 && phone.length < 10 && (
-              <Text style={{ color: colors.error, fontSize: font.xs, marginTop: spacing.xs }}>
+              <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.xs }}>
                 Phone number must be 10 digits
               </Text>
             )}

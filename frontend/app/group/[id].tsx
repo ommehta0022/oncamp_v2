@@ -249,10 +249,10 @@ export default function GroupChat() {
         >
           <Avatar uri={group.avatarUrl} name={group.name} size={42} verified={group.official} />
           <View style={{ flex: 1, justifyContent: "center" }}>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 17, fontWeight: "700", letterSpacing: -0.3 }} numberOfLines={1}>
+            <Text style={{ color: colors.textPrimary || colors.onSurface, fontWeight: "700", letterSpacing: -0.3 }} numberOfLines={1}>
               {group.name}
             </Text>
-            <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 12, fontWeight: "500", marginTop: 1 }} numberOfLines={1}>
+            <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontWeight: "500", marginTop: 1 }} numberOfLines={1}>
               {(group.memberCount || 0).toLocaleString()} members
             </Text>
           </View>
@@ -279,8 +279,8 @@ export default function GroupChat() {
         <View style={[styles.pinnedBar, { backgroundColor: colors.surfaceSecondary || colors.surface }]}>
           <View style={{ width: 4, height: 36, backgroundColor: colors.brandPrimary, borderRadius: 2 }} />
           <View style={{ flex: 1, marginLeft: spacing.sm }}>
-            <Text style={{ color: colors.brandPrimary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase" }}>Pinned Message</Text>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: font.sm, marginTop: 2, ...typography.body }} numberOfLines={1}>
+            <Text style={{ color: colors.brandPrimary, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase" }}>Pinned Message</Text>
+            <Text style={{ color: colors.textPrimary || colors.onSurface, marginTop: 2, ...typography.body }} numberOfLines={1}>
               {pinned.content}
             </Text>
           </View>
@@ -311,7 +311,7 @@ export default function GroupChat() {
                 {showDate && item.dateString && (
                   <View style={styles.dateSeparator}>
                     <View style={[styles.dateBubble, { backgroundColor: colors.surfaceTertiary }]}>
-                      <Text style={{ color: colors.onSurfaceTertiary, fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      <Text style={{ color: colors.onSurfaceTertiary, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>
                         {item.dateString}
                       </Text>
                     </View>
@@ -337,7 +337,7 @@ export default function GroupChat() {
           ListFooterComponent={
             isTyping ? (
               <View style={{ marginBottom: spacing.md }}>
-                <Text style={{ color: colors.textSecondary || colors.muted, fontSize: 10, marginLeft: spacing.lg, marginBottom: 2, fontWeight: "500" }}>
+                <Text style={{ color: colors.textSecondary || colors.muted, marginLeft: spacing.lg, marginBottom: 2, fontWeight: "500" }}>
                   {typingUser} is typing...
                 </Text>
                 <TypingIndicator />
@@ -350,7 +350,7 @@ export default function GroupChat() {
           <View style={[styles.replyPreview, { backgroundColor: colors.surfaceSecondary || colors.surfaceTertiary }]}>
             <View style={{ width: 4, height: 36, backgroundColor: colors.brandSecondary, borderRadius: 2 }} />
             <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <Text style={{ color: colors.brandSecondary, fontSize: 12, fontWeight: "700" }}>
+              <Text style={{ color: colors.brandSecondary, fontWeight: "700" }}>
                 Replying to {replyTo.senderName}
               </Text>
               <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>
@@ -391,7 +391,7 @@ export default function GroupChat() {
               placeholder="Type a message..."
               placeholderTextColor={colors.muted}
               multiline
-              style={{ flex: 1, color: colors.textPrimary || colors.onSurface, fontSize: 15, maxHeight: 120, paddingTop: Platform.OS === 'ios' ? 10 : 8, paddingBottom: Platform.OS === 'ios' ? 10 : 8 }}
+              style={{ flex: 1, color: colors.textPrimary || colors.onSurface, maxHeight: 120, paddingTop: Platform.OS === 'ios' ? 10 : 8, paddingBottom: Platform.OS === 'ios' ? 10 : 8 }}
             />
           </View>
           
@@ -492,7 +492,7 @@ function Bubble({ msg, showAvatar, showName, isLastInGroup, onReply, onLongPress
           ]}
         >
           {showName && !own && (
-            <Text style={{ color: colors.brandPrimary, fontSize: 13, fontWeight: "700", marginBottom: 4, letterSpacing: -0.2 }}>
+            <Text style={{ color: colors.brandPrimary, fontWeight: "700", marginBottom: 4, letterSpacing: -0.2 }}>
               {msg.senderName}
             </Text>
           )}
@@ -505,7 +505,7 @@ function Bubble({ msg, showAvatar, showName, isLastInGroup, onReply, onLongPress
                 borderLeftColor: own ? "#fff" : colors.brandSecondary 
               }
             ]}>
-              <Text style={{ color: own ? "#fff" : colors.brandSecondary, fontSize: 12, fontWeight: "700", marginBottom: 2 }}>
+              <Text style={{ color: own ? "#fff" : colors.brandSecondary, fontWeight: "700", marginBottom: 2 }}>
                 {msg.replyTo.senderName}
               </Text>
               <Text style={{ color: own ? "rgba(255,255,255,0.9)" : colors.textSecondary || colors.onSurfaceTertiary, fontSize: 13 }} numberOfLines={2}>
@@ -523,13 +523,13 @@ function Bubble({ msg, showAvatar, showName, isLastInGroup, onReply, onLongPress
               />
             </TouchableOpacity>
           ) : (
-            <Text style={{ color: own ? "#fff" : colors.textPrimary || colors.onSurface, fontSize: 15, lineHeight: 22, ...typography.body }}>
+            <Text style={{ color: own ? "#fff" : colors.textPrimary || colors.onSurface, ...typography.body }}>
               {msg.content}
             </Text>
           )}
           
           <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-end", marginTop: 4, gap: 4 }}>
-            <Text style={{ color: own ? "rgba(255,255,255,0.7)" : colors.muted, fontSize: 10, fontWeight: "500" }}>{msg.createdAt}</Text>
+            <Text style={{ color: own ? "rgba(255,255,255,0.7)" : colors.muted, fontWeight: "500" }}>{msg.createdAt}</Text>
             {own && (
               <Ionicons
                 name={msg.status === "read" ? "checkmark-done" : "checkmark"}

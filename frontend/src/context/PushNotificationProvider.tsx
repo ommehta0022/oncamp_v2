@@ -7,7 +7,7 @@ import { useRole } from '@/src/context/RoleProvider';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowAlert: true, shouldShowBanner: true, shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
@@ -23,8 +23,8 @@ const PushNotificationContext = createContext<PushNotificationContextValue | nul
 export function PushNotificationProvider({ children }: { children: React.ReactNode }) {
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
-  const notificationListener = useRef<Notifications.Subscription>();
-  const responseListener = useRef<Notifications.Subscription>();
+  const notificationListener = useRef<Notifications.Subscription | null>(null);
+  const responseListener = useRef<Notifications.Subscription | null>(null);
   const { user } = useRole();
 
   useEffect(() => {
@@ -53,10 +53,10 @@ export function PushNotificationProvider({ children }: { children: React.ReactNo
 
     return () => {
       if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(notificationListener.current);
+        notificationListener.current.remove();
       }
       if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
+        responseListener.current.remove();
       }
     };
   }, [user]);

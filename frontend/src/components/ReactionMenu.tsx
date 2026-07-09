@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "center",
     padding: spacing.md,
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
     width: "80%",
     gap: spacing.md,
     shadowColor: "#000",
