@@ -136,6 +136,35 @@ export default function DashboardLayout({
     router.push("/auth/login");
   };
 
+  const handleMarkAllRead = async () => {
+    try {
+      await api.markAllNotificationsRead();
+      setNotificationStats((prev: any) => ({
+        ...prev,
+        unread: 0,
+        recent: prev.recent.map((n: any) => ({ ...n, readAt: new Date().toISOString() }))
+      }));
+    } catch (e) {
+      console.error("Failed to mark all read", e);
+    }
+  };
+
+  const handleMarkRead = async (id: string, currentReadAt: any) => {
+    if (currentReadAt) return; // Already read
+    try {
+      await api.markNotificationRead(id);
+      setNotificationStats((prev: any) => {
+        return {
+          ...prev,
+          unread: Math.max(0, prev.unread - 1),
+          recent: prev.recent.map((n: any) => n.id === id ? { ...n, readAt: new Date().toISOString() } : n)
+        };
+      });
+    } catch (e) {
+      console.error("Failed to mark read", e);
+    }
+  };
+
   // Show loading screen while checking authentication
   if (isLoading) {
     return (
@@ -300,20 +329,37 @@ export default function DashboardLayout({
                       <p className="text-sm font-semibold text-gray-900">Notifications</p>
                       <p className="text-xs text-gray-500">{notificationStats.unread} unread user notifications</p>
                     </div>
-                    <Link
-                      href="/dashboard/notifications"
-                      onClick={() => setNotificationOpen(false)}
-                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      Manage
-                    </Link>
+                    <div className="flex space-x-3">
+                      {notificationStats.unread > 0 && (
+                        <button
+                          onClick={handleMarkAllRead}
+                          className="text-sm font-medium text-gray-500 hover:text-gray-700"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                      <Link
+                        href="/dashboard/notifications"
+                        onClick={() => setNotificationOpen(false)}
+                        className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                      >
+                        Manage
+                      </Link>
+                    </div>
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {notificationStats.recent.length > 0 ? (
                       notificationStats.recent.map((item: any) => (
-                        <div key={item.id} className="border-b border-gray-100 px-4 py-3 last:border-b-0">
-                          <p className="truncate text-sm font-medium text-gray-900">{item.title}</p>
-                          <p className="mt-1 line-clamp-2 text-xs text-gray-500">{item.body}</p>
+                        <div 
+                          key={item.id} 
+                          onClick={() => handleMarkRead(item.id, item.readAt)}
+                          className={`border-b border-gray-100 px-4 py-3 last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${!item.readAt ? 'bg-blue-50/50' : ''}`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <p className={`truncate text-sm ${!item.readAt ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>{item.title}</p>
+                            {!item.readAt && <span className="w-2 h-2 rounded-full bg-blue-600 mt-1.5 flex-shrink-0 ml-2"></span>}
+                          </div>
+                          <p className={`mt-1 line-clamp-2 text-xs ${!item.readAt ? 'text-gray-600' : 'text-gray-500'}`}>{item.body}</p>
                           <p className="mt-2 text-[11px] text-gray-400">
                             {item.createdAt ? new Date(item.createdAt).toLocaleString() : "Just now"}
                           </p>

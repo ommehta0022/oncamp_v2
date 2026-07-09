@@ -564,6 +564,16 @@ class ApiClient {
     return response.data;
   }
 
+  async markNotificationRead(id: string) {
+    const response = await this.client.post(`/admin/notifications/${id}/read`);
+    return response.data;
+  }
+
+  async markAllNotificationsRead() {
+    const response = await this.client.post("/admin/notifications/read-all");
+    return response.data;
+  }
+
   // System Control
   async getSystemStatus() {
     const response = await this.client.get("/admin/system/status");
