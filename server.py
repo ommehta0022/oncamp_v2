@@ -1023,6 +1023,7 @@ def feed(
                 "mediaUrl": post.get("media_url"),
                 "mediaType": post.get("media_type"),
                 "pinned": post.get("pinned", False),
+                "postType": post.get("type"),
                 "announcement": post.get("type") in {"announcement", "emergency", "notice"},
                 "createdAt": post.get("published_at") or post.get("created_at"),
                 "author": {
@@ -1083,6 +1084,7 @@ def get_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
         "mediaUrl": post.get("media_url"),
         "mediaType": post.get("media_type"),
         "pinned": post.get("pinned", False),
+        "postType": post.get("type"),
         "announcement": post.get("type") in {"announcement", "emergency", "notice"},
         "createdAt": post.get("published_at") or post.get("created_at"),
         "author": serialize_user(author_rows[0]) if author_rows else {"id": post.get("author_id"), "name": "OnCampus user"},
@@ -2471,6 +2473,7 @@ def search(q: str = Query(default="", max_length=80), user: CurrentUser = Depend
                 "title": row.get("title"),
                 "content": row.get("content"),
                 "mediaUrl": row.get("media_url"),
+                "postType": row.get("type"),
                 "createdAt": row.get("published_at") or row.get("created_at"),
                 "author": {"id": row.get("author_id")},
             }
@@ -2479,6 +2482,78 @@ def search(q: str = Query(default="", max_length=80), user: CurrentUser = Depend
     }
 
 
+class ReportDto(BaseModel):
+    targetType: str
+    targetId: str
+    reason: str
+    details: Optional[str] = None
+
+
+@app.post("/v1/reports")
+def create_report(payload: ReportDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    db.post("reports", {
+        "id": str(uuid.uuid4()),
+        "reported_by": user.id,
+        "target_type": payload.targetType,
+        "target_id": payload.targetId,
+        "reason": payload.reason,
+        "details": payload.details,
+        "status": "pending",
+        "created_at": now_iso()
+    })
+    return {"success": True}
+
+
+@app.get("/v1/search/groups")
+def search_groups(q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> list[dict]:
+    query = q.strip()
+    if len(query) < 2: return []
+    groups = safe_get(
+        "groups",
+        {
+            "deleted_at": "is.null",
+            "visibility": "eq.public",
+            "name": f"ilike.*{query}*",
+            "select": "id,name,description,city,category,visibility,join_policy,avatar_url,official,posting_mode",
+            "limit": "20",
+        },
+    )
+    return [serialize_group({**row, "member_count": group_member_count(row["id"])}) for row in groups]
+
+
+@app.get("/v1/search/users")
+def search_users(q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> list[dict]:
+    query = q.strip()
+    if len(query) < 2: return []
+    users_rows = safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,verified,account_type", "limit": "20"})
+    return [serialize_user(row) for row in users_rows]
+
+
+@app.get("/v1/search/posts")
+def search_posts(q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> list[dict]:
+    query = q.strip()
+    if len(query) < 2: return []
+    posts_rows = safe_get(
+        "posts",
+        {
+            "status": "eq.published",
+            "content": f"ilike.*{query}*",
+            "select": "id,title,content,media_url,type,created_at,published_at,author_id",
+            "limit": "20",
+        },
+    )
+    return [
+        {
+            "id": row["id"],
+            "title": row.get("title"),
+            "content": row.get("content"),
+            "mediaUrl": row.get("media_url"),
+            "postType": row.get("type"),
+            "createdAt": row.get("published_at") or row.get("created_at"),
+            "author": {"id": row.get("author_id")},
+        }
+        for row in posts_rows
+    ]
 # ─────────────────────────────────────────────
 # FILE / MEDIA UPLOAD  →  Supabase Storage
 # ─────────────────────────────────────────────
