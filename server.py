@@ -2,6 +2,9 @@ from datetime import datetime, timedelta, timezone
 import base64
 import hashlib
 import json
+import logging
+import sys
+
 import os
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
@@ -31,6 +34,28 @@ ALL_SET_DIRS = [
     ROOT_DIR / "all_info_for_api_referance_only" / "all_set",
 ]
 ALL_SET_DIR = next((path for path in ALL_SET_DIRS if path.exists()), ALL_SET_DIRS[0])
+
+# Configure Structured JSON Logging
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_obj = {
+            'timestamp': self.formatTime(record, self.datefmt),
+            'level': record.levelname,
+            'message': record.getMessage(),
+            'module': record.module,
+            'funcName': record.funcName
+        }
+        if record.exc_info:
+            log_obj['exc_info'] = self.formatException(record.exc_info)
+        return json.dumps(log_obj)
+
+logger = logging.getLogger('oncampus')
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(JSONFormatter())
+if not logger.handlers:
+    logger.addHandler(handler)
+
 
 
 def read_secret_file(name: str) -> str:
@@ -210,25 +235,25 @@ try:
     send_otp_sms = _send_otp_sms
     verify_otp_code = _verify_otp_code
     hash_otp_code = _hash_otp_code
-    print(f"✅ Twilio OTP service loaded successfully")
-    print(f"✅ Twilio configured: {twilio_otp.enabled if twilio_otp else False}")
+    logger.info(f\"✅ Twilio OTP service loaded successfully\")
+    logger.info(f\"✅ Twilio configured: {twilio_otp.enabled if twilio_otp else False}\")
 except ImportError as e:
-    print(f"❌ CRITICAL: Twilio package not installed: {e}")
-    print(f"❌ Install with: pip install twilio>=9.0.0")
+    logger.info(f\"❌ CRITICAL: Twilio package not installed: {e}\")
+    logger.info(f\"❌ Install with: pip install twilio>=9.0.0\")
 except Exception as e:
-    print(f"❌ CRITICAL: Twilio service initialization failed: {e}")
-    print(f"❌ Check TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER")
+    logger.info(f\"❌ CRITICAL: Twilio service initialization failed: {e}\")
+    logger.info(f\"❌ Check TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER\")
 
 # Include admin routes (AFTER db is initialized)
 try:
     import admin_routes_simple as admin_routes_module
     admin_routes_module.set_db_client(db)  # Inject db dependency
     app.include_router(admin_routes_module.router)
-    print("✅ Admin routes loaded successfully")
+    logger.info(\"✅ Admin routes loaded successfully\")
 except ImportError as e:
-    print(f"⚠️  Admin routes not loaded: {e}")
+    logger.info(f\"⚠️  Admin routes not loaded: {e}\")
 except Exception as e:
-    print(f"⚠️  Admin routes error: {e}")
+    logger.info(f\"⚠️  Admin routes error: {e}\")
 
 
 def get_system_setting(key: str, default: Any = None) -> Any:
@@ -744,7 +769,7 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
             "created_at": now_iso(),
         })
     except Exception as e:
-        print(f"⚠️  Failed to store OTP challenge: {e}")
+        logger.info(f\"⚠️  Failed to store OTP challenge: {e}\")
         # Continue anyway - OTP was sent
     
     return {
@@ -816,7 +841,7 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
         except HTTPException:
             raise
         except Exception as e:
-            print(f"⚠️  OTP verification error: {e}")
+            logger.info(f\"⚠️  OTP verification error: {e}\")
             raise HTTPException(status_code=500, detail="Failed to verify OTP. Please try again.")
     
     # Find or create user by phone hash
