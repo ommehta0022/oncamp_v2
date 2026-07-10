@@ -39,7 +39,9 @@ class ApiClient {
           } else {
             // Refresh failed, logout
             this.clearTokens();
-            window.location.href = "/auth/login";
+            if (window.location.pathname !== "/auth/login") {
+              window.location.href = "/auth/login";
+            }
           }
         }
         return Promise.reject(error);
@@ -73,6 +75,7 @@ class ApiClient {
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_refresh_token");
       localStorage.removeItem("admin_user");
+      localStorage.removeItem("admin-auth-storage");
     }
   }
 

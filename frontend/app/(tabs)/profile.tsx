@@ -1,231 +1,172 @@
-import React, { useCallback, useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Platform } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
-import EmptyState from "@/src/components/EmptyState";
-import Button from "@/src/components/Button";
-import Card from "@/src/components/Card";
-import Badge from "@/src/components/Badge";
-import SkeletonLoader from "@/src/components/SkeletonLoader";
 import { useRole } from "@/src/context/RoleProvider";
-import { api, GroupDto } from "@/src/lib/api";
-import { typography } from "@/src/theme/typography";
+import { api } from "@/src/lib/api";
 
 export default function Profile() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { user, refreshUser } = useRole();
-  const [myGroups, setMyGroups] = useState<GroupDto[]>([]);
-  const [stats, setStats] = useState({ groups: 0, posts: 0, followers: 0, following: 0 });
-  const [loading, setLoading] = useState(true);
-
-  // Animations
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const headerTranslateY = scrollY.interpolate({
-    inputRange: [0, 150],
-    outputRange: [0, -50],
-    extrapolate: "clamp",
-  });
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    await refreshUser().catch(() => {});
-    
-    try {
-      const [groupsData, statsData] = await Promise.all([
-        api.groups.listMine().catch(() => []),
-        api.users.stats().catch(() => ({ groups: 0, posts: 0, followers: 0, following: 0 }))
-      ]);
-      setMyGroups(groupsData);
-      setStats(statsData);
-    } catch {
-      setMyGroups([]);
-      setStats({ groups: 0, posts: 0, followers: 0, following: 0 });
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshUser]);
+  const { user } = useRole();
+  const [myGroups, setMyGroups] = useState<any[]>([]);
 
   useEffect(() => {
-    load();
-  }, [load]);
-
-  const displayName = user?.name || "Complete your profile";
-  const handle = user?.handle ? `@${user.handle}` : user?.city || "Complete your profile";
-  const bio = user?.bio || user?.course || "Add your course, bio, and campus details.";
+    api.groups.listMine().then(res => setMyGroups(((res as any).groups || res || []).slice(0, 4))).catch(() => {});
+  }, []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background || colors.surface }} testID="profile-screen">
-      <Animated.ScrollView 
-        contentContainerStyle={{ paddingBottom: 120 }} 
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
-        )}
-        scrollEventThrottle={16}
-      >
-        <Animated.View style={{ position: "relative", transform: [{ translateY: headerTranslateY }] }}>
-          {user?.avatarUrl ? (
-            <Image 
-              source={{ uri: user.avatarUrl }} 
-              style={[styles.cover, { opacity: 0.8 }]} 
-              contentFit="cover" 
-              blurRadius={10} 
-            />
-          ) : (
-            <LinearGradient 
-              colors={[colors.brandPrimary || "#2E5C4E", colors.brandTertiary || "#1a362d"]} 
-              style={styles.cover} 
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            />
-          )}
-          <LinearGradient 
-            colors={["rgba(0,0,0,0.3)", colors.background || colors.surface]} 
-            locations={[0, 1]}
-            style={styles.coverScrim} 
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="profile-screen">
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+        <View style={{ position: "relative" }}>
+          <Image
+            source={{ uri: "https://images.unsplash.com/photo-1562774053-701939374585?w=1200&q=80" }}
+            style={styles.cover}
+            contentFit="cover"
           />
-          <SafeAreaView edges={["top"]} style={styles.topBar}>
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.6)"]} style={styles.coverScrim} />
+          <View style={styles.topBar}>
             <View />
             <Pressable
-              onPress={() => {
-                if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/settings");
-              }}
-              style={({ pressed }) => [
-                styles.iconBtn, 
-                { backgroundColor: "rgba(0,0,0,0.3)", opacity: pressed ? 0.7 : 1 }
-              ]}
+              onPress={() => router.push("/settings")}
+              style={[styles.iconBtn, { backgroundColor: "#00000055" }]}
               testID="profile-settings-btn"
             >
-              <Ionicons name="settings-outline" size={22} color="#fff" />
+              <Ionicons name="settings-outline" size={20} color="#fff" />
             </Pressable>
-          </SafeAreaView>
-        </Animated.View>
-
-        <View style={styles.profileHeader}>
-          <View style={styles.avatarContainer}>
-            <Avatar uri={user?.avatarUrl} name={displayName} size={110} verified={user?.verified} />
-            <View style={[styles.avatarBorder, { borderColor: colors.background || colors.surface }]} />
-          </View>
-          
-          <View style={styles.actionRow}>
-            <Button
-              label="Edit Profile"
-              variant="outline"
-              size="sm"
-              onPress={() => router.push("/settings/edit-profile")}
-              testID="edit-profile-btn"
-            />
           </View>
         </View>
 
-        <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.md }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={[styles.name, { color: colors.textPrimary || colors.onSurface }]}>
-              {displayName}
+        <View style={styles.profileHeader}>
+          <View style={{ marginTop: -50, alignSelf: "flex-start" }}>
+            <Avatar uri={(user as any)?.avatar} name={user?.name || "User"} size={100} verified={(user as any)?.verified} />
+          </View>
+          <View style={{ flex: 1, marginTop: spacing.md, flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm }}>
+            <Pressable
+              onPress={() => router.push("/settings/edit-profile")}
+              style={[styles.outlineBtn, { borderColor: colors.borderStrong }]}
+              testID="edit-profile-btn"
+            >
+              <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>Edit profile</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/settings/invite")}
+              style={[styles.filledBtn, { backgroundColor: colors.brandPrimary }]}
+            >
+              <Ionicons name="share-outline" size={16} color={colors.onBrandPrimary} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "500", letterSpacing: -0.5 }}>
+              {user?.name}
             </Text>
-            {user?.verified && (
-              <Badge label="VERIFIED" variant="brand" size="sm" />
+            {(user as any)?.roles?.includes("student") && (
+              <View style={[styles.badgeChip, { backgroundColor: colors.brandTertiary }]}>
+                <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "500" }}>STUDENT</Text>
+              </View>
             )}
           </View>
-          <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.base, marginTop: 4, fontWeight: "500" }}>
-            {handle}
-          </Text>
-          <Text style={{ color: colors.textPrimary || colors.onSurface, marginTop: spacing.md, ...typography.body }}>
-            {bio}
+          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: 2 }}>
+            {(user as any)?.email}
           </Text>
 
-          <View style={{ flexDirection: "row", gap: spacing.md, marginTop: spacing.lg, flexWrap: "wrap" }}>
-            {!!user?.course && <MetaRow icon="school" text={user.course} />}
-            {!!user?.city && <MetaRow icon="location" text={user.city} />}
+          <View style={[styles.statsRow, { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]}>
+            <Stat label="POSTS" value="-" />
+            <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
+            <Stat label="FOLLOWERS" value="-" />
+            <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
+            <Stat label="FOLLOWING" value="-" />
           </View>
 
-          {loading ? (
-            <View style={{ marginTop: spacing.xl }}>
-              <SkeletonLoader type="card" />
-            </View>
-          ) : (
-            <Card padding={spacing.md} style={styles.statsCard}>
-              <View style={styles.statsRow}>
-                <Stat label="Groups" value={String(stats.groups || myGroups.length)} />
-                <View style={[styles.statDiv, { backgroundColor: colors.border || colors.borderStrong }]} />
-                <Stat label="Posts" value={String(stats.posts)} />
-                <View style={[styles.statDiv, { backgroundColor: colors.border || colors.borderStrong }]} />
-                <Pressable 
-                  onPress={() => user?.id && router.push({ pathname: "/user/connections", params: { id: user.id, type: "followers" } })} 
-                  style={{ flex: 1 }}
-                >
-                  <Stat label="Followers" value={String(stats.followers)} />
-                </Pressable>
-                <View style={[styles.statDiv, { backgroundColor: colors.border || colors.borderStrong }]} />
-                <Pressable 
-                  onPress={() => user?.id && router.push({ pathname: "/user/connections", params: { id: user.id, type: "following" } })} 
-                  style={{ flex: 1 }}
-                >
-                  <Stat label="Following" value={String(stats.following)} />
-                </Pressable>
-              </View>
-            </Card>
-          )}
+          <Text style={{ color: colors.onSurface, fontSize: font.base, marginTop: spacing.md, lineHeight: 22 }}>
+            {user?.bio || "No bio yet."}
+          </Text>
+
+          <View style={{ flexDirection: "row", gap: spacing.lg, marginTop: spacing.md, flexWrap: "wrap" }}>
+            <MetaRow icon="school-outline" text={(user as any)?.institution?.name || "Unknown"} />
+            <MetaRow icon="location-outline" text={(user as any)?.location || "Unknown"} />
+          </View>
+
+          <View style={styles.statsRow}>
+            <Stat label="Groups" value="12" />
+            <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
+            <Stat label="Posts" value="48" />
+            <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
+            <Stat label="Following" value="284" />
+          </View>
         </View>
 
         <View style={{ marginTop: spacing.xl }}>
           <View style={styles.sectionHeader}>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, ...typography.h3 }}>Your Groups</Text>
-            <Pressable 
-              onPress={() => router.push("/(tabs)/groups")}
-              hitSlop={15}
-            >
-              <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "600" }}>See all</Text>
+            <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>Your groups</Text>
+            <Pressable onPress={() => router.push("/(tabs)/groups")}>
+              <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>See all</Text>
             </Pressable>
           </View>
-          
-          {loading ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: spacing.md }}>
-              {[1, 2].map(i => (
-                <View key={i} style={{ width: 220, height: 160 }}>
-                  <SkeletonLoader type="card" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.md }}>
+            {myGroups.map((g) => (
+              <Pressable
+                key={g.id}
+                onPress={() => router.push(`/group/${g.id}`)}
+                style={[styles.groupTile, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              >
+                <Image source={{ uri: g.image }} style={styles.groupTileImg} contentFit="cover" />
+                <View style={{ padding: spacing.md }}>
+                  <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }} numberOfLines={1}>
+                    {g.name}
+                  </Text>
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>
+                    {g.members.toLocaleString()} members
+                  </Text>
                 </View>
-              ))}
-            </ScrollView>
-          ) : myGroups.length === 0 ? (
-            <View style={{ minHeight: 180 }}>
-              <EmptyState icon="people-outline" title="No groups yet" message="Your joined groups will show here." />
-            </View>
-          ) : (
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false} 
-              contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: spacing.md, paddingBottom: spacing.lg }}
-              decelerationRate="fast"
-              snapToInterval={220 + spacing.md}
-            >
-              {myGroups.map((g) => (
-                <GroupTile key={g.id} group={g} onPress={() => router.push(`/group/${g.id}`)} />
-              ))}
-            </ScrollView>
-          )}
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
-      </Animated.ScrollView>
-    </View>
+
+        <View style={{ marginTop: spacing.xl }}>
+          <Text style={[styles.sectionHeaderTitle, { color: colors.onSurface }]}>Achievements</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.md }}>
+            {[
+              { i: "trophy", label: "Top Contributor", c: colors.warning },
+              { i: "rocket", label: "Early Adopter", c: colors.brandSecondary },
+              { i: "medal", label: "Verified Student", c: colors.success },
+              { i: "flame", label: "30 Day Streak", c: colors.error },
+            ].map((a, i) => (
+              <View
+                key={i}
+                style={[styles.achievement, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              >
+                <View style={[styles.achIcon, { backgroundColor: a.c + "22" }]}>
+                  <Ionicons name={a.i as any} size={22} color={a.c} />
+                </View>
+                <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500", marginTop: spacing.sm, textAlign: "center" }}>
+                  {a.label}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 function MetaRow({ icon, text }: { icon: any; text: string }) {
   const { colors } = useTheme();
   return (
-    <View style={styles.metaBadge}>
-      <Ionicons name={icon} size={14} color={colors.textSecondary || colors.onSurfaceTertiary} />
-      <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "500" }}>{text}</Text>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+      <Ionicons name={icon} size={15} color={colors.onSurfaceTertiary} />
+      <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>{text}</Text>
     </View>
   );
 }
@@ -234,109 +175,53 @@ function Stat({ label, value }: { label: string; value: string }) {
   const { colors } = useTheme();
   return (
     <View style={{ flex: 1, alignItems: "center" }}>
-      <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 22, fontWeight: "700" }}>{value}</Text>
-      <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 10, marginTop: 4, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</Text>
+      <Text style={{ color: colors.onSurface, fontSize: font.xl, fontWeight: "500" }}>{value}</Text>
+      <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{label}</Text>
     </View>
   );
 }
 
-function GroupTile({ group, onPress }: { group: GroupDto, onPress: () => void }) {
-  const { colors } = useTheme();
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.95, useNativeDriver: true }).start()}
-      onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
-    >
-      <Animated.View style={[styles.groupTile, { transform: [{ scale: scaleAnim }] }]}>
-        <Card padding={0} style={{ width: 220, overflow: "hidden" }}>
-          {group.avatarUrl ? (
-            <Image source={{ uri: group.avatarUrl }} style={styles.groupTileImg} contentFit="cover" transition={200} />
-          ) : (
-            <View style={[styles.groupTileImg, { backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" }]}>
-              <Ionicons name="people" size={32} color={colors.onSurfaceTertiary} />
-            </View>
-          )}
-          <View style={{ padding: spacing.md }}>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: font.base, fontWeight: "700" }} numberOfLines={1}>
-              {group.name}
-            </Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-              <Ionicons name="people" size={12} color={colors.textSecondary || colors.onSurfaceTertiary} />
-              <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "500" }}>
-                {(group.memberCount || 0).toLocaleString()} members
-              </Text>
-            </View>
-          </View>
-        </Card>
-      </Animated.View>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  cover: { width: "100%", height: 180 },
-  coverScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 180 },
+  cover: { width: "100%", height: 160 },
+  coverScrim: { position: "absolute", left: 0, right: 0, top: 0, height: 160 },
   topBar: {
     position: "absolute", top: 0, left: 0, right: 0,
     flexDirection: "row", justifyContent: "space-between",
     padding: spacing.md,
-    zIndex: 10,
   },
-  iconBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backdropFilter: "blur(10px)" },
+  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   profileHeader: {
-    flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between",
-    paddingHorizontal: spacing.xl,
-    marginTop: -55,
+    flexDirection: "row", alignItems: "flex-start",
+    paddingHorizontal: spacing.lg,
   },
-  avatarContainer: {
-    position: "relative",
+  outlineBtn: {
+    paddingHorizontal: spacing.lg, height: 40, borderRadius: radius.pill,
+    borderWidth: 1, alignItems: "center", justifyContent: "center",
   },
-  avatarBorder: {
-    position: "absolute",
-    top: -4, left: -4, right: -4, bottom: -4,
-    borderWidth: 4,
-    borderRadius: 100,
-    zIndex: -1,
+  filledBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: "center", justifyContent: "center",
   },
-  actionRow: {
-    marginBottom: spacing.sm,
-  },
-  name: { 
-    ...typography.h2,
-    fontSize: 26, 
-    letterSpacing: -0.5 
-  },
-  metaBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    backgroundColor: "rgba(128,128,128,0.1)",
-    borderRadius: radius.pill,
-  },
-  statsCard: {
-    marginTop: spacing.xl,
-    borderRadius: radius.lg,
-  },
+  badgeChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 4 },
   statsRow: {
     flexDirection: "row", alignItems: "center",
-    paddingVertical: spacing.xs,
+    marginTop: spacing.xl, paddingVertical: spacing.md,
   },
-  statDiv: { width: 1, height: 30, opacity: 0.5 },
+  statDiv: { width: 1, height: 30 },
   sectionHeader: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: spacing.xl, marginBottom: spacing.md,
+    paddingHorizontal: spacing.lg, marginBottom: spacing.md,
+  },
+  sectionHeaderTitle: {
+    fontSize: font.lg, fontWeight: "500", paddingHorizontal: spacing.lg, marginBottom: spacing.md,
   },
   groupTile: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    width: 200, borderRadius: radius.md, borderWidth: 1, overflow: "hidden",
   },
-  groupTileImg: { width: "100%", height: 110 },
+  groupTileImg: { width: "100%", height: 100 },
+  achievement: {
+    width: 130, borderRadius: radius.md, borderWidth: 1,
+    padding: spacing.md, alignItems: "center",
+  },
+  achIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
 });
