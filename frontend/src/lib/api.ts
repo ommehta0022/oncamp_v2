@@ -115,7 +115,7 @@ const extra = Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
   extra?.apiBaseUrl ||
-  "http://localhost:4000/v1";
+  "https://perpetual-motivation-production-be1a.up.railway.app/v1";
 
 function uuid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {

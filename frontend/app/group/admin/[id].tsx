@@ -71,13 +71,37 @@ export default function GroupAdmin() {
 
         <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Manage</Text>
         <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Row icon="information-circle" title="Group info" subtitle="Name, description, image, category" color="#2E5C4E" onPress={() => router.push(`/group/info/${id}`)} />
+          <Divider />
           <Row icon="people" title="Members" subtitle="Roles, mute, remove" color="#4A788C" onPress={() => router.push(`/group/members/${id}`)} />
           <Divider />
           <Row icon="person-add" title="Join requests" subtitle={`${joinRequests.length} pending`} color="#E87A5D" onPress={() => router.push(`/group/requests/${id}`)} badge={joinRequests.length ? String(joinRequests.length) : undefined} />
           <Divider />
-          <Row icon="clipboard" title="Post / poster requests" subtitle={`${postRequests.filter((r) => r.status === "pending").length} pending review`} color="#4A788C" onPress={() => router.push(`/group/admin/post-requests/${id}`)} badge={postRequests.length ? String(postRequests.length) : undefined} />
+          <Row icon="clipboard" title="Post / poster requests" subtitle={`${postRequests.filter((r) => r.status === "pending").length} pending review`} color="#4A788C" onPress={() => router.push(`/group/admin/post-requests/${id}`)} badge={postRequests.filter((r) => r.status === "pending").length ? String(postRequests.filter((r) => r.status === "pending").length) : undefined} />
           <Divider />
-          <Row icon="settings" title="Settings" subtitle="Name, description, visibility" color="#8A4A8C" onPress={() => router.push(`/group/admin/settings?id=${id}`)} />
+          <Row icon="calendar" title="Scheduled posts" subtitle="Coming soon" color="#D9983A" onPress={() => {}} />
+          <Divider />
+          <Row icon="megaphone" title="Published posts" subtitle="All group posts" color="#347D5B" onPress={() => {}} />
+          <Divider />
+          <Row icon="pin" title="Pinned messages" subtitle="View pinned" color="#8A8D8B" onPress={() => {}} />
+        </View>
+
+        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Content & safety</Text>
+        <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Row icon="images" title="Media & docs" subtitle="Shared files" color="#4A788C" onPress={() => {}} />
+          <Divider />
+          <Row icon="flag" title="Reports" subtitle="No open reports" color="#D14D4D" onPress={() => {}} />
+          <Divider />
+          <Row icon="options" title="Permissions" subtitle={`Posting: ${group.postingMode || 'members can request'}`} color="#8A8D8B" onPress={() => router.push(`/group/admin/settings?id=${id}`)} />
+          <Divider />
+          <Row icon="time" title="Admin activity log" subtitle="Every decision, audited" color="#8A8D8B" onPress={() => {}} />
+        </View>
+
+        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Danger zone</Text>
+        <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginBottom: spacing.lg }]}>
+          <Row icon="swap-horizontal" title="Transfer ownership" subtitle="Only for owners" color="#D9983A" onPress={() => {}} />
+          <Divider />
+          <Row icon="trash" title="Delete group" subtitle="Permanent. This cannot be undone." color="#D14D4D" onPress={() => {}} />
         </View>
       </ScrollView>
     </SafeAreaView>
