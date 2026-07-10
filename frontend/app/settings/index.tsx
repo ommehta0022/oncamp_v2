@@ -11,16 +11,13 @@ import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
 import Avatar from "@/src/components/Avatar";
 import Button from "@/src/components/Button";
-import { useRole, ROLE_LABELS, Role } from "@/src/context/RoleProvider";
+import { useRole } from "@/src/context/RoleProvider";
 import { clearSession } from "@/src/lib/api";
-import { typography } from "@/src/theme/typography";
-import { useToast } from "@/src/components/Toast";
 
 export default function Settings() {
   const { colors, mode } = useTheme();
-  const { role, setRole, user } = useRole();
+  const { user } = useRole();
   const router = useRouter();
-  const { showToast } = useToast();
   const version = Constants.expoConfig?.version || "1.0.0";
   
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -75,12 +72,6 @@ export default function Settings() {
           <SettingsRow icon="lock-closed" title="Privacy & Safety" onPress={() => router.push("/settings/privacy")} />
           <Divider />
           <SettingsRow icon="shield-checkmark" title="Blocked Users" onPress={() => router.push("/settings/blocked")} />
-          <Divider />
-          <SettingsRow 
-            icon="person-add" 
-            title="Account Type" 
-            value={role === "institution_admin" ? "Institution Admin" : "User"}
-          />
         </Section>
 
         <Section title="Preferences">
@@ -113,54 +104,6 @@ export default function Settings() {
           <Divider />
           <SettingsRow icon="bug" title="Report a Problem" onPress={() => router.push("/settings/report")} />
         </Section>
-
-        {__DEV__ && (
-          <Section title="Developer Preview">
-            <View style={{ padding: spacing.lg }}>
-              <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, lineHeight: 18, marginBottom: spacing.md, fontWeight: "500" }}>
-                Local preview only. Production roles are assigned server-side after verification.
-              </Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-                {(Object.keys(ROLE_LABELS) as Role[]).map((r) => {
-                  const isActive = role === r;
-                  return (
-                    <Pressable
-                      key={r}
-                      onPress={() => {
-                        setRole(r);
-                        showToast({ message: `Role changed to ${ROLE_LABELS[r]}` });
-                        if (Platform.OS === 'ios') Haptics.selectionAsync();
-                      }}
-                      style={{
-                        paddingHorizontal: spacing.md, height: 36, borderRadius: radius.pill,
-                        borderWidth: isActive ? 0 : 1,
-                        backgroundColor: isActive ? colors.brandPrimary : "transparent",
-                        borderColor: isActive ? "transparent" : colors.borderStrong || colors.border,
-                        alignItems: "center", justifyContent: "center",
-                      }}
-                      testID={`role-${r}`}
-                    >
-                      <Text style={{ color: isActive ? "#fff" : colors.textPrimary || colors.onSurface, fontSize: font.sm, fontWeight: isActive ? "700" : "500" }}>
-                        {ROLE_LABELS[r]}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {role === "institution_admin" && (
-                <View style={{ marginTop: spacing.md }}>
-                  <Button 
-                    label="Open Institution Dashboard" 
-                    leftIcon={<Ionicons name="business" size={20} color="#fff" />}
-                    variant="primary" 
-                    onPress={() => router.push("/institution/dashboard")}
-                    testID="open-institution-dashboard-btn"
-                  />
-                </View>
-              )}
-            </View>
-          </Section>
-        )}
 
         <View style={{ padding: spacing.xl, marginTop: spacing.lg }}>
           <Button 

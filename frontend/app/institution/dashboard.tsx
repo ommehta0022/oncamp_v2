@@ -7,13 +7,11 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import EmptyState from "@/src/components/EmptyState";
-import { useRole } from "@/src/context/RoleProvider";
 import { api } from "@/src/lib/api";
 
 export default function InstitutionDashboard() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { setRole } = useRole();
   const [dashboard, setDashboard] = useState<any>(null);
 
   useEffect(() => {
@@ -99,13 +97,6 @@ export default function InstitutionDashboard() {
             ))}
           </View>
         )}
-
-        <View style={{ paddingHorizontal: spacing.lg }}>
-          <Pressable onPress={() => { setRole("normal_user"); router.replace("/(tabs)/feed"); }} style={[styles.exitBtn, { borderColor: colors.borderStrong }]} testID="exit-institution-mode">
-            <Ionicons name="log-out-outline" size={16} color={colors.onSurface} />
-            <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>Exit institution mode</Text>
-          </Pressable>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -161,5 +152,4 @@ const styles = StyleSheet.create({
   section: { marginHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, minHeight: 60 },
   rowIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  exitBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, height: 44, borderRadius: radius.pill, borderWidth: 1, marginTop: spacing.md },
 });

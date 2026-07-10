@@ -8,8 +8,12 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
-type Group = any;
 import { useRole } from "@/src/context/RoleProvider";
+import EmptyState from "@/src/components/EmptyState";
+import { GroupSkeleton } from "@/src/components/LoadingSkeleton";
+import { NetworkError } from "@/src/components/NetworkError";
+import { asArray, normalizeGroup } from "@/src/lib/mappers";
+type Group = ReturnType<typeof normalizeGroup>;
 
 const FILTERS = ["All", "Unread", "Announcements", "Muted"];
 
@@ -26,15 +30,25 @@ export default function Groups() {
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchGroups = async () => {
+  const fetchGroups = async (useCached = true) => {
     try {
-      const cached = await cache.get("my_groups");
-      if (cached) setGroups(cached as any);
+      setError(null);
+      if (useCached) {
+        const cached = await cache.get("my_groups");
+        if (cached) setGroups(asArray(cached).map(normalizeGroup));
+      }
       const response = await api.groups.listMine();
-      setGroups((response as any).groups || response || []);
-      await cache.set("my_groups", (response as any).groups || response || []);
-    } catch (e) {}
+      const normalized = asArray(response, "groups").map(normalizeGroup);
+      setGroups(normalized);
+      await cache.set("my_groups", normalized);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load groups");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -43,7 +57,7 @@ export default function Groups() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchGroups();
+    await fetchGroups(false);
     setRefreshing(false);
   }, []);
 
@@ -52,9 +66,12 @@ export default function Groups() {
     if (filter === "Unread") list = list.filter((g) => (g.unread || 0) > 0);
     else if (filter === "Announcements") list = list.filter((g) => g.category === "Official");
     else if (filter === "Muted") list = list.filter((g) => g.muted);
-    if (query) list = list.filter((g) => g.name.toLowerCase().includes(query.toLowerCase()) || g.institution.toLowerCase().includes(query.toLowerCase()));
+    if (query) {
+      const q = query.toLowerCase();
+      list = list.filter((g) => g.name.toLowerCase().includes(q) || g.institutionName.toLowerCase().includes(q));
+    }
     return list;
-  }, [filter, query]);
+  }, [filter, groups, query]);
 
   const pinned = filtered.filter((g) => g.pinned);
   const others = filtered.filter((g) => !g.pinned);
@@ -70,6 +87,30 @@ export default function Groups() {
     others.forEach((g) => data.push({ type: "group", id: g.id, group: g }));
   }
 
+  if (loading && groups.length === 0) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="groups-screen">
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.title, { color: colors.onSurface }]}>Groups</Text>
+          </View>
+        </View>
+        {[0, 1, 2, 3, 4].map((i) => <GroupSkeleton key={i} />)}
+      </SafeAreaView>
+    );
+  }
+
+  if (error && groups.length === 0) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="groups-screen">
+        <View style={styles.header}>
+          <Text style={[styles.title, { color: colors.onSurface }]}>Groups</Text>
+        </View>
+        <NetworkError onRetry={() => fetchGroups(false)} message={error} />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="groups-screen">
       <View style={styles.header}>
@@ -78,7 +119,7 @@ export default function Groups() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
             <View style={[styles.livedot, { backgroundColor: totalUnread > 0 ? colors.brandSecondary : colors.muted }]} />
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>
-              {groups.length} joined · {totalUnread} unread
+              {groups.length} joined - {totalUnread} unread
             </Text>
           </View>
         </View>
@@ -166,12 +207,13 @@ export default function Groups() {
           return <GroupRow group={item.group} onPress={() => router.push(`/group/${item.group.id}`)} />;
         }}
         ListEmptyComponent={
-          <View style={{ padding: spacing["2xl"], alignItems: "center" }}>
-            <Ionicons name="folder-open-outline" size={36} color={colors.muted} />
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.md }}>
-              No groups match this filter
-            </Text>
-          </View>
+          <EmptyState
+            icon="folder-open-outline"
+            title={query ? "No groups found" : "No groups yet"}
+            message={query ? "Try another search term or filter." : "Join or create a group to start campus conversations."}
+            actionLabel={!query && canCreateGroups ? "Create group" : undefined}
+            onAction={!query && canCreateGroups ? () => router.push("/create-group") : undefined}
+          />
         }
       />
 
@@ -193,7 +235,7 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
   const hasUnread = (group.unread || 0) > 0;
 
   // Parse sender + message
-  const lastMsg = group.lastMessage || group.description;
+  const lastMsg = group.lastMessage || group.description || "";
   const senderMatch = lastMsg.match(/^([^:]+):\s(.*)$/);
   const sender = senderMatch?.[1];
   const msgBody = senderMatch?.[2] || lastMsg;
@@ -227,7 +269,7 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
       {hasUnread && <View style={[styles.leftBar, { backgroundColor: catColor }]} />}
 
       <View style={{ position: "relative" }}>
-        <Avatar uri={group.image} name={group.name} size={52} verified={group.verified} />
+        <Avatar uri={group.image || group.avatarUrl} name={group.name} size={52} verified={group.verified} />
       </View>
 
       <View style={{ flex: 1, gap: 4 }}>

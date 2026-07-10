@@ -63,7 +63,7 @@ export default function AccountDelete() {
             <Ionicons name="warning" size={48} color={colors.danger} />
           </View>
           <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "700", marginTop: spacing.md, textAlign: "center" }}>
-            We're sorry to see you go
+            We&apos;re sorry to see you go
           </Text>
         </View>
 

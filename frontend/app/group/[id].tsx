@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, Pressable,
   KeyboardAvoidingView, Platform, TouchableOpacity, ActivityIndicator, Alert,
@@ -15,6 +15,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import EmptyState from "@/src/components/EmptyState";
+import { NetworkError } from "@/src/components/NetworkError";
 import ImageViewer from "@/src/components/ImageViewer";
 import ReportModal from "@/src/components/ReportModal";
 import TypingIndicator from "@/src/components/TypingIndicator";
@@ -88,27 +89,59 @@ export default function GroupChat() {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerImage, setViewerImage] = useState("");
   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   
-  const [isTyping, setIsTyping] = useState(false);
-  const [typingUser, setTypingUser] = useState("Someone");
+  const isTyping = false;
+  const typingUser = "";
+
+  const loadChat = useCallback(async () => {
+    if (!id) return;
+    try {
+      setError(null);
+      setLoading(true);
+      const [groupRow, messageRows] = await Promise.all([
+        api.groups.get(id),
+        api.groups.messages(id),
+      ]);
+      setGroup(groupRow);
+      setMessages(Array.isArray(messageRows) ? messageRows.reverse().map((row) => normalizeMessage(row, id, user?.id)) : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load group chat");
+    } finally {
+      setLoading(false);
+    }
+  }, [id, user?.id]);
 
   useEffect(() => {
     if (!id) return;
-    api.groups.get(id).then(setGroup).catch(() => setGroup(null));
-    api.groups.messages(id)
-      .then((rows: any) => {
-        if (Array.isArray(rows)) setMessages(rows.reverse().map((row) => normalizeMessage(row, id, user?.id)));
-      })
-      .catch(() => {});
-      
-    const typingInterval = setInterval(() => {
-      setIsTyping(Math.random() > 0.85); // 15% chance someone is typing for demo
-    }, 8000);
-    return () => clearInterval(typingInterval);
-  }, [id, user?.id]);
+    loadChat();
+  }, [id, loadChat]);
 
-  if (!group) return null;
+  if (loading && !group) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.chatBg, alignItems: "center", justifyContent: "center" }} edges={["top"]} testID="group-chat-screen">
+        <ActivityIndicator color={colors.brandPrimary} />
+      </SafeAreaView>
+    );
+  }
+
+  if (error && !group) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.chatBg }} edges={["top"]} testID="group-chat-screen">
+        <NetworkError onRetry={loadChat} message={error} />
+      </SafeAreaView>
+    );
+  }
+
+  if (!group) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.chatBg }} edges={["top"]} testID="group-chat-screen">
+        <EmptyState icon="people-outline" title="Group not found" message="This group is not available." />
+      </SafeAreaView>
+    );
+  }
 
   const pinned = messages.find((m) => m.pinned);
 

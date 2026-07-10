@@ -31,7 +31,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
       return (
         <View style={styles.container}>
           <Text style={styles.title}>Oops, something went wrong</Text>
-          <Text style={styles.subtitle}>We're sorry for the inconvenience.</Text>
+          <Text style={styles.subtitle}>We&apos;re sorry for the inconvenience.</Text>
           <Button 
             label="Try Again" 
             onPress={() => this.setState({ hasError: false, error: null })} 

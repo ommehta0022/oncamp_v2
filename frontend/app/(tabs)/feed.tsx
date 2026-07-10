@@ -10,30 +10,49 @@ import Avatar from "@/src/components/Avatar";
 import { useRole } from "@/src/context/RoleProvider";
 import { api, FeedPostDto } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
+import EmptyState from "@/src/components/EmptyState";
+import { FeedSkeleton } from "@/src/components/LoadingSkeleton";
+import { NetworkError } from "@/src/components/NetworkError";
+import { asArray, normalizePost } from "@/src/lib/mappers";
 
 export default function Feed() {
   const { colors } = useTheme();
   const router = useRouter();
   const { canCreatePosts } = useRole();
   const [refreshing, setRefreshing] = useState(false);
-  const [posts, setPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState<ReturnType<typeof normalizePost>[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPosts = async (useCached = true) => {
+    try {
+      setError(null);
+      if (useCached) {
+        const cached = await cache.get("feed_posts");
+        if (cached) setPosts(asArray(cached).map(normalizePost));
+      }
+      const response = await api.feed.list(1);
+      const next = asArray<FeedPostDto>(response, "posts").length
+        ? asArray<FeedPostDto>(response, "posts")
+        : asArray<FeedPostDto>(response, "feed");
+      const normalized = next.map(normalizePost);
+      setPosts(normalized);
+      await cache.set("feed_posts", normalized);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load feed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadPosts = async () => {
-      try {
-        const cached = await cache.get("feed_posts");
-        if (cached) setPosts(cached as any);
-        const response = await api.feed.list(1);
-        setPosts(response.posts || response.feed || []);
-        await cache.set("feed_posts", response.posts || response.feed || []);
-      } catch (e) {}
-    };
     loadPosts();
   }, []);
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
+    await loadPosts(false);
+    setRefreshing(false);
   };
 
   const toggleLike = async (id: string) => {
@@ -43,8 +62,40 @@ export default function Feed() {
     try {
       const result = current.liked ? await api.posts.unlike(id) : await api.posts.like(id);
       setPosts((p) => p.map((post) => post.id === id ? { ...post, liked: result.liked, likes: result.reactions } : post));
-    } catch {}
+    } catch {
+      loadPosts(false);
+    }
   };
+
+  if (loading && posts.length === 0) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="feed-screen">
+        <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
+          <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
+          <View style={styles.headerActions}>
+            <View style={styles.iconBtn} />
+            <View style={styles.iconBtn} />
+          </View>
+        </View>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginTop: i === 0 ? spacing.md : 0 }]}>
+            <FeedSkeleton />
+          </View>
+        ))}
+      </SafeAreaView>
+    );
+  }
+
+  if (error && posts.length === 0) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="feed-screen">
+        <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
+          <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
+        </View>
+        <NetworkError onRetry={() => loadPosts(false)} message={error} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="feed-screen">
@@ -68,6 +119,15 @@ export default function Feed() {
         ListHeaderComponent={canCreatePosts ? <Composer /> : <View style={{ height: spacing.md }} />}
         renderItem={({ item }) => <PostCard post={item} onLike={() => toggleLike(item.id)} />}
         ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+        ListEmptyComponent={
+          <EmptyState
+            icon="megaphone-outline"
+            title="No announcements yet"
+            message="When your campus or groups publish posts, they will appear here."
+            actionLabel="Explore groups"
+            onAction={() => router.push("/(tabs)/discover")}
+          />
+        }
       />
     </SafeAreaView>
   );
@@ -83,7 +143,7 @@ function Composer() {
       style={[styles.composer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
       testID="composer-btn"
     >
-      <Avatar uri={(user as any)?.avatar} name={user?.name || "User"} size={40} />
+      <Avatar uri={(user as any)?.avatarUrl || (user as any)?.avatar} name={user?.name || "User"} size={40} />
       <View style={[styles.composerInput, { backgroundColor: colors.surfaceTertiary }]}>
         <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Share something with your campus…</Text>
       </View>
@@ -92,7 +152,7 @@ function Composer() {
   );
 }
 
-function PostCard({ post, onLike }: { post: FeedPostDto | any; onLike: () => void }) {
+function PostCard({ post, onLike }: { post: ReturnType<typeof normalizePost>; onLike: () => void }) {
   const { colors } = useTheme();
   const router = useRouter();
 
@@ -109,7 +169,7 @@ function PostCard({ post, onLike }: { post: FeedPostDto | any; onLike: () => voi
       )}
 
       <View style={styles.postHeader}>
-        <Avatar uri={post.author.avatar} name={post.author.name} size={44} verified={post.author.verified} />
+        <Avatar uri={post.author.avatarUrl || post.author.avatar} name={post.author.name} size={44} verified={post.author.verified} />
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{post.author.name}</Text>
@@ -125,8 +185,8 @@ function PostCard({ post, onLike }: { post: FeedPostDto | any; onLike: () => voi
             )}
           </View>
           <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>
-            {post.author.institution} · {post.createdAt}
-            {post.group ? ` · in ${post.group.name}` : ""}
+            {post.author.institution} - {post.createdAt}
+            {post.group ? ` - in ${post.group.name}` : ""}
           </Text>
         </View>
         <Pressable hitSlop={8}>

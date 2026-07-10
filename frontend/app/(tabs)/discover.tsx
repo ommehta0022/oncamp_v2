@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, useWindowDimensions } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,31 +9,48 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
-type DiscoverCard = any;
-const discoverCategories = ["Trending", "Academics", "Sports", "Social", "Career", "Tech", "Arts"];
+import EmptyState from "@/src/components/EmptyState";
+import { NetworkError } from "@/src/components/NetworkError";
+import { asArray, normalizeGroup } from "@/src/lib/mappers";
+
+type DiscoverCard = ReturnType<typeof normalizeGroup>;
+
+const discoverCategories = ["Trending", "Academics", "Sports", "Social", "Career", "Tech", "Arts", "Clubs", "Official"];
 
 export default function Discover() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [category, setCategory] = useState<string>("Trending");
+  const { width } = useWindowDimensions();
+  const [category, setCategory] = useState("Trending");
   const [query, setQuery] = useState("");
   const [discoverCards, setDiscoverCards] = useState<DiscoverCard[]>([]);
-
-  useEffect(() => {
-    const fetchDiscover = async () => {
-      try {
-        const cached = await cache.get("discover_groups");
-        if (cached) setDiscoverCards(cached as any);
-        const res = await api.groups.discover("");
-        setDiscoverCards((res as any).groups || res || []);
-        await cache.set("discover_groups", (res as any).groups || res || []);
-      } catch (e) {}
-    };
-    fetchDiscover();
-  }, []);
-  const { width } = useWindowDimensions();
+  const [loading, setLoading] = useState(true);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const cardWidth = (width - spacing.lg * 2 - spacing.md) / 2;
+
+  const fetchDiscover = async (useCached = true) => {
+    try {
+      setError(null);
+      if (useCached) {
+        const cached = await cache.get("discover_groups");
+        if (cached) setDiscoverCards(asArray(cached).map(normalizeGroup));
+      }
+      const res = await api.groups.discover("");
+      const normalized = asArray(res, "groups").map(normalizeGroup);
+      setDiscoverCards(normalized);
+      await cache.set("discover_groups", normalized);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load discovery");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDiscover();
+  }, []);
 
   const filtered = useMemo(() => {
     let list = discoverCards;
@@ -41,15 +58,37 @@ export default function Discover() {
       list = list.filter((c) => c.category.toLowerCase().includes(category.toLowerCase()));
     }
     if (query) {
+      const q = query.toLowerCase();
       list = list.filter((c) =>
-        c.title.toLowerCase().includes(query.toLowerCase()) ||
-        c.city.toLowerCase().includes(query.toLowerCase())
+        c.title.toLowerCase().includes(q) ||
+        c.city?.toLowerCase().includes(q) ||
+        c.institutionName.toLowerCase().includes(q)
       );
     }
     return list;
-  }, [category, query]);
+  }, [category, discoverCards, query]);
 
-  const sectionLabel = category === "Trending" ? "TRENDING IN MUMBAI" : category.toUpperCase();
+  const joinGroup = async (groupId: string) => {
+    if (joiningId) return;
+    setJoiningId(groupId);
+    try {
+      await api.groups.join(groupId);
+      await fetchDiscover(false);
+    } finally {
+      setJoiningId(null);
+    }
+  };
+
+  if (error && discoverCards.length === 0) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="discover-screen">
+        <View style={styles.header}>
+          <Text style={[styles.title, { color: colors.onSurface }]}>Discover</Text>
+        </View>
+        <NetworkError onRetry={() => fetchDiscover(false)} message={error} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="discover-screen">
@@ -98,13 +137,7 @@ export default function Discover() {
                 ]}
                 testID={`discover-chip-${c}`}
               >
-                <Text
-                  style={{
-                    color: active ? "#fff" : colors.onSurface,
-                    fontSize: font.base,
-                    fontWeight: "500",
-                  }}
-                >
+                <Text style={{ color: active ? "#fff" : colors.onSurface, fontSize: font.base, fontWeight: "500" }}>
                   {c}
                 </Text>
               </Pressable>
@@ -113,24 +146,33 @@ export default function Discover() {
         </ScrollView>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
-      >
-        <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>{sectionLabel}</Text>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+        <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>
+          {category === "Trending" ? "TRENDING GROUPS" : category.toUpperCase()}
+        </Text>
 
-        <View style={styles.grid}>
-          {filtered.map((card) => (
-            <DiscoverCardTile key={card.id} card={card} width={cardWidth} onPress={() => router.push(`/group/info/${card.id}`)} />
-          ))}
-        </View>
-
-        {filtered.length === 0 && (
+        {loading && discoverCards.length === 0 ? (
           <View style={{ padding: spacing["2xl"], alignItems: "center" }}>
-            <Ionicons name="search" size={32} color={colors.muted} />
-            <Text style={{ color: colors.onSurfaceTertiary, marginTop: spacing.md, fontSize: font.base }}>
-              No matches for &quot;{query}&quot;
-            </Text>
+            <ActivityIndicator color={colors.brandPrimary} />
+          </View>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon="search"
+            title="No groups match your criteria"
+            message={query ? `No real groups found for "${query}".` : "Try a different category."}
+          />
+        ) : (
+          <View style={styles.grid}>
+            {filtered.map((card) => (
+              <DiscoverCardTile
+                key={card.id}
+                card={card}
+                width={cardWidth}
+                joining={joiningId === card.id}
+                onJoin={() => joinGroup(card.id)}
+                onPress={() => router.push(`/group/info/${card.id}`)}
+              />
+            ))}
           </View>
         )}
       </ScrollView>
@@ -138,14 +180,34 @@ export default function Discover() {
   );
 }
 
-function DiscoverCardTile({ card, width, onPress }: { card: DiscoverCard; width: number; onPress: () => void }) {
+function DiscoverCardTile({
+  card,
+  width,
+  joining,
+  onJoin,
+  onPress,
+}: {
+  card: DiscoverCard;
+  width: number;
+  joining: boolean;
+  onJoin: () => void;
+  onPress: () => void;
+}) {
+  const imageUri = card.image || card.avatarUrl;
+
   return (
     <Pressable
       onPress={onPress}
       style={[styles.card, { width, height: width * 1.35 }]}
       testID={`discover-card-${card.id}`}
     >
-      <Image source={{ uri: card.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      {imageUri ? (
+        <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, styles.noImage]}>
+          <Ionicons name="people" size={44} color="#ffffffcc" />
+        </View>
+      )}
       <LinearGradient
         colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.4)", "rgba(0,0,0,0.9)"]}
         locations={[0, 0.4, 1]}
@@ -168,10 +230,10 @@ function DiscoverCardTile({ card, width, onPress }: { card: DiscoverCard; width:
           )}
         </View>
         <Text style={styles.cardMeta} numberOfLines={1}>
-          {card.members} · {card.city}
+          {card.members.toLocaleString()} members{card.city ? ` - ${card.city}` : ""}
         </Text>
-        <Pressable style={styles.joinBtn} testID={`join-${card.id}`}>
-          <Text style={styles.joinBtnText}>Request to join</Text>
+        <Pressable style={styles.joinBtn} testID={`join-${card.id}`} onPress={onJoin} disabled={joining}>
+          {joining ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.joinBtnText}>Request to join</Text>}
         </Pressable>
       </View>
     </Pressable>
@@ -207,6 +269,11 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: 20, overflow: "hidden", backgroundColor: "#222",
+  },
+  noImage: {
+    backgroundColor: "#2E5C4E",
+    alignItems: "center",
+    justifyContent: "center",
   },
   cardTop: {
     padding: spacing.md,

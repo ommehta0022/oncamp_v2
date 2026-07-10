@@ -2,16 +2,20 @@ import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
-type Notification = any;
+import EmptyState from "@/src/components/EmptyState";
+import { NetworkError } from "@/src/components/NetworkError";
+import { asArray, normalizeNotification } from "@/src/lib/mappers";
+type Notification = ReturnType<typeof normalizeNotification>;
 
 const TABS = ["All", "Mentions", "Announcements"];
 
-const ICONS: Record<Notification["type"], keyof typeof import("@expo/vector-icons").Ionicons.glyphMap> = {
+const ICONS: Record<string, keyof typeof import("@expo/vector-icons").Ionicons.glyphMap> = {
   mention: "at",
   join: "person-add",
   announcement: "megaphone",
@@ -22,19 +26,31 @@ const ICONS: Record<Notification["type"], keyof typeof import("@expo/vector-icon
 
 export default function Notifications() {
   const { colors } = useTheme();
+  const router = useRouter();
   const [tab, setTab] = useState("All");
   const [items, setItems] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchNotifs = async (useCached = true) => {
+    try {
+      setError(null);
+      if (useCached) {
+        const cached = await cache.get("notifications");
+        if (cached) setItems(asArray(cached).map(normalizeNotification));
+      }
+      const rows: any = await api.notifications.list();
+      const normalized = asArray(rows).map(normalizeNotification);
+      setItems(normalized);
+      await cache.set("notifications", normalized);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load notifications");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchNotifs = async () => {
-      try {
-        const cached = await cache.get("notifications");
-        if (cached) setItems(cached as any);
-        const rows: any = await api.notifications.list();
-        setItems(rows || []);
-        await cache.set("notifications", rows || []);
-      } catch (e) {}
-    };
     fetchNotifs();
   }, []);
 
@@ -43,9 +59,26 @@ export default function Notifications() {
     setItems((n) => n.map((x) => ({ ...x, read: true })));
   };
 
+  const openNotification = async (notification: Notification) => {
+    setItems((n) => n.map((x) => x.id === notification.id ? { ...x, read: true } : x));
+    api.notifications.markRead(notification.id).catch(() => {});
+    router.push(`/notifications/${notification.id}`);
+  };
+
   let data = items;
   if (tab === "Mentions") data = items.filter((n) => n.type === "mention" || n.type === "reply");
   else if (tab === "Announcements") data = items.filter((n) => n.type === "announcement");
+
+  if (error && items.length === 0) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="notifications-screen">
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.title, { color: colors.onSurface }]}>Alerts</Text>
+        </View>
+        <NetworkError onRetry={() => fetchNotifs(false)} message={error} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="notifications-screen">
@@ -83,17 +116,25 @@ export default function Notifications() {
         data={data}
         keyExtractor={(n) => n.id}
         contentContainerStyle={{ paddingBottom: 120 }}
-        renderItem={({ item }) => <NotifRow n={item} />}
+        renderItem={({ item }) => <NotifRow n={item} onPress={() => openNotification(item)} />}
         ItemSeparatorComponent={() => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 72 }} />}
+        ListEmptyComponent={
+          <EmptyState
+            icon={loading ? "hourglass-outline" : "notifications-off-outline"}
+            title={loading ? "Loading alerts" : "No alerts yet"}
+            message={loading ? "Checking your real notifications." : "Mentions, approvals, replies, and announcements will appear here."}
+          />
+        }
       />
     </SafeAreaView>
   );
 }
 
-function NotifRow({ n }: { n: Notification }) {
+function NotifRow({ n, onPress }: { n: Notification; onPress: () => void }) {
   const { colors } = useTheme();
   return (
     <Pressable
+      onPress={onPress}
       style={({ pressed }) => [
         styles.row,
         {
@@ -104,7 +145,7 @@ function NotifRow({ n }: { n: Notification }) {
       <View style={{ position: "relative" }}>
         <Avatar uri={n.avatar} name={n.title} size={44} />
         <View style={[styles.typeBadge, { backgroundColor: colors.brandPrimary, borderColor: colors.surface }]}>
-          <Ionicons name={ICONS[n.type]} size={11} color="#fff" />
+          <Ionicons name={ICONS[n.type] || "notifications"} size={11} color="#fff" />
         </View>
       </View>
       <View style={{ flex: 1 }}>

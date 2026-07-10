@@ -675,6 +675,7 @@ def integrations_health() -> dict[str, Any]:
 
 class StartOtpDevDto(BaseModel):
     phone: str
+    action: Optional[str] = None
 
 
 class VerifyOtpDevDto(BaseModel):
@@ -690,6 +691,19 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
 
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
+
+    # Fast DB check for registration/login
+    if payload.action:
+        hashed_phone = phone_hash(phone)
+        user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "id", "limit": "1"})
+        is_registered = bool(user_rows)
+
+        if payload.action == "register" and is_registered:
+            raise HTTPException(status_code=400, detail="This number is already registered.")
+        
+        if payload.action == "login" and not is_registered:
+            raise HTTPException(status_code=400, detail="Number is not registered. Please register first.")
+
 
     # Development mode - return success without sending
     if DEV_MODE:

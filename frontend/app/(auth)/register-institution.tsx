@@ -111,7 +111,7 @@ export default function RegisterInstitution() {
     setVerifyingPhone(true);
     try {
       const fullPhone = `+91${form.phone}`;
-      await api.auth.startOtp(fullPhone);
+      await api.auth.startOtp(fullPhone, 'register');
       setPhoneOtp("");
       setShowPhoneOtp(true);
     } catch (err) {

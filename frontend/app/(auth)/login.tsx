@@ -39,7 +39,7 @@ export default function Login() {
     const fullPhone = `+91${phone}`;
     
     try {
-      const otp = await api.auth.startOtp(fullPhone);
+      const otp = await api.auth.startOtp(fullPhone, 'login');
       router.push({
         pathname: "/(auth)/otp",
         params: {
