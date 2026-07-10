@@ -2045,7 +2045,7 @@ async def get_security_alerts(
 # ============================================================================
 
 @router.get("/settings/platform")
-async def get_platform_settings(admin: dict = Depends(get_current_admin)):
+async def get_platform_settings():
     """Get platform settings"""
     settings = db_client.get("system_settings", {"select": "*"})
     
