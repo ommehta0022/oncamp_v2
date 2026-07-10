@@ -76,7 +76,7 @@ export default function Signup() {
     const fullPhone = `+91${phone}`;
     
     try {
-      const otp = await api.auth.startOtp(fullPhone);
+      const otp = await api.auth.startOtp(fullPhone, 'register');
       router.push({
         pathname: "/(auth)/otp",
         params: {

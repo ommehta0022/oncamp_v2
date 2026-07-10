@@ -358,11 +358,11 @@ export const api = {
     featureFlags: () => request<Record<string, boolean>>("/settings/features", { auth: false }),
   },
   auth: {
-    startOtp: (phone: string) =>
+    startOtp: (phone: string, action?: 'login' | 'register') =>
       request<StartOtpResponse>("/auth/otp/start", {
         method: "POST",
         auth: false,
-        body: { phone },
+        body: { phone, action },
       }),
     verifyOtp: async (challengeId: string, firebaseIdToken: string) =>
       normalizeAuthSession(
