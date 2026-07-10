@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Text, ScrollView, TextInput, Alert } from "react-native";
+import { Text, ScrollView, TextInput, Alert, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,6 +7,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
+import { api, getUserErrorMessage } from "@/src/lib/api";
 
 const ISSUE_TYPES = [
   { id: "bug", label: "Bug or technical issue", icon: "bug-outline" },
@@ -24,21 +25,30 @@ export default function ReportProblem() {
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     if (!selectedType || !description.trim()) {
       Alert.alert("Missing information", "Please select an issue type and provide a description.");
       return;
     }
 
     setSubmitting(true);
-    setTimeout(() => {
+    try {
+      await api.reports.create({
+        targetType: "application",
+        targetId: "oncampus-mobile",
+        reason: selectedType,
+        details: description.trim(),
+      });
       Alert.alert(
         "Report submitted",
         "Thank you for your feedback. Our team will review it shortly.",
         [{ text: "OK", onPress: () => router.back() }]
       );
+    } catch (error) {
+      Alert.alert("Could not submit report", getUserErrorMessage(error, "Please check your connection and try again."));
+    } finally {
       setSubmitting(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -97,6 +107,7 @@ export default function ReportProblem() {
           label="Submit report"
           onPress={submit}
           disabled={submitting || !selectedType || !description.trim()}
+          loading={submitting}
           fullWidth
           style={{ marginTop: spacing.xl }}
         />
@@ -118,8 +129,8 @@ function IssueTypeButton({
 }) {
   const { colors } = useTheme();
   return (
-    <button
-      onClick={onPress}
+    <Pressable
+      onPress={onPress}
       style={{
         display: "flex",
         flexDirection: "row",
@@ -132,8 +143,6 @@ function IssueTypeButton({
         borderStyle: "solid",
         borderColor: selected ? colors.brandPrimary : colors.borderStrong,
         backgroundColor: selected ? colors.brandPrimary + "11" : colors.surfaceSecondary,
-        cursor: "pointer",
-        transition: "all 0.2s",
       }}
     >
       <Ionicons 
@@ -150,6 +159,6 @@ function IssueTypeButton({
         {label}
       </Text>
       {selected && <Ionicons name="checkmark-circle" size={20} color={colors.brandPrimary} />}
-    </button>
+    </Pressable>
   );
 }

@@ -18,7 +18,7 @@ const STORAGE_KEY = "oncampus.theme.mode";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const system = useColorScheme();
-  const [mode, setModeState] = useState<ThemeMode>("system");
+  const [mode, setModeState] = useState<ThemeMode>("light");
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {

@@ -10,7 +10,8 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { api, getAccessToken, saveSession } from "@/src/lib/api";
+import { api, getAccessToken, getUserErrorMessage, saveSession } from "@/src/lib/api";
+import { digitsOnly, validateCity, validateIndianPhone, validateInstitutionalEmail, validateInstitutionName, validateName, validateRequired, validateWebsite } from "@/src/utils/validation";
 
 const TYPES = ["School", "College", "University", "Coaching", "Department", "Club body"];
 
@@ -32,10 +33,9 @@ export default function RegisterInstitution() {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [emailVerified, setEmailVerified] = useState(false);
   const [showPhoneOtp, setShowPhoneOtp] = useState(false);
-  const [showEmailOtp, setShowEmailOtp] = useState(false);
   const [phoneOtp, setPhoneOtp] = useState("");
-  const [emailOtp, setEmailOtp] = useState("");
   const [verifyingPhone, setVerifyingPhone] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [form, setForm] = useState({
     name: "", type: "College", city: "", state: "", country: "India",
@@ -44,10 +44,12 @@ export default function RegisterInstitution() {
     logoName: "", documentName: "",
   });
   const set = (k: string, v: string) => setForm((s) => {
+    const value = k === "phone" ? digitsOnly(v, 10) : k === "email" ? v.trimStart().toLowerCase() : v;
     // If they change email or phone, reset verification status
-    if (k === 'phone' && s.phone !== v) setPhoneVerified(false);
-    if (k === 'email' && s.email !== v) setEmailVerified(false);
-    return { ...s, [k]: v };
+    if (k === 'phone' && s.phone !== value) setPhoneVerified(false);
+    if (k === 'email' && s.email !== value) setEmailVerified(false);
+    setFormErrors((current) => ({ ...current, [k]: "" }));
+    return { ...s, [k]: value };
   });
 
   useEffect(() => {
@@ -97,15 +99,38 @@ export default function RegisterInstitution() {
     fetchStatus();
   }, []);
 
-  const canNext =
-    step === 1 ? form.name && form.city :
-    step === 2 ? form.email && form.phone && form.adminName && form.designation && phoneVerified && emailVerified :
-    true;
+  const validateStep = (currentStep: number) => {
+    const errors: Record<string, string> = {};
+    if (currentStep === 1) {
+      errors.name = validateInstitutionName(form.name).error || "";
+      errors.city = validateCity(form.city).error || "";
+      errors.state = validateRequired(form.state, "State", 100).error || "";
+      errors.country = validateRequired(form.country, "Country", 100).error || "";
+    } else if (currentStep === 2) {
+      errors.email = validateInstitutionalEmail(form.email).error || "";
+      errors.phone = validateIndianPhone(form.phone).error || "";
+      errors.adminName = validateName(form.adminName).error || "";
+      errors.designation = validateRequired(form.designation, "Designation", 100).error || "";
+      errors.website = validateWebsite(form.website).error || "";
+      if (!phoneVerified) errors.phone = errors.phone || "Verify this phone number to continue";
+      if (!emailVerified) errors.email = errors.email || "Validate the official email to continue";
+    } else {
+      if (!form.documentUrl) errors.documentUrl = "Attach an official verification document";
+      errors.reason = validateRequired(form.reason, "Reason", 500).error || "";
+    }
+    setFormErrors(errors);
+    return !Object.values(errors).some(Boolean);
+  };
+
+  const canNext = step === 1
+    ? validateInstitutionName(form.name).valid && validateCity(form.city).valid && !!form.state.trim() && !!form.country.trim()
+    : validateInstitutionalEmail(form.email).valid && validateIndianPhone(form.phone).valid && validateName(form.adminName).valid && !!form.designation.trim() && validateWebsite(form.website).valid && phoneVerified && emailVerified;
 
   // Phone Verification Logic
   const handleStartPhoneVerify = async () => {
-    if (!form.phone || form.phone.length !== 10) {
-      Alert.alert("Invalid Phone", "Please enter a valid 10-digit phone number");
+    const validation = validateIndianPhone(form.phone);
+    if (!validation.valid) {
+      setFormErrors((current) => ({ ...current, phone: validation.error || "Invalid phone number" }));
       return;
     }
     setVerifyingPhone(true);
@@ -122,7 +147,10 @@ export default function RegisterInstitution() {
   };
 
   const handleSubmitPhoneOtp = async () => {
-    if (!phoneOtp || phoneOtp.length < 4) return;
+    if (digitsOnly(phoneOtp).length !== 6) {
+      Alert.alert("Incomplete OTP", "Enter the complete 6-digit OTP.");
+      return;
+    }
     setVerifyingPhone(true);
     try {
       const fullPhone = `+91${form.phone}`;
@@ -148,22 +176,14 @@ export default function RegisterInstitution() {
 
   // Email Verification Logic
   const handleStartEmailVerify = () => {
-    if (!form.email || !form.email.includes("@")) {
-      Alert.alert("Invalid Email", "Please enter a valid official email address");
+    const validation = validateInstitutionalEmail(form.email);
+    if (!validation.valid) {
+      setFormErrors((current) => ({ ...current, email: validation.error || "Invalid institutional email" }));
       return;
     }
-    setEmailOtp("");
-    setShowEmailOtp(true);
-  };
-
-  const handleSubmitEmailOtp = () => {
-    if (emailOtp === "1234") {
-      setEmailVerified(true);
-      setShowEmailOtp(false);
-      Alert.alert("Success", "Email verified successfully!");
-    } else {
-      Alert.alert("Verification Failed", "Invalid OTP. Please enter 1234 for testing.");
-    }
+    setEmailVerified(true);
+    setFormErrors((current) => ({ ...current, email: "" }));
+    Alert.alert("Email validated", "The official email format is valid. Ownership will be confirmed during institution review.");
   };
 
   const pickLogo = async () => {
@@ -276,6 +296,7 @@ export default function RegisterInstitution() {
   };
 
   const submit = async () => {
+    if (!validateStep(3)) return;
     setSubmitting(true);
     try {
       await api.institutions.register({
@@ -308,8 +329,7 @@ export default function RegisterInstitution() {
         );
       }
     } catch (error) {
-      Alert.alert('Submission Failed', 'Failed to submit registration. Please try again.');
-      console.error('Registration error:', error);
+      Alert.alert('Submission Failed', getUserErrorMessage(error, 'Failed to submit registration. Please try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -485,7 +505,7 @@ export default function RegisterInstitution() {
                 We&apos;ll use this to set up your official page and verified badge.
               </Text>
 
-              <Field label="Institution name" value={form.name} onChange={(v) => set("name", v)} placeholder="Your institution name" />
+              <Field label="Institution name" value={form.name} onChange={(v) => set("name", v)} placeholder="Your institution name" error={formErrors.name} maxLength={200} />
 
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>Type</Text>
               <View style={styles.chips}>
@@ -506,9 +526,9 @@ export default function RegisterInstitution() {
                 ))}
               </View>
 
-              <Field label="City" value={form.city} onChange={(v) => set("city", v)} placeholder="City" />
-              <Field label="State" value={form.state} onChange={(v) => set("state", v)} placeholder="State or region" />
-              <Field label="Country" value={form.country} onChange={(v) => set("country", v)} placeholder="Country" />
+              <Field label="City" value={form.city} onChange={(v) => set("city", v)} placeholder="City" error={formErrors.city} maxLength={100} />
+              <Field label="State" value={form.state} onChange={(v) => set("state", v)} placeholder="State or region" error={formErrors.state} maxLength={100} />
+              <Field label="Country" value={form.country} onChange={(v) => set("country", v)} placeholder="Country" error={formErrors.country} maxLength={100} />
             </>
           )}
 
@@ -530,6 +550,8 @@ export default function RegisterInstitution() {
                 keyboardType="email-address"
                 verified={emailVerified}
                 onVerify={handleStartEmailVerify}
+                verificationLabel="Validated"
+                error={formErrors.email}
               />
               <VerifiableField 
                 label="Official phone" 
@@ -539,10 +561,11 @@ export default function RegisterInstitution() {
                 keyboardType="phone-pad"
                 verified={phoneVerified}
                 onVerify={handleStartPhoneVerify}
+                error={formErrors.phone}
               />
-              <Field label="Admin name" value={form.adminName} onChange={(v) => set("adminName", v)} placeholder="Your full name" />
-              <Field label="Designation" value={form.designation} onChange={(v) => set("designation", v)} placeholder="Your official role" />
-              <Field label="Website" value={form.website} onChange={(v) => set("website", v)} placeholder="https://institution.edu" keyboardType="default" />
+              <Field label="Admin name" value={form.adminName} onChange={(v) => set("adminName", v)} placeholder="Your full name" error={formErrors.adminName} maxLength={100} />
+              <Field label="Designation" value={form.designation} onChange={(v) => set("designation", v)} placeholder="Your official role" error={formErrors.designation} maxLength={100} />
+              <Field label="Website" value={form.website} onChange={(v) => set("website", v)} placeholder="https://institution.edu" keyboardType="default" error={formErrors.website} maxLength={300} />
             </>
           )}
 
@@ -572,8 +595,9 @@ export default function RegisterInstitution() {
                 uploaded={!!form.documentUrl}
                 filename={form.documentName}
               />
+              {!!formErrors.documentUrl && <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.xs }}>{formErrors.documentUrl}</Text>}
 
-              <Field label="Reason / use case" value={form.reason} onChange={(v) => set("reason", v)} placeholder="Briefly tell us why you're joining OnCampus" multiline />
+              <Field label="Reason / use case" value={form.reason} onChange={(v) => set("reason", v)} placeholder="Briefly tell us why you're joining OnCampus" multiline error={formErrors.reason} maxLength={500} />
 
               <View style={[styles.notice, { backgroundColor: colors.brandTertiary }]}>
                 <Ionicons name="information-circle" size={18} color={colors.onBrandTertiary} />
@@ -593,7 +617,7 @@ export default function RegisterInstitution() {
                 fullWidth
                 size="lg"
                 disabled={!canNext}
-                onPress={() => setStep(step + 1)}
+                onPress={() => { if (validateStep(step)) setStep(step + 1); }}
                 testID="register-institution-next-btn"
               />
             ) : (
@@ -602,6 +626,7 @@ export default function RegisterInstitution() {
                 fullWidth
                 size="lg"
                 disabled={submitting}
+                loading={submitting}
                 onPress={submit}
                 testID="submit-institution-btn"
               />
@@ -637,39 +662,15 @@ export default function RegisterInstitution() {
         </View>
       </Modal>
 
-      {/* Email OTP Modal */}
-      <Modal visible={showEmailOtp} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.h1, { color: colors.onSurface, marginTop: 0 }]}>Verify Email</Text>
-            <Text style={[styles.h2, { color: colors.onSurfaceTertiary, marginBottom: spacing.lg }]}>
-              Enter the OTP sent to {form.email} (Hint: use 1234)
-            </Text>
-            <TextInput
-              value={emailOtp}
-              onChangeText={setEmailOtp}
-              placeholder="Enter OTP (1234)"
-              placeholderTextColor={colors.muted}
-              keyboardType="number-pad"
-              style={[styles.modalInput, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.onSurface }]}
-            />
-            <View style={{ gap: spacing.md, marginTop: spacing.xl, width: "100%" }}>
-              <Button label="Verify" fullWidth onPress={handleSubmitEmailOtp} disabled={!emailOtp} />
-              <Button label="Cancel" fullWidth variant="secondary" onPress={() => setShowEmailOtp(false)} />
-            </View>
-          </View>
-        </View>
-      </Modal>
-
     </SafeAreaView>
   );
 }
 
 function Field({
-  label, value, onChange, placeholder, keyboardType, multiline,
+  label, value, onChange, placeholder, keyboardType, multiline, error, maxLength,
 }: {
   label: string; value: string; onChange: (v: string) => void; placeholder: string;
-  keyboardType?: "email-address" | "phone-pad" | "default"; multiline?: boolean;
+  keyboardType?: "email-address" | "phone-pad" | "default"; multiline?: boolean; error?: string; maxLength?: number;
 }) {
   const { colors } = useTheme();
   return (
@@ -682,16 +683,19 @@ function Field({
         placeholderTextColor={colors.muted}
         keyboardType={keyboardType || "default"}
         multiline={multiline}
+        maxLength={maxLength}
+        accessibilityLabel={label}
         autoCapitalize={keyboardType === "email-address" ? "none" : "sentences"}
         style={{
           backgroundColor: colors.surfaceSecondary,
-          borderColor: colors.borderStrong, borderWidth: 1,
+          borderColor: error ? colors.error : colors.borderStrong, borderWidth: 1,
           borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md,
           color: colors.onSurface, fontSize: font.lg,
           minHeight: multiline ? 100 : 52,
           textAlignVertical: multiline ? "top" : "center",
         }}
       />
+      {!!error && <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.xs }}>{error}</Text>}
     </View>
   );
 }
@@ -750,11 +754,11 @@ function UploadBox({ label, hint, onPress, uploading, uploaded, filename }: {
 }
 
 function VerifiableField({
-  label, value, onChange, placeholder, keyboardType, verified, onVerify
+  label, value, onChange, placeholder, keyboardType, verified, onVerify, verificationLabel = "Verified", error
 }: {
   label: string; value: string; onChange: (v: string) => void; placeholder: string;
   keyboardType?: "email-address" | "phone-pad" | "default";
-  verified: boolean; onVerify: () => void;
+  verified: boolean; onVerify: () => void; verificationLabel?: string; error?: string;
 }) {
   const { colors } = useTheme();
   return (
@@ -764,7 +768,7 @@ function VerifiableField({
         {verified ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Ionicons name="checkmark-circle" size={14} color={colors.success || "#10b981"} />
-            <Text style={{ color: colors.success || "#10b981", fontSize: font.sm, fontWeight: "600" }}>Verified</Text>
+            <Text style={{ color: colors.success || "#10b981", fontSize: font.sm, fontWeight: "600" }}>{verificationLabel}</Text>
           </View>
         ) : (
           <Pressable onPress={onVerify} disabled={!value} style={{ opacity: value ? 1 : 0.5 }}>
@@ -780,14 +784,16 @@ function VerifiableField({
         keyboardType={keyboardType || "default"}
         autoCapitalize={keyboardType === "email-address" ? "none" : "sentences"}
         editable={!verified} // disable editing after verification
+        accessibilityLabel={label}
         style={{
           backgroundColor: verified ? colors.surfaceTertiary : colors.surfaceSecondary,
-          borderColor: verified ? colors.border : colors.borderStrong, borderWidth: 1,
+          borderColor: error ? colors.error : verified ? colors.border : colors.borderStrong, borderWidth: 1,
           borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md,
           color: verified ? colors.onSurfaceTertiary : colors.onSurface, fontSize: font.lg,
           minHeight: 52,
         }}
       />
+      {!!error && <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.xs }}>{error}</Text>}
     </View>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -10,31 +10,50 @@ import Avatar from "@/src/components/Avatar";
 import { useRole } from "@/src/context/RoleProvider";
 import { api, FeedPostDto } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
+import { normalizePost } from "@/src/lib/mappers";
+import SkeletonLoader from "@/src/components/SkeletonLoader";
+import EmptyState from "@/src/components/EmptyState";
+import { NetworkError } from "@/src/components/NetworkError";
+import { useToast } from "@/src/components/Toast";
 
 export default function Feed() {
   const { colors } = useTheme();
   const router = useRouter();
   const { canCreatePosts } = useRole();
+  const { showToast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPosts = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      if (!isRefresh) {
+        const cached = await cache.get<any[]>("feed_posts");
+        if (cached?.length) setPosts(cached.map(normalizePost));
+      }
+      const response = await api.feed.list(1);
+      const next = (response.posts || response.feed || []).map(normalizePost);
+      setPosts(next);
+      await cache.set("feed_posts", next, 5 * 60 * 1000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not load your feed.";
+      setError(message);
+      if (isRefresh || posts.length > 0) showToast({ message, variant: "error" });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [posts.length, showToast]);
 
   useEffect(() => {
-    const loadPosts = async () => {
-      try {
-        const cached = await cache.get("feed_posts");
-        if (cached) setPosts(cached as any);
-        const response = await api.feed.list(1);
-        setPosts(response.posts || response.feed || []);
-        await cache.set("feed_posts", response.posts || response.feed || []);
-      } catch (e) {}
-    };
-    loadPosts();
+    void loadPosts();
   }, []);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
-  };
+  const onRefresh = () => void loadPosts(true);
 
   const toggleLike = async (id: string) => {
     const current = posts.find(p => p.id === id);
@@ -43,7 +62,10 @@ export default function Feed() {
     try {
       const result = current.liked ? await api.posts.unlike(id) : await api.posts.like(id);
       setPosts((p) => p.map((post) => post.id === id ? { ...post, liked: result.liked, likes: result.reactions } : post));
-    } catch {}
+    } catch (err) {
+      setPosts((currentPosts) => currentPosts.map((post) => post.id === id ? current : post));
+      showToast({ message: err instanceof Error ? err.message : "Could not update this post.", variant: "error" });
+    }
   };
 
   return (
@@ -60,15 +82,30 @@ export default function Feed() {
         </View>
       </View>
 
-      <FlatList showsVerticalScrollIndicator={false}
-        data={posts}
-        keyExtractor={(p) => p.id}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
-        ListHeaderComponent={canCreatePosts ? <Composer /> : <View style={{ height: spacing.md }} />}
-        renderItem={({ item }) => <PostCard post={item} onLike={() => toggleLike(item.id)} />}
-        ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
-      />
+      {loading && posts.length === 0 ? (
+        <SkeletonLoader type="post" count={3} />
+      ) : error && posts.length === 0 ? (
+        <NetworkError onRetry={() => void loadPosts()} message={error} />
+      ) : (
+        <FlatList showsVerticalScrollIndicator={false}
+          data={posts}
+          keyExtractor={(p) => p.id}
+          contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
+          ListHeaderComponent={canCreatePosts ? <Composer /> : <View style={{ height: spacing.md }} />}
+          ListEmptyComponent={
+            <EmptyState
+              icon="newspaper-outline"
+              title="No posts available"
+              message="There are no posts in your feed yet. Pull to refresh or create the first post."
+              actionLabel={canCreatePosts ? "Create post" : "Refresh"}
+              onAction={() => canCreatePosts ? router.push("/create-post") : loadPosts(true)}
+            />
+          }
+          renderItem={({ item }) => <PostCard post={item} onLike={() => toggleLike(item.id)} />}
+          ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+        />
+      )}
     </SafeAreaView>
   );
 }

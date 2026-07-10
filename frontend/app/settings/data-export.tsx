@@ -1,38 +1,15 @@
-import React, { useState } from "react";
-import { View, Text, ScrollView, Alert } from "react-native";
+import React from "react";
+import { View, Text, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
-import Button from "@/src/components/Button";
 
 export default function DataExport() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [requesting, setRequesting] = useState(false);
-
-  const requestExport = () => {
-    Alert.alert(
-      "Request data export",
-      "We'll prepare a file with all your data and send you a download link via email within 48 hours.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Request", 
-          onPress: () => {
-            setRequesting(true);
-            setTimeout(() => {
-              Alert.alert("Request submitted", "You'll receive an email with your data within 48 hours.");
-              setRequesting(false);
-            }, 1000);
-          }
-        },
-      ]
-    );
-  };
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
       <Header title="Download your data" onBack={() => router.back()} />
@@ -48,7 +25,7 @@ export default function DataExport() {
             Export your data
           </Text>
           <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, lineHeight: 22 }}>
-            Request a copy of all your data including posts, messages, groups, and profile information.
+            Data export is not enabled by this service yet. No request will be sent from this screen.
           </Text>
         </View>
 
@@ -63,13 +40,6 @@ export default function DataExport() {
           <InfoItem icon="people" text="Groups you've joined" />
         </View>
 
-        <Button
-          label="Request export"
-          onPress={requestExport}
-          disabled={requesting}
-          fullWidth
-        />
-
         <Text style={{ 
           color: colors.muted, 
           fontSize: font.sm, 
@@ -77,7 +47,7 @@ export default function DataExport() {
           marginTop: spacing.lg,
           lineHeight: 18 
         }}>
-          You&apos;ll receive a download link via email within 48 hours
+          Contact support if you need help with your account data.
         </Text>
       </ScrollView>
     </SafeAreaView>

@@ -7,7 +7,8 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { api } from "@/src/lib/api";
+import { api, getUserErrorMessage } from "@/src/lib/api";
+import { digitsOnly, validateIndianPhone } from "@/src/utils/validation";
 
 export default function Login() {
   const { colors } = useTheme();
@@ -16,21 +17,21 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // Validate phone number (10 digits)
-  const validatePhone = (value: string): boolean => {
-    const cleaned = value.replace(/\D/g, "");
-    return cleaned.length === 10;
-  };
+  const phoneValidation = validateIndianPhone(phone);
 
   const handlePhoneChange = (value: string) => {
     // Only allow digits, max 10
-    const cleaned = value.replace(/\D/g, "").slice(0, 10);
+    const cleaned = digitsOnly(value, 10);
     setPhone(cleaned);
     setError("");
   };
 
   const sendOtp = async () => {
-    if (!validatePhone(phone) || submitting) return;
+    const validation = validateIndianPhone(phone);
+    if (!validation.valid || submitting) {
+      setError(validation.error || "Enter a valid phone number");
+      return;
+    }
     
     setSubmitting(true);
     setError("");
@@ -49,7 +50,7 @@ export default function Login() {
         },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send OTP. Please try again.");
+      setError(getUserErrorMessage(err, "Could not send OTP. Please try again."));
     } finally {
       setSubmitting(false);
     }
@@ -85,14 +86,17 @@ export default function Login() {
                 placeholder="10-digit mobile number"
                 placeholderTextColor={colors.muted}
                 keyboardType="phone-pad"
+                textContentType="telephoneNumber"
+                autoComplete="tel"
+                accessibilityLabel="Phone number"
                 style={{ flex: 1, color: colors.onSurface, fontSize: font.lg, paddingHorizontal: spacing.md }}
                 maxLength={10}
                 autoFocus
               />
             </View>
-            {phone.length > 0 && phone.length < 10 && (
+            {phone.length > 0 && !phoneValidation.valid && (
               <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.xs }}>
-                Phone number must be 10 digits
+                {phoneValidation.error}
               </Text>
             )}
           </View>
@@ -102,7 +106,8 @@ export default function Login() {
               label="Send OTP"
               fullWidth
               size="lg"
-              disabled={!validatePhone(phone) || submitting}
+              disabled={!phoneValidation.valid || submitting}
+              loading={submitting}
               onPress={sendOtp}
               testID="send-otp-btn"
             />

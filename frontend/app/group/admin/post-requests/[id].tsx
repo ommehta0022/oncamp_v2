@@ -159,9 +159,9 @@ export default function PostRequestsInbox() {
 function toPostRequest(row: any): PostRequest {
   return {
     id: row.id,
-    requesterName: row.contact_name || "Requester",
-    requesterAvatar: "https://images.unsplash.com/photo-1633112639964-f8c9d360dc75?w=200&q=80",
-    targetGroupName: row.group_name || "Group",
+    requesterName: row.contact_name || row.requester?.name || "Member",
+    requesterAvatar: row.requesterAvatar || row.requester?.avatarUrl || null,
+    targetGroupName: row.group_name || row.group?.name || "Group",
     title: row.title,
     description: row.description,
     category: row.category,

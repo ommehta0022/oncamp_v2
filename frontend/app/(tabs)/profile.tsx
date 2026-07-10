@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } from "react-native";
+import React, { useState, useEffect, useCallback } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { useRole } from "@/src/context/RoleProvider";
 import { api } from "@/src/lib/api";
+import { normalizeGroup } from "@/src/lib/mappers";
 
 interface UserStats {
   groups: number;
@@ -22,112 +22,47 @@ interface UserStats {
 export default function Profile() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { user, refreshUser } = useRole();
+  const { user, canManageInstitution } = useRole();
   const [myGroups, setMyGroups] = useState<any[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [uploadingCover, setUploadingCover] = useState(false);
+  const [institutionDashboard, setInstitutionDashboard] = useState<any>(null);
 
-  useEffect(() => {
-    loadProfileData();
-  }, []);
-
-  const loadProfileData = async () => {
+  const loadProfileData = useCallback(async () => {
     try {
       setLoading(true);
-      // Load groups and stats in parallel
-      const [groupsRes, statsRes] = await Promise.all([
+      const requests: Promise<any>[] = [
         api.groups.listMine().catch(() => ({ groups: [] })),
-        api.users.stats().catch(() => ({ groups: 0, posts: 0, followers: 0, following: 0 }))
-      ]);
+        api.users.stats().catch(() => ({ groups: 0, posts: 0, followers: 0, following: 0 })),
+      ];
+      if (canManageInstitution) requests.push(api.institutions.dashboard().catch(() => null));
+      const [groupsRes, statsRes, dashboardRes] = await Promise.all(requests);
       
-      setMyGroups(((groupsRes as any).groups || groupsRes || []).slice(0, 4));
+      setMyGroups(((groupsRes as any).groups || groupsRes || []).map(normalizeGroup).slice(0, 4));
       setStats(statsRes as UserStats);
-    } catch (error) {
-      console.error("Failed to load profile data:", error);
+      setInstitutionDashboard(dashboardRes || null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [canManageInstitution]);
 
-  const handleChangeCoverImage = async () => {
-    try {
-      // Request permissions
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission needed", "Please grant camera roll permissions to change your cover image.");
-        return;
-      }
-
-      // Pick image
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setUploadingCover(true);
-        
-        // Create form data
-        const formData = new FormData();
-        const uri = result.assets[0].uri;
-        const filename = uri.split("/").pop() || "cover.jpg";
-        const match = /\.(\w+)$/.exec(filename);
-        const type = match ? `image/${match[1]}` : "image/jpeg";
-
-        formData.append("cover", {
-          uri,
-          name: filename,
-          type,
-        } as any);
-
-        // Upload cover image
-        await api.users.updateMe({ coverUrl: uri } as any);
-        await refreshUser();
-        
-        Alert.alert("Success", "Cover image updated successfully!");
-      }
-    } catch (error) {
-      console.error("Failed to upload cover image:", error);
-      Alert.alert("Error", "Failed to update cover image. Please try again.");
-    } finally {
-      setUploadingCover(false);
-    }
-  };
+  useEffect(() => {
+    void loadProfileData();
+  }, [loadProfileData]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="profile-screen">
       <ScrollView contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
         <View style={{ position: "relative" }}>
-          <Image
-            source={{ 
-              uri: (user as any)?.coverUrl || "https://images.unsplash.com/photo-1562774053-701939374585?w=1200&q=80" 
-            }}
-            style={styles.cover}
-            contentFit="cover"
-          />
+          {(user as any)?.coverUrl ? (
+            <Image source={{ uri: (user as any).coverUrl }} style={styles.cover} contentFit="cover" />
+          ) : (
+            <View style={[styles.cover, { backgroundColor: colors.brandPrimary }]} />
+          )}
           <LinearGradient colors={["transparent", "rgba(0,0,0,0.6)"]} style={styles.coverScrim} />
           
-          {uploadingCover && (
-            <View style={styles.uploadingOverlay}>
-              <ActivityIndicator size="large" color="#fff" />
-              <Text style={{ color: "#fff", marginTop: spacing.sm, fontSize: font.sm }}>
-                Uploading cover...
-              </Text>
-            </View>
-          )}
-          
           <View style={styles.topBar}>
-            <Pressable
-              onPress={handleChangeCoverImage}
-              style={[styles.iconBtn, { backgroundColor: "#00000055" }]}
-              disabled={uploadingCover}
-              testID="change-cover-btn"
-            >
-              <Ionicons name="camera-outline" size={20} color="#fff" />
-            </Pressable>
+            <View />
             <Pressable
               onPress={() => router.push("/settings")}
               style={[styles.iconBtn, { backgroundColor: "#00000055" }]}
@@ -222,11 +157,13 @@ export default function Profile() {
                   onPress={() => router.push(`/group/${g.id}`)}
                   style={[styles.groupTile, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
                 >
-                  <Image 
-                    source={{ uri: g.avatarUrl || g.image || "https://via.placeholder.com/200" }} 
-                    style={styles.groupTileImg} 
-                    contentFit="cover" 
-                  />
+                  {g.avatarUrl || g.image ? (
+                    <Image source={{ uri: g.avatarUrl || g.image }} style={styles.groupTileImg} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.groupTileImg, { alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceTertiary }]}>
+                      <Ionicons name="people" size={28} color={colors.onSurfaceTertiary} />
+                    </View>
+                  )}
                   <View style={{ padding: spacing.md }}>
                     <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }} numberOfLines={1}>
                       {g.name}
@@ -239,6 +176,10 @@ export default function Profile() {
               ))}
             </ScrollView>
           </View>
+        )}
+
+        {canManageInstitution && (
+          <InstitutionWorkspace dashboard={institutionDashboard} onPress={(path) => router.push(path as any)} />
         )}
       </ScrollView>
     </SafeAreaView>
@@ -265,19 +206,54 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function InstitutionWorkspace({ dashboard, onPress }: { dashboard: any; onPress: (path: string) => void }) {
+  const { colors } = useTheme();
+  const institution = dashboard?.institution;
+  const counts = dashboard?.counts || {};
+  return (
+    <View style={{ marginTop: spacing.xl }}>
+      <View style={styles.sectionHeader}>
+        <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>Institution workspace</Text>
+        <Pressable onPress={() => onPress("/institution/dashboard")}><Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>Open</Text></Pressable>
+      </View>
+      <View style={[styles.workspace, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+          <View style={[styles.workspaceIcon, { backgroundColor: colors.brandTertiary }]}><Ionicons name="business" size={20} color={colors.onBrandTertiary} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "600" }}>{institution?.name || "Institution management"}</Text>
+            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{institution?.status ? String(institution.status).replace(/_/g, " ") : "Loading institution details"}</Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: "row", marginTop: spacing.md }}>
+          <WorkspaceStat label="Members" value={counts.members} />
+          <WorkspaceStat label="Groups" value={counts.groups} />
+          <WorkspaceStat label="Posts" value={counts.posts} />
+          <WorkspaceStat label="Requests" value={counts.verificationRequests} />
+        </View>
+        <View style={{ marginTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+          <WorkspaceAction icon="stats-chart-outline" label="Dashboard & analytics" onPress={() => onPress("/institution/dashboard")} />
+          <WorkspaceAction icon="color-palette-outline" label="Branding and profile" onPress={() => onPress("/institution/branding")} />
+          <WorkspaceAction icon="shield-checkmark-outline" label="Verification & admins" onPress={() => onPress("/institution/verification")} />
+          <WorkspaceAction icon="settings-outline" label="Institution settings" onPress={() => onPress("/institution/settings")} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function WorkspaceStat({ label, value }: { label: string; value: number | undefined }) {
+  const { colors } = useTheme();
+  return <View style={{ flex: 1, alignItems: "center" }}><Text style={{ color: colors.onSurface, fontWeight: "600" }}>{Number(value || 0).toLocaleString()}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 2 }}>{label}</Text></View>;
+}
+
+function WorkspaceAction({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  return <Pressable onPress={onPress} style={{ minHeight: 46, flexDirection: "row", alignItems: "center", gap: spacing.md }}><Ionicons name={icon} size={18} color={colors.onSurfaceTertiary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.base }}>{label}</Text><Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} /></Pressable>;
+}
+
 const styles = StyleSheet.create({
   cover: { width: "100%", height: 160 },
   coverScrim: { position: "absolute", left: 0, right: 0, top: 0, height: 160 },
-  uploadingOverlay: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    height: 160,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   topBar: {
     position: "absolute", top: 0, left: 0, right: 0,
     flexDirection: "row", justifyContent: "space-between",
@@ -313,6 +289,8 @@ const styles = StyleSheet.create({
     width: 200, borderRadius: radius.md, borderWidth: 1, overflow: "hidden",
   },
   groupTileImg: { width: "100%", height: 100 },
+  workspace: { marginHorizontal: spacing.lg, padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },
+  workspaceIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   achievement: {
     width: 130, borderRadius: radius.md, borderWidth: 1,
     padding: spacing.md, alignItems: "center",

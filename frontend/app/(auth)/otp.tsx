@@ -7,7 +7,8 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { AccountRole, api, saveSession } from "@/src/lib/api";
+import { AccountRole, api, getUserErrorMessage, saveSession } from "@/src/lib/api";
+import { digitsOnly, validateOtp } from "@/src/utils/validation";
 
 export default function Otp() {
   const { colors } = useTheme();
@@ -18,7 +19,6 @@ export default function Otp() {
   const phone = Array.isArray(params.phone) ? params.phone[0] : (params.phone as string) ?? "";
   const from = Array.isArray(params.from) ? params.from[0] : (params.from as string) ?? "login";
   const name = Array.isArray(params.name) ? params.name[0] : (params.name as string) ?? "";
-  const email = Array.isArray(params.email) ? params.email[0] : (params.email as string) ?? "";
   
   const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
@@ -37,10 +37,22 @@ export default function Otp() {
   }, [seconds]);
 
   const setDigit = (i: number, v: string) => {
-    const clean = v.replace(/\D/g, "").slice(-1);
+    const allDigits = digitsOnly(v, 6);
+    if (allDigits.length > 1) {
+      const next = [...digits];
+      allDigits.split("").forEach((digit, offset) => {
+        if (i + offset < next.length) next[i + offset] = digit;
+      });
+      setDigits(next);
+      inputs.current[Math.min(i + allDigits.length, 5)]?.focus();
+      setError("");
+      return;
+    }
+    const clean = allDigits.slice(-1);
     const next = [...digits];
     next[i] = clean;
     setDigits(next);
+    setError("");
     if (clean && i < 5) inputs.current[i + 1]?.focus();
   };
 
@@ -60,22 +72,28 @@ export default function Otp() {
       if (!phone) {
         throw new Error("Session expired. Please go back and retry.");
       }
+      const validation = validateOtp(code);
+      if (!validation.valid) throw new Error(validation.error);
 
       const session = await api.auth.verifyOtpDev(phone, code);
       await saveSession(session.accessToken, session.refreshToken);
-      if (session.user) {
-        await AsyncStorage.setItem("oncampus.user", JSON.stringify(session.user));
-        await AsyncStorage.setItem("oncampus.role", resolveRole(session.user.accountType, session.user.roles));
+      let sessionUser = session.user;
+      if (from === "signup" && name.trim()) {
+        sessionUser = await api.users.updateMe({ name: name.trim() });
+      }
+      if (sessionUser) {
+        await AsyncStorage.setItem("oncampus.user", JSON.stringify(sessionUser));
+        await AsyncStorage.setItem("oncampus.role", resolveRole(sessionUser.accountType, sessionUser.roles));
       }
       await AsyncStorage.setItem("oncampus.authed", "true");
       
-      if (session.user?.accountType === "institution_admin") {
+      if (sessionUser?.accountType === "institution_admin") {
         router.replace("/institution/dashboard");
       } else {
-        router.replace(session.isNewUser || !session.user?.profileCompleted ? "/(auth)/profile-setup" : "/(tabs)/feed");
+        router.replace(session.isNewUser || !sessionUser?.profileCompleted ? "/(auth)/profile-setup" : "/(tabs)/feed");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not verify OTP.");
+      setError(getUserErrorMessage(err, "Could not verify OTP."));
     } finally {
       setSubmitting(false);
     }
@@ -89,7 +107,7 @@ export default function Otp() {
     
     try {
       // Send new OTP
-      await api.auth.startOtp(phone);
+      await api.auth.startOtp(phone, from === "login" ? "login" : "register");
       
       // Reset state
       setSeconds(30);
@@ -99,7 +117,7 @@ export default function Otp() {
       // Show success message briefly
       setError(""); // Clear any previous errors
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not resend OTP.");
+      setError(getUserErrorMessage(err, "Could not resend OTP."));
     } finally {
       setResending(false);
     }
@@ -132,6 +150,10 @@ export default function Otp() {
                 onChangeText={(v) => setDigit(i, v)}
                 onKeyPress={(e) => onKey(i, e)}
                 keyboardType="number-pad"
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                accessibilityLabel={`OTP digit ${i + 1}`}
+                editable={!submitting}
                 maxLength={1}
                 style={[
                   styles.otpBox,
@@ -168,6 +190,7 @@ export default function Otp() {
               fullWidth
               size="lg"
               disabled={!filled || submitting}
+              loading={submitting}
               onPress={verify}
               testID="verify-otp-btn"
             />

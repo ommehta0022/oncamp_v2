@@ -8,6 +8,18 @@ export interface ValidationResult {
   error?: string;
 }
 
+export function digitsOnly(value: string, maxLength?: number): string {
+  const cleaned = value.replace(/\D/g, "");
+  return typeof maxLength === "number" ? cleaned.slice(0, maxLength) : cleaned;
+}
+
+export function validateRequired(value: string, label: string, maxLength?: number): ValidationResult {
+  const trimmed = value.trim();
+  if (!trimmed) return { valid: false, error: `${label} is required` };
+  if (maxLength && trimmed.length > maxLength) return { valid: false, error: `${label} must be ${maxLength} characters or fewer` };
+  return { valid: true };
+}
+
 /**
  * Validate name (min 2 characters, max 100, no special characters except spaces and hyphens)
  */
@@ -22,10 +34,10 @@ export function validateName(name: string): ValidationResult {
     return { valid: false, error: 'Name must be less than 100 characters' };
   }
   
-  // Allow letters, spaces, hyphens, apostrophes
-  const nameRegex = /^[a-zA-Z\s\-']+$/;
+  // Support names in any language while excluding digits and unsafe punctuation.
+  const nameRegex = /^[\p{L}\p{M}\s.'-]+$/u;
   if (!nameRegex.test(trimmed)) {
-    return { valid: false, error: 'Name can only contain letters, spaces, and hyphens' };
+    return { valid: false, error: 'Name contains unsupported characters' };
   }
   
   return { valid: true };
@@ -112,7 +124,7 @@ export function validatePhone(phone: string): ValidationResult {
  * Validate Indian phone number (exactly 10 digits)
  */
 export function validateIndianPhone(phone: string): ValidationResult {
-  const cleaned = phone.replace(/\D/g, '');
+  const cleaned = digitsOnly(phone);
   
   if (cleaned.length !== 10) {
     return { valid: false, error: 'Phone number must be exactly 10 digits' };
@@ -124,6 +136,33 @@ export function validateIndianPhone(phone: string): ValidationResult {
     return { valid: false, error: 'Invalid Indian mobile number' };
   }
   
+  return { valid: true };
+}
+
+export function validateOtp(code: string, length = 6): ValidationResult {
+  const cleaned = digitsOnly(code);
+  if (cleaned.length !== length) return { valid: false, error: `Enter the complete ${length}-digit OTP` };
+  return { valid: true };
+}
+
+export function validateBio(bio: string): ValidationResult {
+  if (bio.trim().length > 300) return { valid: false, error: 'Bio must be 300 characters or fewer' };
+  return { valid: true };
+}
+
+export function validatePostContent(content: string): ValidationResult {
+  const trimmed = content.trim();
+  if (!trimmed) return { valid: false, error: 'Write something before posting' };
+  if (trimmed.length > 5000) return { valid: false, error: 'Post must be 5,000 characters or fewer' };
+  return { valid: true };
+}
+
+export function validateHandle(handle: string): ValidationResult {
+  const trimmed = handle.trim();
+  if (!trimmed) return { valid: true };
+  if (!/^[a-zA-Z0-9_]{3,30}$/.test(trimmed)) {
+    return { valid: false, error: 'Username must be 3-30 letters, numbers, or underscores' };
+  }
   return { valid: true };
 }
 

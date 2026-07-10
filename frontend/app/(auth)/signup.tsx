@@ -7,7 +7,8 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { api } from "@/src/lib/api";
+import { api, getUserErrorMessage } from "@/src/lib/api";
+import { digitsOnly, validateEmail, validateIndianPhone, validateName } from "@/src/utils/validation";
 
 export default function Signup() {
   const { colors } = useTheme();
@@ -19,55 +20,41 @@ export default function Signup() {
   const [error, setError] = useState("");
   const [errors, setErrors] = useState({ name: "", email: "", phone: "" });
 
-  // Validation functions
-  const validateName = (value: string): boolean => {
-    return value.trim().length >= 2;
-  };
-
-  const validateEmail = (value: string): boolean => {
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(value.trim());
-  };
-
-  const validatePhone = (value: string): boolean => {
-    const cleaned = value.replace(/\D/g, "");
-    return cleaned.length === 10;
-  };
-
   const handleNameChange = (value: string) => {
     setName(value);
-    if (value.length > 0 && !validateName(value)) {
-      setErrors(prev => ({ ...prev, name: "Name must be at least 2 characters" }));
-    } else {
-      setErrors(prev => ({ ...prev, name: "" }));
-    }
+    const result = validateName(value);
+    setErrors(prev => ({ ...prev, name: value.length > 0 && !result.valid ? result.error || "Invalid name" : "" }));
+    setError("");
   };
 
   const handleEmailChange = (value: string) => {
     setEmail(value);
-    if (value.length > 0 && !validateEmail(value)) {
-      setErrors(prev => ({ ...prev, email: "Please enter a valid email address" }));
-    } else {
-      setErrors(prev => ({ ...prev, email: "" }));
-    }
+    const result = validateEmail(value);
+    setErrors(prev => ({ ...prev, email: value.length > 0 && !result.valid ? result.error || "Invalid email" : "" }));
+    setError("");
   };
 
   const handlePhoneChange = (value: string) => {
     // Only allow digits, max 10
-    const cleaned = value.replace(/\D/g, "").slice(0, 10);
+    const cleaned = digitsOnly(value, 10);
     setPhone(cleaned);
-    if (cleaned.length > 0 && cleaned.length < 10) {
-      setErrors(prev => ({ ...prev, phone: "Phone number must be 10 digits" }));
-    } else {
-      setErrors(prev => ({ ...prev, phone: "" }));
-    }
+    const result = validateIndianPhone(cleaned);
+    setErrors(prev => ({ ...prev, phone: cleaned.length > 0 && !result.valid ? result.error || "Invalid phone number" : "" }));
+    setError("");
   };
 
-  const valid = validateName(name) && validateEmail(email) && validatePhone(phone);
+  const valid = validateName(name).valid && validateEmail(email).valid && validateIndianPhone(phone).valid;
 
   const sendOtp = async () => {
-    if (!valid || submitting) return;
+    if (!valid || submitting) {
+      const nextErrors = {
+        name: validateName(name).error || "",
+        email: validateEmail(email).error || "",
+        phone: validateIndianPhone(phone).error || "",
+      };
+      setErrors(nextErrors);
+      return;
+    }
     
     setSubmitting(true);
     setError("");
@@ -83,12 +70,12 @@ export default function Signup() {
           phone: fullPhone,
           challengeId: otp.challengeId || "",
           from: "signup",
-          name,
-          email,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
         },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send OTP. Please try again.");
+      setError(getUserErrorMessage(err, "Could not send OTP. Please try again."));
     } finally {
       setSubmitting(false);
     }
@@ -150,6 +137,7 @@ export default function Signup() {
               fullWidth
               size="lg"
               disabled={!valid || submitting}
+              loading={submitting}
               onPress={sendOtp}
               testID="signup-continue-btn"
             />

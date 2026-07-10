@@ -17,7 +17,6 @@ import Avatar from "@/src/components/Avatar";
 import EmptyState from "@/src/components/EmptyState";
 import ImageViewer from "@/src/components/ImageViewer";
 import ReportModal from "@/src/components/ReportModal";
-import TypingIndicator from "@/src/components/TypingIndicator";
 import ForwardModal from "@/src/components/ForwardModal";
 import { useRole } from "@/src/context/RoleProvider";
 import { api, GroupDto } from "@/src/lib/api";
@@ -90,8 +89,6 @@ export default function GroupChat() {
   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   
-  const [isTyping, setIsTyping] = useState(false);
-  const [typingUser, setTypingUser] = useState("Someone");
 
   useEffect(() => {
     if (!id) return;
@@ -102,10 +99,6 @@ export default function GroupChat() {
       })
       .catch(() => {});
       
-    const typingInterval = setInterval(() => {
-      setIsTyping(Math.random() > 0.85); // 15% chance someone is typing for demo
-    }, 8000);
-    return () => clearInterval(typingInterval);
   }, [id, user?.id]);
 
   if (!group) return null;
@@ -333,16 +326,6 @@ export default function GroupChat() {
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           ListEmptyComponent={
             <EmptyState icon="chatbubble-outline" title="Say Hello 👋" message="Start the conversation in this group." />
-          }
-          ListFooterComponent={
-            isTyping ? (
-              <View style={{ marginBottom: spacing.md }}>
-                <Text style={{ color: colors.textSecondary || colors.muted, marginLeft: spacing.lg, marginBottom: 2, fontWeight: "500" }}>
-                  {typingUser} is typing...
-                </Text>
-                <TypingIndicator />
-              </View>
-            ) : null
           }
         />
 

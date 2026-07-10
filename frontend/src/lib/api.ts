@@ -21,7 +21,41 @@ type ApiOptions = {
   body?: unknown;
   auth?: boolean;
   headers?: Record<string, string>;
+  timeoutMs?: number;
 };
+
+const DEFAULT_TIMEOUT_MS = 15000;
+
+export type ApiErrorCode =
+  | "NETWORK_ERROR"
+  | "TIMEOUT"
+  | "VALIDATION_ERROR"
+  | "UNAUTHENTICATED"
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "RATE_LIMITED"
+  | "SERVER_ERROR"
+  | "UNKNOWN_ERROR";
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly code: ApiErrorCode,
+    public readonly status?: number,
+    public readonly requestId?: string,
+    public readonly fieldErrors?: Record<string, string>,
+    public readonly retryable = false,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function getUserErrorMessage(error: unknown, fallback = "Something went wrong. Please try again.") {
+  if (!(error instanceof Error)) return fallback;
+  return error.message || fallback;
+}
 
 // DTO Interfaces
 export interface MessageDto {
@@ -59,13 +93,15 @@ export interface NotificationDto {
 
 export interface ReportDto {
   id: string;
-  targetType: "post" | "user" | "group" | "message";
+  targetType: "post" | "user" | "group" | "message" | "application";
   targetId: string;
   reason: string;
   details?: string;
   status: "pending" | "resolved" | "dismissed";
   createdAt: string;
 }
+
+export type CreateReportDto = Pick<ReportDto, "targetType" | "targetId" | "reason" | "details">;
 
 export interface JoinRequestDto {
   id: string;
@@ -166,6 +202,100 @@ export async function getAccessToken() {
   return getSecureItem(ACCESS_TOKEN_KEY);
 }
 
+function codeForStatus(status: number): ApiErrorCode {
+  if (status === 400 || status === 422) return "VALIDATION_ERROR";
+  if (status === 401) return "UNAUTHENTICATED";
+  if (status === 403) return "FORBIDDEN";
+  if (status === 404) return "NOT_FOUND";
+  if (status === 409) return "CONFLICT";
+  if (status === 429) return "RATE_LIMITED";
+  if (status >= 500) return "SERVER_ERROR";
+  return "UNKNOWN_ERROR";
+}
+
+function fallbackForStatus(status: number) {
+  if (status === 401) return "Your session has expired. Please log in again.";
+  if (status === 403) return "You do not have permission to do that.";
+  if (status === 404) return "The requested information is no longer available.";
+  if (status === 409) return "This information changed. Refresh and try again.";
+  if (status === 429) return "Too many attempts. Please wait a moment and try again.";
+  if (status >= 500) return "The service is temporarily unavailable. Please try again.";
+  return "We could not complete this request. Please try again.";
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiError("The request took too long. Check your connection and try again.", "TIMEOUT", undefined, undefined, undefined, true);
+    }
+    throw new ApiError("You appear to be offline. Check your connection and try again.", "NETWORK_ERROR", undefined, undefined, undefined, true);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  if (response.status === 204) return undefined as T;
+
+  const text = await response.text();
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!response.ok) {
+    const detail = typeof data?.detail === "string" ? data.detail : data?.detail?.message;
+    const message = detail || data?.message || data?.error?.message || fallbackForStatus(response.status);
+    const requestId = response.headers.get("x-request-id") || data?.requestId || data?.request_id;
+    throw new ApiError(
+      message,
+      codeForStatus(response.status),
+      response.status,
+      requestId || undefined,
+      data?.fieldErrors || data?.field_errors,
+      response.status === 408 || response.status === 429 || response.status >= 500,
+    );
+  }
+
+  return data as T;
+}
+
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken() {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    const refreshToken = await getSecureItem(REFRESH_TOKEN_KEY);
+    if (!refreshToken) return null;
+    try {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      const session = await parseResponse<{ accessToken: string; refreshToken: string }>(response);
+      await saveSession(session.accessToken, session.refreshToken);
+      return session.accessToken;
+    } catch {
+      return null;
+    }
+  })();
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
+}
+
 async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const method = options.method || "GET";
   const deviceId = await getDeviceId();
@@ -176,66 +306,39 @@ async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
     ...options.headers,
   };
 
-  if (options.auth !== false) {
-    let token = await getAccessToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-  }
+  const token = options.auth === false ? null : await getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const execute = () => fetchWithTimeout(`${API_BASE_URL}${path}`, {
     method,
     headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  }, options.timeoutMs);
+
+  const maxAttempts = method === "GET" ? 2 : 1;
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      response = await execute();
+      if (response.status < 500 || attempt === maxAttempts - 1) break;
+    } catch (error) {
+      if (!(error instanceof ApiError) || !error.retryable || attempt === maxAttempts - 1) throw error;
+    }
+  }
+
+  if (!response) throw new ApiError("We could not complete this request. Please try again.", "UNKNOWN_ERROR");
 
   if (response.status === 401 && options.auth !== false) {
-    // Attempt token refresh
-    try {
-      const refreshToken = await getSecureItem(REFRESH_TOKEN_KEY);
-      if (refreshToken) {
-        const refreshRes = await fetch(`${API_BASE_URL}/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken })
-        });
-        
-        if (refreshRes.ok) {
-          const { accessToken, refreshToken: newRefresh } = await refreshRes.json();
-          await saveSession(accessToken, newRefresh);
-          
-          // Retry original request
-          headers.Authorization = `Bearer ${accessToken}`;
-          const retryRes = await fetch(`${API_BASE_URL}${path}`, {
-            method,
-            headers,
-            body: options.body ? JSON.stringify(options.body) : undefined,
-          });
-          
-          if (retryRes.status === 204) return undefined as T;
-          const retryText = await retryRes.text();
-          return (retryText ? JSON.parse(retryText) : null) as T;
-        }
-      }
-    } catch (e) {
-      // Ignore refresh errors and fall through to handle original 401
+    const nextToken = await refreshAccessToken();
+    if (nextToken) {
+      headers.Authorization = `Bearer ${nextToken}`;
+      return parseResponse<T>(await execute());
     }
-    
-    // Clear session on persistent 401
     await clearSession();
-    throw new Error("Authentication failed");
+    throw new ApiError("Your session has expired. Please log in again.", "UNAUTHENTICATED", 401);
   }
 
-  if (response.status === 204) return undefined as T;
-
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    const detail = typeof data?.detail === "string" ? data.detail : data?.detail?.message;
-    const message = detail || data?.message || data?.error?.message || `API request failed: ${response.status}`;
-    throw new Error(message);
-  }
-
-  return data as T;
+  return parseResponse<T>(response);
 }
 
 export type AccountRole =
@@ -304,6 +407,7 @@ export type FeedPostDto = {
   content: string;
   imageUrl?: string;
   mediaUrl?: string;
+  mediaType?: "image" | "video" | "document" | string;
   createdAt: string;
   pinned?: boolean;
   announcement?: boolean;
@@ -320,6 +424,9 @@ export type FeedPostDto = {
   group?: { id: string; name: string };
   counts?: { reactions?: number; comments?: number; reposts?: number };
   postType?: string;
+  visibility?: "public" | "group" | "institution" | string;
+  scheduledAt?: string;
+  expiresAt?: string;
   userReaction?: string;
 };
 
@@ -339,6 +446,8 @@ export type GroupDto = {
   lastMessage?: string;
   lastMessageAt?: string;
   role?: AccountRole | "owner" | "admin" | "member";
+  postingMode?: string;
+  joinPolicy?: string;
 };
 
 export const api = {
@@ -510,8 +619,8 @@ export const api = {
     updatePreferences: (body: unknown) => request("/notifications/preferences", { method: "PATCH", body }),
   },
   posts: {
-    get: (postId: string) => request(`/posts/${postId}`),
-    edit: (postId: string, body: unknown) => request(`/posts/${postId}`, { method: "PATCH", body }),
+    get: (postId: string) => request<FeedPostDto>(`/posts/${postId}`),
+    edit: (postId: string, body: unknown) => request<FeedPostDto>(`/posts/${postId}`, { method: "PATCH", body }),
     delete: (postId: string) => request(`/posts/${postId}`, { method: "DELETE" }),
     pin: (postId: string) => request(`/posts/${postId}/pin`, { method: "POST" }),
     comments: (postId: string, limit = 50) => request(`/posts/${postId}/comments?limit=${limit}`),
@@ -530,6 +639,7 @@ export const api = {
     reportComment: (commentId: string, body: unknown) => request(`/reports/comment/${commentId}`, { method: "POST", body }),
   },
   reports: {
+    create: (body: CreateReportDto) => request<{ success: boolean }>("/reports", { method: "POST", body }),
     reportPost: (id: string, body: unknown) => request(`/reports/post/${id}`, { method: "POST", body }),
     reportGroup: (id: string, body: unknown) => request(`/reports/group/${id}`, { method: "POST", body }),
     reportUser: (id: string, body: unknown) => request(`/reports/user/${id}`, { method: "POST", body }),

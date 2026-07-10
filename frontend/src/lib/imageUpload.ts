@@ -10,6 +10,7 @@ import { API_BASE_URL, getAccessToken } from "./api";
 export interface UploadResult {
   url: string;
   uploaded: boolean;
+  mediaType?: "image" | "video" | "document" | string;
 }
 
 export interface ImagePickerOptions {
@@ -195,7 +196,12 @@ export async function uploadPostMedia(imageUri: string): Promise<UploadResult> {
     const formData = new FormData();
     const filename = imageUri.split("/").pop() || "post.jpg";
     const match = /\.(\w+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : "image/jpeg";
+    const extension = match?.[1]?.toLowerCase();
+    const type = extension === "pdf"
+      ? "application/pdf"
+      : ["mp4", "mov", "m4v"].includes(extension || "")
+        ? `video/${extension === "mov" ? "quicktime" : "mp4"}`
+        : `image/${extension === "jpg" ? "jpeg" : extension || "jpeg"}`;
 
     formData.append("file", {
       uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
@@ -221,6 +227,7 @@ export async function uploadPostMedia(imageUri: string): Promise<UploadResult> {
     return {
       url: data.url || data.mediaUrl || data.fileUrl,
       uploaded: true,
+      mediaType: data.mediaType,
     };
   } catch (error: any) {
     console.error("Post media upload error:", error);

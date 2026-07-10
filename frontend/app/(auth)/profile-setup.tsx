@@ -7,9 +7,10 @@ import { Image } from "expo-image";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
-import { api } from "@/src/lib/api";
+import { api, getUserErrorMessage } from "@/src/lib/api";
 import { useRole } from "@/src/context/RoleProvider";
 import { showImagePicker, uploadAvatar } from "@/src/lib/imageUpload";
+import { validateBio, validateCity, validateName, validateRequired } from "@/src/utils/validation";
 
 export default function ProfileSetup() {
   const { colors } = useTheme();
@@ -18,10 +19,11 @@ export default function ProfileSetup() {
   const [name, setName] = useState(user?.name || "");
   const [institution, setInstitution] = useState(user?.course || "");
   const [city, setCity] = useState(user?.city || "");
-  const [bio, setBio] = useState("");
+  const [bio, setBio] = useState(user?.bio || "");
   const [saving, setSaving] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [errors, setErrors] = useState({ name: "", institution: "", city: "", bio: "" });
 
   const handleAvatarPick = async () => {
     const uri = await showImagePicker({ aspect: [1, 1], quality: 0.8 });
@@ -30,6 +32,16 @@ export default function ProfileSetup() {
 
   const finish = async (skip = false) => {
     if (saving) return;
+    if (!skip) {
+      const nextErrors = {
+        name: validateName(name).error || "",
+        institution: validateRequired(institution, "Institution", 150).error || "",
+        city: validateCity(city).error || "",
+        bio: validateBio(bio).error || "",
+      };
+      setErrors(nextErrors);
+      if (Object.values(nextErrors).some(Boolean)) return;
+    }
     setSaving(true);
     try {
       let avatarUrl = null;
@@ -57,7 +69,7 @@ export default function ProfileSetup() {
       await completeSetup(avatarUrl, skip);
     } catch (error) {
       console.error("Profile setup failed:", error);
-      Alert.alert("Error", "Failed to save profile. Please try again.");
+      Alert.alert("Could not save profile", getUserErrorMessage(error, "Please check your connection and try again."));
       setSaving(false);
     }
   };
@@ -119,10 +131,10 @@ export default function ProfileSetup() {
             </View>
           </TouchableOpacity>
 
-          <Field label="Display name" value={name} onChange={setName} placeholder="Your full name" />
-          <Field label="Institution" value={institution} onChange={setInstitution} placeholder="Your institution" icon="school-outline" />
-          <Field label="City" value={city} onChange={setCity} placeholder="Your city" icon="location-outline" />
-          <Field label="Bio" value={bio} onChange={setBio} placeholder="A short bio: batch, interests, clubs" multiline />
+          <Field label="Display name" value={name} onChange={(value) => { setName(value); setErrors((current) => ({ ...current, name: "" })); }} placeholder="Your full name" error={errors.name} maxLength={100} />
+          <Field label="Institution" value={institution} onChange={(value) => { setInstitution(value); setErrors((current) => ({ ...current, institution: "" })); }} placeholder="Your institution" icon="school-outline" error={errors.institution} maxLength={150} />
+          <Field label="City" value={city} onChange={(value) => { setCity(value); setErrors((current) => ({ ...current, city: "" })); }} placeholder="Your city" icon="location-outline" error={errors.city} maxLength={100} />
+          <Field label="Bio" value={bio} onChange={(value) => { setBio(value); setErrors((current) => ({ ...current, bio: "" })); }} placeholder="A short bio: batch, interests, clubs" multiline error={errors.bio} maxLength={300} />
 
           <View style={{ marginTop: spacing["2xl"] }}>
             <Button
@@ -130,6 +142,7 @@ export default function ProfileSetup() {
               fullWidth
               size="lg"
               disabled={saving || !name.trim() || !city.trim()}
+              loading={saving}
               onPress={() => finish(false)}
               testID="finish-setup-btn"
             />
@@ -147,10 +160,10 @@ export default function ProfileSetup() {
 }
 
 function Field({
-  label, value, onChange, placeholder, icon, multiline,
+  label, value, onChange, placeholder, icon, multiline, error, maxLength,
 }: {
   label: string; value: string; onChange: (v: string) => void; placeholder: string;
-  icon?: keyof typeof Ionicons.glyphMap; multiline?: boolean;
+  icon?: keyof typeof Ionicons.glyphMap; multiline?: boolean; error?: string; maxLength?: number;
 }) {
   const { colors } = useTheme();
   return (
@@ -160,7 +173,7 @@ function Field({
         style={[
           styles.inputRow,
           {
-            borderColor: colors.borderStrong,
+            borderColor: error ? colors.error : colors.borderStrong,
             backgroundColor: colors.surfaceSecondary,
             minHeight: multiline ? 90 : 52,
             alignItems: multiline ? "flex-start" : "center",
@@ -175,6 +188,8 @@ function Field({
           placeholder={placeholder}
           placeholderTextColor={colors.muted}
           multiline={multiline}
+          maxLength={maxLength}
+          accessibilityLabel={label}
           style={{
             flex: 1, color: colors.onSurface, fontSize: font.lg,
             marginLeft: icon ? spacing.sm : 0,
@@ -182,6 +197,7 @@ function Field({
           }}
         />
       </View>
+      {!!error && <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.xs }}>{error}</Text>}
     </View>
   );
 }
