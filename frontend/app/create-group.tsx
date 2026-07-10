@@ -8,6 +8,8 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import { api } from "@/src/lib/api";
+import { showImagePicker, uploadGroupAvatar } from "@/src/lib/imageUpload";
+import { Image } from "expo-image";
 
 const CATS = ["Batch", "Clubs", "Study", "Events", "Sports", "Tech", "Arts", "Career"];
 type Visibility = "public" | "private" | "official";
@@ -19,18 +21,31 @@ export default function CreateGroup() {
   const [desc, setDesc] = useState("");
   const [cat, setCat] = useState("Clubs");
   const [vis, setVis] = useState<Visibility>("public");
+  const [coverUri, setCoverUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const handleCoverPick = async () => {
+    const uri = await showImagePicker({ aspect: [16, 9], quality: 0.8 });
+    if (uri) setCoverUri(uri);
+  };
 
   const handleSubmit = async () => {
     if (!name || !desc || loading) return;
     setLoading(true);
     try {
-      await api.groups.create({
+      const newGroup = await api.groups.create({
         name,
         description: desc,
         category: cat,
         visibility: vis,
       });
+      if (coverUri && newGroup && newGroup.id) {
+        try {
+          await uploadGroupAvatar(newGroup.id, coverUri);
+        } catch (err) {
+          console.error("Failed to upload group cover", err);
+        }
+      }
       router.replace("/(tabs)/groups");
     } catch (e) {
       setLoading(false);
@@ -42,9 +57,15 @@ export default function CreateGroup() {
       <Header title="New group" onBack={() => router.back()} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-          <Pressable style={[styles.imagePicker, { backgroundColor: colors.brandTertiary, borderColor: colors.border }]}>
-            <Ionicons name="camera" size={28} color={colors.onBrandTertiary} />
-            <Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "500", marginTop: 4 }}>Add cover</Text>
+          <Pressable onPress={handleCoverPick} style={[styles.imagePicker, { backgroundColor: colors.brandTertiary, borderColor: colors.border, overflow: "hidden" }]}>
+            {coverUri ? (
+              <Image source={{ uri: coverUri }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+            ) : (
+              <>
+                <Ionicons name="camera" size={28} color={colors.onBrandTertiary} />
+                <Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "500", marginTop: 4 }}>Add cover</Text>
+              </>
+            )}
           </Pressable>
 
           <Field label="Group name" value={name} onChange={setName} placeholder="e.g. CSE Batch of 2026" />

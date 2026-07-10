@@ -1,3 +1,4 @@
+import { supabase } from "./supabase";
 // I18n Stub
 export const i18n = {
   t: (key: string) => key,
@@ -487,44 +488,21 @@ export const api = {
           body: { challengeId, firebaseIdToken, platform: Platform.OS },
         })
       ),
-    verifyOtpDev: async (phone: string, code: string) => {
-      try {
-        return normalizeAuthSession(
-          await request<{
-            accessToken: string;
-            refreshToken: string;
-            userId?: string;
-            isNewUser?: boolean;
-            user?: SessionUser;
-          }>("/auth/otp/verify-dev", {
-            method: "POST",
-            auth: false,
-            body: { phone, code, platform: Platform.OS },
-          })
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "";
-        const missingRoute =
-          message.includes("404") ||
-          message.includes("Not Found") ||
-          message.includes("Cannot POST");
-        if (!missingRoute) throw error;
+    verifyOtpDev: async (phone: string, code: string) =>
+      normalizeAuthSession(
+        await request<{
+          accessToken: string;
+          refreshToken: string;
+          userId?: string;
+          isNewUser?: boolean;
+          user?: SessionUser;
+        }>("/auth/otp/verify-dev", {
+          method: "POST",
+          auth: false,
+          body: { phone, code, platform: Platform.OS },
+        })
+      ),
 
-        return normalizeAuthSession(
-          await request<{
-            accessToken: string;
-            refreshToken: string;
-            userId?: string;
-            isNewUser?: boolean;
-            user?: SessionUser;
-          }>("/auth/otp/verify-code", {
-            method: "POST",
-            auth: false,
-            body: { phone, code, platform: Platform.OS },
-          })
-        );
-      }
-    },
     verifyFirebaseIdToken: async (firebaseIdToken: string) =>
       normalizeAuthSession(
         await request<{
@@ -607,6 +585,10 @@ export const api = {
     analytics: () => request("/institutions/me/analytics"),
     updateMe: (body: unknown) => request("/institutions/me", { method: "PATCH", body }),
     admins: () => request("/institutions/me/admins"),
+    postRequest: (institutionId: string, body: unknown) => request(/institutions//post-requests, { method: "POST", body }),
+    postRequests: (institutionId: string) => request<PostRequestDto[]>(/institutions//post-requests),
+    approvePostRequest: (institutionId: string, requestId: string, targetGroupId: string) => request(/institutions//post-requests//approve, { method: "POST", body: { target_group_id: targetGroupId } }),
+    rejectPostRequest: (institutionId: string, requestId: string, reason?: string) => request(/institutions//post-requests//reject, { method: "POST", body: { reason } }),
   },
   notifications: {
     list: () => request<NotificationDto[]>("/notifications"),
@@ -736,7 +718,12 @@ import { useEffect } from "react";
 export function useRealtimeMessages(groupId: string, onNewMessage: (msg: any) => void) {
   useEffect(() => {
     if (!groupId) return;
-    // const channel = supabase.channel(`messages:${groupId}`).on('postgres_changes', ...).subscribe();
+    const channel = supabase.channel(public:messages:)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: group_id=eq. }, payload => onNewMessage(payload.new))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [groupId, onNewMessage]);
+}`).on('postgres_changes', ...).subscribe();
     // return () => supabase.removeChannel(channel);
   }, [groupId, onNewMessage]);
 }
@@ -744,14 +731,22 @@ export function useRealtimeMessages(groupId: string, onNewMessage: (msg: any) =>
 export function useRealtimeNotifications(userId: string, onNewNotification: (notif: any) => void) {
   useEffect(() => {
     if (!userId) return;
-    // const channel = supabase.channel(`notifications:${userId}`).on('postgres_changes', ...).subscribe();
+    const channel = supabase.channel(public:notifications:)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: user_id=eq. }, payload => onNewNotification(payload.new))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, onNewNotification]);
+}`).on('postgres_changes', ...).subscribe();
     // return () => supabase.removeChannel(channel);
   }, [userId, onNewNotification]);
 }
 
 export function useRealtimeFeed(onNewPost: (post: any) => void) {
   useEffect(() => {
-    // const channel = supabase.channel('public:posts').on('postgres_changes', ...).subscribe();
-    // return () => supabase.removeChannel(channel);
+    const channel = supabase.channel('public:posts')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, payload => onNewPost(payload.new))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [onNewPost]);
+}, [onNewPost]);
 }
