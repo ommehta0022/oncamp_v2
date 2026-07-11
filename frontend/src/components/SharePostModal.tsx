@@ -11,7 +11,7 @@ export function SharePostModal({ visible, onClose, institutionId }: { visible: b
       await api.institutions.postRequest(institutionId, { title, description });
       alert("Request sent successfully!");
       onClose();
-    } catch (e) {
+    } catch {
       alert("Error sending request");
     }
   };

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform, Animated } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform, Animated, Alert, Share } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,7 +15,7 @@ import OptionsMenu from "@/src/components/OptionsMenu";
 import ReportModal from "@/src/components/ReportModal";
 import SkeletonLoader from "@/src/components/SkeletonLoader";
 import { useRole } from "@/src/context/RoleProvider";
-import { Alert } from "react-native";
+
 import { typography } from "@/src/theme/typography";
 import { LinearGradient } from "expo-linear-gradient";
 import ReactionMenu, { REACTION_EMOJIS } from "@/src/components/ReactionMenu";
@@ -159,7 +159,6 @@ export default function PostDetail() {
       const contentPreview = post.content.length > 50 ? post.content.substring(0, 50) + "..." : post.content;
       const url = `https://oncampus.app/post/${post.id}`;
       
-      const { Share } = require('react-native');
       await Share.share({
         message: `${post.author?.name || "Someone"} on ONCAMPUS: "${contentPreview}"\n\n${url}`,
         url: url,

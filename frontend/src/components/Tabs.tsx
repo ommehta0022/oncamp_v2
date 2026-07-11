@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Animated, LayoutChangeEvent } from "react-native";
+import React from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
 import { font, spacing } from "../theme/colors";
 

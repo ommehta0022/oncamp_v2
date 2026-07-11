@@ -1,12 +1,12 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, ActivityIndicator, Alert, StyleSheet } from "react-native";
+import { View, Text, ScrollView, TextInput, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { font, radius, spacing } from "@/src/theme/colors";
+import { radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import { api } from "@/src/lib/api";
 import { useRole } from "@/src/context/RoleProvider";

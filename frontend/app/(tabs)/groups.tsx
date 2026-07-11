@@ -8,8 +8,8 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
-type Group = any;
 import { useRole } from "@/src/context/RoleProvider";
+type Group = any;
 
 const FILTERS = ["All", "Unread", "Announcements", "Muted"];
 
@@ -27,25 +27,25 @@ export default function Groups() {
   const [refreshing, setRefreshing] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
 
-  const fetchGroups = async () => {
+  const fetchGroups = useCallback(async () => {
     try {
       const cached = await cache.get("my_groups");
       if (cached) setGroups(cached as any);
       const response = await api.groups.listMine();
       setGroups((response as any).groups || response || []);
       await cache.set("my_groups", (response as any).groups || response || []);
-    } catch (e) {}
-  };
+    } catch {}
+  }, []);
 
   useEffect(() => {
     fetchGroups();
-  }, []);
+  }, [fetchGroups]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchGroups();
     setRefreshing(false);
-  }, []);
+  }, [fetchGroups]);
 
   const filtered = useMemo(() => {
     let list = groups;
@@ -54,7 +54,7 @@ export default function Groups() {
     else if (filter === "Muted") list = list.filter((g) => g.muted);
     if (query) list = list.filter((g) => g.name.toLowerCase().includes(query.toLowerCase()) || g.institution.toLowerCase().includes(query.toLowerCase()));
     return list;
-  }, [filter, query]);
+  }, [filter, groups, query]);
 
   const pinned = filtered.filter((g) => g.pinned);
   const others = filtered.filter((g) => !g.pinned);

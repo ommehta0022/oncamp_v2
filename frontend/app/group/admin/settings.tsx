@@ -29,13 +29,13 @@ export default function GroupSettings() {
       setName(g.name || "");
       setDescription(g.description || "");
       setVisibility(g.visibility || "public");
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Could not load group settings");
       router.back();
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, router]);
 
   useEffect(() => {
     load();
@@ -48,7 +48,7 @@ export default function GroupSettings() {
       await api.groups.update(id, { name: name.trim(), description: description.trim(), visibility });
       Alert.alert("Success", "Group updated successfully");
       router.back();
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Failed to update group");
     } finally {
       setSaving(false);

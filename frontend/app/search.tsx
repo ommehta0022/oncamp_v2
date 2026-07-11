@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, TextInput, FlatList, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -28,7 +27,7 @@ export default function Search() {
         const groups = (res.groups || []).map((g: any) => ({ ...g, isUser: false }));
         const users = (res.users || []).map((u: any) => ({ ...u, isUser: true }));
         setResults([...groups, ...users]);
-      } catch (e) {}
+      } catch {}
     }, 300);
     return () => clearTimeout(delay);
   }, [query]);

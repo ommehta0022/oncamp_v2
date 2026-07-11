@@ -1,7 +1,6 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { spacing, lightColors as colors } from "@/src/theme/colors";
-import Button from "@/src/components/Button";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { useTheme } from "@/src/theme/ThemeProvider";
 
 interface Props {
   children: React.ReactNode;
@@ -12,13 +11,13 @@ interface State {
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<Props, State> {
-  constructor(props: Props) {
+export class ErrorBoundaryClass extends React.Component<Props & { colors: any; isDark: boolean }, State> {
+  constructor(props: Props & { colors: any; isDark: boolean }) {
     super(props);
     this.state = { hasError: false, error: null };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
   }
 
@@ -28,15 +27,19 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const { colors } = this.props;
       return (
-        <View style={styles.container}>
-          <Text style={styles.title}>Oops, something went wrong</Text>
-          <Text style={styles.subtitle}>We're sorry for the inconvenience.</Text>
-          <Button 
-            label="Try Again" 
-            onPress={() => this.setState({ hasError: false, error: null })} 
-            style={{ marginTop: spacing.xl }}
-          />
+        <View style={[styles.container, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.title, { color: colors.onSurface }]}>Something went wrong</Text>
+          <Text style={[styles.message, { color: colors.muted }]}>
+            {this.state.error?.message || "An unexpected error occurred."}
+          </Text>
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: colors.brandPrimary }]}
+            onPress={() => this.setState({ hasError: false, error: null })}
+          >
+            <Text style={[styles.buttonText, { color: colors.onBrandPrimary }]}>Try Again</Text>
+          </TouchableOpacity>
         </View>
       );
     }
@@ -45,23 +48,35 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 }
 
+export function ErrorBoundary({ children }: Props) {
+  const { colors, isDark } = useTheme();
+  return <ErrorBoundaryClass colors={colors} isDark={isDark}>{children}</ErrorBoundaryClass>;
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
-    padding: spacing.xl,
-    backgroundColor: "#F9FAFB",
+    justifyContent: "center",
+    padding: 24,
   },
   title: {
     fontSize: 20,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: spacing.sm,
+    fontWeight: "bold",
+    marginBottom: 8,
   },
-  subtitle: {
-    fontSize: 16,
-    color: "#6B7280",
+  message: {
+    fontSize: 15,
     textAlign: "center",
+    marginBottom: 24,
+  },
+  button: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

@@ -27,7 +27,7 @@ export default function Discover() {
         const res = await api.groups.discover("");
         setDiscoverCards((res as any).groups || res || []);
         await cache.set("discover_groups", (res as any).groups || res || []);
-      } catch (e) {}
+      } catch {}
     };
     fetchDiscover();
   }, []);
@@ -47,7 +47,7 @@ export default function Discover() {
       );
     }
     return list;
-  }, [category, query]);
+  }, [category, discoverCards, query]);
 
   const sectionLabel = category === "Trending" ? "TRENDING IN MUMBAI" : category.toUpperCase();
 

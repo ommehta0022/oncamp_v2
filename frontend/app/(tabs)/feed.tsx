@@ -51,7 +51,7 @@ export default function Feed() {
 
   useEffect(() => {
     void loadPosts();
-  }, []);
+  }, [loadPosts]);
 
   const onRefresh = () => void loadPosts(true);
 

@@ -47,7 +47,7 @@ export default function CreateGroup() {
         }
       }
       router.replace("/(tabs)/groups");
-    } catch (e) {
+    } catch {
       setLoading(false);
     }
   };

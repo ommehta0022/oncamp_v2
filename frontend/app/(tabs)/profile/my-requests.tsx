@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, StyleSheet } from "react-native";
-import { api } from "../../../../lib/api";
+import { api } from "@/src/lib/api";
 
 export default function MyRequestsScreen() {
   const [requests, setRequests] = useState<any[]>([]);
@@ -37,5 +37,6 @@ export default function MyRequestsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: "#fff" },
   header: { fontSize: 24, fontWeight: "bold", marginBottom: 16 },
-  card: { padding: 16, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, marginBottom: 12 }
+  card: { padding: 16, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, marginBottom: 12 },
+  title: { fontSize: 16, fontWeight: "600", marginBottom: 4 }
 });

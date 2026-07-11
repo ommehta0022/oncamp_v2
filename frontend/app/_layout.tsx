@@ -15,6 +15,8 @@ import { PushNotificationProvider } from "@/src/context/PushNotificationProvider
 import { ToastProvider } from "@/src/components/Toast";
 import { api } from "@/src/lib/api";
 
+import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
+
 LogBox.ignoreAllLogs(true);
 
 SplashScreen.preventAutoHideAsync();
@@ -104,6 +106,7 @@ export default function RootLayout() {
                 <PushNotificationProvider>
                   <ToastProvider>
                     <ThemedStack />
+                    <SessionExpiredModal />
                   </ToastProvider>
                 </PushNotificationProvider>
               </NotificationProvider>

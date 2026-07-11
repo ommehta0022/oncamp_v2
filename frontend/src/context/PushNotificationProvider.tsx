@@ -1,68 +1,81 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
-import { Platform } from 'react-native';
-import { api } from '@/src/lib/api';
-import { useRole } from '@/src/context/RoleProvider';
+import React, { createContext, useContext, useEffect, useRef } from "react";
+import * as Device from "expo-device";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+import { api } from "@/src/lib/api";
+import { useRole } from "./RoleProvider";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true, shouldShowBanner: true, shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
-
-type PushNotificationContextValue = {
-  expoPushToken: string | null;
-  notification: Notifications.Notification | null;
-};
+type PushNotificationContextValue = Record<string, never>;
+type NotificationSubscription = { remove: () => void };
+type NotificationsModule = typeof import("expo-notifications");
 
 const PushNotificationContext = createContext<PushNotificationContextValue | null>(null);
+const isAndroidExpoGo = Platform.OS === "android" && Constants.appOwnership === "expo";
 
 export function PushNotificationProvider({ children }: { children: React.ReactNode }) {
-  const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
-  const [notification, setNotification] = useState<Notifications.Notification | null>(null);
-  const notificationListener = useRef<Notifications.Subscription | null>(null);
-  const responseListener = useRef<Notifications.Subscription | null>(null);
   const { user } = useRole();
+  const notificationListener = useRef<NotificationSubscription | null>(null);
+  const responseListener = useRef<NotificationSubscription | null>(null);
 
   useEffect(() => {
-    if (!user) return; // Only register if user is logged in
+    if (!user) return;
 
-    registerForPushNotificationsAsync().then(token => {
-      if (token) {
-        setExpoPushToken(token);
-        // Send token to backend
-        api.notifications.registerDevice(token).catch(e => {
-          console.warn('Failed to register push token with backend:', e);
+    if (isAndroidExpoGo) {
+      console.warn("Push notifications require a development build on Android; skipping registration in Expo Go.");
+      return;
+    }
+
+    let cancelled = false;
+
+    const setupNotifications = async () => {
+      try {
+        const Notifications = await import("expo-notifications");
+        if (cancelled) return;
+
+        Notifications.setNotificationHandler({
+          handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldShowBanner: true,
+            shouldShowList: true,
+            shouldPlaySound: true,
+            shouldSetBadge: true,
+          }),
         });
+
+        const token = await registerForPushNotificationsAsync(Notifications);
+        if (cancelled) return;
+
+        if (token) {
+          api.notifications.registerDevice(token, Platform.OS).catch(e => {
+            console.warn("Failed to register device token with backend", e);
+          });
+        }
+
+        notificationListener.current = Notifications.addNotificationReceivedListener(() => {
+          // Could trigger a UI refresh here
+        });
+
+        responseListener.current = Notifications.addNotificationResponseReceivedListener(() => {
+          // Handle deep linking based on notification data
+        });
+      } catch (e) {
+        console.warn("Failed to initialize push notifications", e);
       }
-    });
+    };
 
-    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-      setNotification(notification);
-    });
-
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
-      // Handle deep linking based on notification data
-      console.log('Notification response:', response.notification.request.content.data);
-      const data = response.notification.request.content.data;
-      // Depending on data, e.g. navigate using expo-router router.push(data.url)
-    });
+    void setupNotifications();
 
     return () => {
-      if (notificationListener.current) {
-        notificationListener.current.remove();
-      }
-      if (responseListener.current) {
-        responseListener.current.remove();
-      }
+      cancelled = true;
+      notificationListener.current?.remove();
+      responseListener.current?.remove();
+      notificationListener.current = null;
+      responseListener.current = null;
     };
   }, [user]);
 
   return (
-    <PushNotificationContext.Provider value={{ expoPushToken, notification }}>
+    <PushNotificationContext.Provider value={{}}>
       {children}
     </PushNotificationContext.Provider>
   );
@@ -74,52 +87,38 @@ export function usePushNotifications() {
   return ctx;
 }
 
-async function registerForPushNotificationsAsync() {
+async function registerForPushNotificationsAsync(Notifications: NotificationsModule) {
   let token;
-
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'default',
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("default", {
+      name: "default",
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#FF231F7C',
+      lightColor: "#FF231F7C",
     });
   }
 
   if (Device.isDevice) {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
-    if (existingStatus !== 'granted') {
+    if (existingStatus !== "granted") {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
-    if (finalStatus !== 'granted') {
-      console.log('Failed to get push token for push notification!');
+    if (finalStatus !== "granted") {
       return null;
     }
-
     try {
-      const Constants = require('expo-constants').default;
-      const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
-      
-      if (isExpoGo) {
-        console.log('Push notifications are not supported in Expo Go. Skipping token registration.');
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      if (!projectId) {
+        console.warn("Missing eas.projectId in app config; skipping push token registration.");
         return null;
       }
 
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-      if (!projectId) {
-         console.log('Missing eas.projectId in app.json. Skipping push token registration.');
-         return null;
-      }
-
       token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-      console.log('Push token:', token);
     } catch (e) {
-      console.warn("Could not get push token:", e);
+      console.warn("Error getting expo push token", e);
     }
-  } else {
-    console.log('Must use physical device for Push Notifications');
   }
 
   return token;

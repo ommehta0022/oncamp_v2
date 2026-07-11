@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, View, Text, StyleSheet, Pressable, TouchableWithoutFeedback, Animated } from "react-native";
+import { Modal, View, Text, StyleSheet, Pressable, TouchableWithoutFeedback } from "react-native";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing } from "@/src/theme/colors";
 
@@ -38,7 +38,7 @@ export default function ReactionMenu({ visible, onClose, onSelect }: Props) {
         <View style={styles.overlay}>
           <TouchableWithoutFeedback>
             <View style={[styles.menu, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1 }]}>
-              {REACTIONS.map((r, i) => (
+              {REACTIONS.map((r) => (
                 <Pressable
                   key={r.type}
                   style={({ pressed }) => [styles.reactionItem, { opacity: pressed ? 0.7 : 1 }]}

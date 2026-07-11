@@ -61,6 +61,7 @@ export default function DashboardLayout({
     unread: 0,
     recent: [],
   });
+  const [selectedNotification, setSelectedNotification] = useState<any>(null);
 
   // Wait for auth store to rehydrate before checking authentication
   useEffect(() => {
@@ -149,15 +150,16 @@ export default function DashboardLayout({
     }
   };
 
-  const handleMarkRead = async (id: string, currentReadAt: any) => {
-    if (currentReadAt) return; // Already read
+  const handleMarkRead = async (item: any) => {
+    setSelectedNotification(item);
+    if (item.readAt) return; // Already read
     try {
-      await api.markNotificationRead(id);
+      await api.markNotificationRead(item.id);
       setNotificationStats((prev: any) => {
         return {
           ...prev,
           unread: Math.max(0, prev.unread - 1),
-          recent: prev.recent.map((n: any) => n.id === id ? { ...n, readAt: new Date().toISOString() } : n)
+          recent: prev.recent.map((n: any) => n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n)
         };
       });
     } catch (e) {
@@ -352,7 +354,7 @@ export default function DashboardLayout({
                       notificationStats.recent.map((item: any) => (
                         <div 
                           key={item.id} 
-                          onClick={() => handleMarkRead(item.id, item.readAt)}
+                          onClick={() => handleMarkRead(item)}
                           className={`border-b border-gray-100 px-4 py-3 last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${!item.readAt ? 'bg-blue-50/50' : ''}`}
                         >
                           <div className="flex justify-between items-start">
@@ -380,6 +382,29 @@ export default function DashboardLayout({
         {/* Page content */}
         <main className="p-4 lg:p-6">{children}</main>
       </div>
+
+      {/* Notification Modal */}
+      {selectedNotification && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900 pr-4">{selectedNotification.title}</h3>
+              <button 
+                onClick={() => setSelectedNotification(null)}
+                className="text-gray-400 hover:text-gray-600 focus:outline-none"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto whitespace-pre-wrap text-sm text-gray-700 leading-relaxed">
+              {selectedNotification.body}
+            </div>
+            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 text-xs text-gray-500 text-right">
+              {selectedNotification.createdAt ? new Date(selectedNotification.createdAt).toLocaleString() : "Just now"}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -32,7 +32,7 @@ export default function ReportModal({ visible, onClose, onSubmit, title = "Repor
       await onSubmit(selectedReason, details);
       Alert.alert("Submitted", "Thank you for your report. Our moderation team will review it shortly.");
       handleClose();
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Could not submit report. Please try again.");
     } finally {
       setSubmitting(false);

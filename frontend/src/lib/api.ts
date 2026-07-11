@@ -1,15 +1,18 @@
 import { supabase } from "./supabase";
+
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
+import * as SecureStore from "expo-secure-store";
+import { DeviceEventEmitter, Platform } from "react-native";
+
+// Real-time hook stubs
+import { useEffect } from "react";
 // I18n Stub
 export const i18n = {
   t: (key: string) => key,
   locale: "en",
   setLocale: (l: string) => { i18n.locale = l; },
 };
-
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import Constants from "expo-constants";
-import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
 
 const ACCESS_TOKEN_KEY = "oncampus.access_token";
 const REFRESH_TOKEN_KEY = "oncampus.refresh_token";
@@ -191,12 +194,17 @@ export async function saveSession(accessToken: string, refreshToken: string) {
   ]);
 }
 
-export async function clearSession() {
+export async function clearSession(forceShowModal = true) {
   await Promise.all([
     deleteSecureItem(ACCESS_TOKEN_KEY),
     deleteSecureItem(REFRESH_TOKEN_KEY),
     AsyncStorage.removeItem("oncampus.authed"),
   ]);
+  if (forceShowModal && Platform.OS !== "web") {
+    DeviceEventEmitter.emit("onSessionExpired");
+  } else if (forceShowModal && Platform.OS === "web") {
+    window.dispatchEvent(new Event("onSessionExpired"));
+  }
 }
 
 export async function getAccessToken() {
@@ -539,6 +547,7 @@ export const api = {
     unblock: (userId: string) => request(`/users/${userId}/block`, { method: "DELETE" }),
     search: (query: string) => request<SessionUser[]>(`/users/search?q=${encodeURIComponent(query)}`),
     posts: (userId: string) => request<FeedPostDto[]>(`/users/${userId}/posts`),
+    myPostRequests: () => request<PostRequestDto[]>("/users/me/post-requests"),
   },
   feed: {
     list: (page = 1, limit = 20) => request<{ feed?: FeedPostDto[]; posts?: FeedPostDto[]; hasMore?: boolean; total?: number }>(`/feed?page=${page}&limit=${limit}`),
@@ -585,10 +594,10 @@ export const api = {
     analytics: () => request("/institutions/me/analytics"),
     updateMe: (body: unknown) => request("/institutions/me", { method: "PATCH", body }),
     admins: () => request("/institutions/me/admins"),
-    postRequest: (institutionId: string, body: unknown) => request(/institutions//post-requests, { method: "POST", body }),
-    postRequests: (institutionId: string) => request<PostRequestDto[]>(/institutions//post-requests),
-    approvePostRequest: (institutionId: string, requestId: string, targetGroupId: string) => request(/institutions//post-requests//approve, { method: "POST", body: { target_group_id: targetGroupId } }),
-    rejectPostRequest: (institutionId: string, requestId: string, reason?: string) => request(/institutions//post-requests//reject, { method: "POST", body: { reason } }),
+    postRequest: (institutionId: string, body: unknown) => request(`/institutions/${institutionId}/post-requests`, { method: "POST", body }),
+    postRequests: (institutionId: string) => request<PostRequestDto[]>(`/institutions/${institutionId}/post-requests`),
+    approvePostRequest: (institutionId: string, requestId: string, targetGroupId: string) => request(`/institutions/${institutionId}/post-requests/${requestId}/approve`, { method: "POST", body: { target_group_id: targetGroupId } }),
+    rejectPostRequest: (institutionId: string, requestId: string, reason?: string) => request(`/institutions/${institutionId}/post-requests/${requestId}/reject`, { method: "POST", body: { reason } }),
   },
   notifications: {
     list: () => request<NotificationDto[]>("/notifications"),
@@ -599,6 +608,13 @@ export const api = {
     unreadCount: () => request<{ unread: number }>("/notifications/unread"),
     delete: (notificationId: string) => request(`/notifications/${notificationId}`, { method: "DELETE" }),
     updatePreferences: (body: unknown) => request("/notifications/preferences", { method: "PATCH", body }),
+  },
+  admin: {
+    dashboard: () => request("/admin/dashboard"),
+    clearCache: () => request("/admin/cache/clear", { method: "POST" }),
+    resolveReport: (reportId: string, action: string) => request(`/admin/reports/${reportId}/resolve`, { method: "POST", body: { action } }),
+    banUser: (userId: string, reason: string) => request(`/admin/users/${userId}/ban`, { method: "POST", body: { reason } }),
+    unbanUser: (userId: string) => request(`/admin/users/${userId}/unban`, { method: "POST" }),
   },
   posts: {
     get: (postId: string) => request<FeedPostDto>(`/posts/${postId}`),
@@ -712,41 +728,31 @@ export const api = {
   },
 };
 
-// Real-time hook stubs
-import { useEffect } from "react";
-
 export function useRealtimeMessages(groupId: string, onNewMessage: (msg: any) => void) {
   useEffect(() => {
     if (!groupId) return;
-    const channel = supabase.channel(public:messages:)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: group_id=eq. }, payload => onNewMessage(payload.new))
+    const channel = supabase.channel(`public:messages:${groupId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `group_id=eq.${groupId}` }, (payload: any) => onNewMessage(payload.new))
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [groupId, onNewMessage]);
-}`).on('postgres_changes', ...).subscribe();
-    // return () => supabase.removeChannel(channel);
   }, [groupId, onNewMessage]);
 }
 
 export function useRealtimeNotifications(userId: string, onNewNotification: (notif: any) => void) {
   useEffect(() => {
     if (!userId) return;
-    const channel = supabase.channel(public:notifications:)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: user_id=eq. }, payload => onNewNotification(payload.new))
+    const channel = supabase.channel(`public:notifications:${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` }, (payload: any) => onNewNotification(payload.new))
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [userId, onNewNotification]);
-}`).on('postgres_changes', ...).subscribe();
-    // return () => supabase.removeChannel(channel);
   }, [userId, onNewNotification]);
 }
 
 export function useRealtimeFeed(onNewPost: (post: any) => void) {
   useEffect(() => {
     const channel = supabase.channel('public:posts')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, payload => onNewPost(payload.new))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload: any) => onNewPost(payload.new))
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [onNewPost]);
-}, [onNewPost]);
 }

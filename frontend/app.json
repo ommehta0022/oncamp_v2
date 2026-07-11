@@ -50,7 +50,7 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": false
     },
     "extra": {
       "apiBaseUrl": "https://perpetual-motivation-production-be1a.up.railway.app/v1"

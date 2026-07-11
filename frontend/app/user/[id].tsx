@@ -86,7 +86,7 @@ export default function UserProfile() {
         title: user.name,
         message: `Check out ${user.name}'s profile on OnCampus! https://oncampus.app/user/${user.id}`,
       });
-    } catch (error) {}
+    } catch {}
   };
 
   if (loading) {

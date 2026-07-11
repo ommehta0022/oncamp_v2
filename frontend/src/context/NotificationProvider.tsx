@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api } from "@/src/lib/api";
+import { useRole } from "./RoleProvider";
 
 type NotificationContextValue = {
   unreadCount: number;
@@ -9,33 +10,51 @@ type NotificationContextValue = {
 
 const NotificationContext = createContext<NotificationContextValue | null>(null);
 
+function isExpectedAuthError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return (
+    message.includes("Authentication required") ||
+    message.includes("Account not found") ||
+    message.includes("account may have been deleted") ||
+    message.includes("Not Found")
+  );
+}
+
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useRole();
   const [unreadCount, setUnreadCount] = useState(0);
 
   const refreshUnreadCount = useCallback(async () => {
+    if (!user) return;
     try {
-      const res = await api.notifications.unreadCount();
-      setUnreadCount(res.unread || 0);
+      const data = await api.notifications.unreadCount();
+      setUnreadCount(data.unread || 0);
     } catch (e) {
-      console.warn("Failed to fetch unread count:", e);
+      setUnreadCount(0);
+      if (!isExpectedAuthError(e)) {
+        console.warn("Failed to fetch unread count", e);
+      }
     }
-  }, []);
+  }, [user]);
 
   const markAllRead = useCallback(async () => {
     try {
       await api.notifications.markAllRead();
       setUnreadCount(0);
     } catch (e) {
-      console.warn("Failed to mark all read:", e);
+      if (!isExpectedAuthError(e)) {
+        console.warn("Failed to mark all read", e);
+      }
     }
   }, []);
 
   useEffect(() => {
-    refreshUnreadCount();
-    // Optional: Set up polling or realtime subscription here
-    const interval = setInterval(refreshUnreadCount, 60000); // Poll every minute
-    return () => clearInterval(interval);
-  }, [refreshUnreadCount]);
+    if (user) {
+      refreshUnreadCount();
+      const interval = setInterval(refreshUnreadCount, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [user, refreshUnreadCount]);
 
   return (
     <NotificationContext.Provider value={{ unreadCount, refreshUnreadCount, markAllRead }}>

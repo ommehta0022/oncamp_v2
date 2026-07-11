@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, Pressable, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,7 +10,7 @@ import Avatar from "@/src/components/Avatar";
 import Header from "@/src/components/Header";
 import EmptyState from "@/src/components/EmptyState";
 import OptionsMenu from "@/src/components/OptionsMenu";
-import { api, GroupDto, SessionUser } from "@/src/lib/api";
+import { api, GroupDto } from "@/src/lib/api";
 import { useRole } from "@/src/context/RoleProvider";
 import { useToast } from "@/src/components/Toast";
 
@@ -28,16 +28,15 @@ export default function Members() {
   const [activeMenuMember, setActiveMenuMember] = useState<any | null>(null);
   const [roleMenuMember, setRoleMenuMember] = useState<any | null>(null);
 
-  useEffect(() => {
-    if (!id) return;
-    load();
-  }, [id]);
-
-  const load = () => {
+  const load = useCallback(() => {
     if (!id) return;
     api.groups.get(id).then(setGroup).catch(() => setGroup(null));
     api.groups.members(id).then((rows: any) => Array.isArray(rows) && setMembers(rows)).catch(() => setMembers([]));
-  };
+  }, [id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const list = useMemo(
     () => members.filter((row) => (row.user?.name || "").toLowerCase().includes(query.toLowerCase())),

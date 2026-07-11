@@ -295,6 +295,11 @@ export const scalePress = (value: Animated.Value) =>
 - Skeleton shimmer
 - Badge count update pulse
 
+**COMMAND 53 (NEW API FINDINGS)**: Build UI for discovered API gaps:
+- `users.myPostRequests`: Create a "My Post Requests" tab in the Profile screen to show pending posts the user submitted to restricted groups.
+- `Admin Endpoints`: Create a hidden `admin-panel` deep link screen (only accessible to `platform_admin`) that interfaces with the Super Admin routes (bans, reports, system status) from `admin_routes_simple.py`.
+- `Token Refresh`: Build an explicit UI flow for "Session Expired" when the auto-refresh fails.
+
 ---
 
 ## VERIFICATION CHECKLIST (Phase 2)

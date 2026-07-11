@@ -1,9 +1,7 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { spacing, font, radius } from "@/src/theme/colors";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import Button from "@/src/components/Button";
+import { Ionicons } from "@expo/vector-icons";
 
 interface NetworkErrorProps {
   onRetry: () => void;
@@ -15,17 +13,15 @@ export function NetworkError({ onRetry, message = "Could not connect to the serv
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]}>
-      <View style={[styles.iconWrap, { backgroundColor: colors.surfaceSecondary }]}>
-        <Ionicons name="cloud-offline-outline" size={48} color={colors.onSurfaceTertiary} />
-      </View>
+      <Ionicons name="cloud-offline-outline" size={64} color={colors.muted} style={styles.icon} />
       <Text style={[styles.title, { color: colors.onSurface }]}>Connection Error</Text>
-      <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>{message}</Text>
-      <Button 
-        label="Try Again" 
-        onPress={onRetry} 
-        style={{ marginTop: spacing.xl, paddingHorizontal: spacing.xl }}
-        variant="outline"
-      />
+      <Text style={[styles.message, { color: colors.muted }]}>{message}</Text>
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.brandPrimary }]}
+        onPress={onRetry}
+      >
+        <Text style={[styles.buttonText, { color: colors.onBrandPrimary }]}>Try Again</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -33,25 +29,30 @@ export function NetworkError({ onRetry, message = "Could not connect to the serv
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
-    padding: spacing.xl,
+    justifyContent: "center",
+    padding: 24,
   },
-  iconWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: spacing.lg,
+  icon: {
+    marginBottom: 16,
   },
   title: {
-    fontSize: font.xl,
-    fontWeight: "600",
-    marginBottom: spacing.sm,
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 8,
   },
-  subtitle: {
-    fontSize: font.base,
+  message: {
+    fontSize: 15,
     textAlign: "center",
+    marginBottom: 24,
+  },
+  button: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

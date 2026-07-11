@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, ActivityIndicator, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,7 +18,7 @@ export default function NotificationDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!id) return;
     setLoading(true); setError(null);
     try {
@@ -30,9 +30,9 @@ export default function NotificationDetail() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load this notification.");
     } finally { setLoading(false); }
-  };
+  }, [id]);
 
-  useEffect(() => { void load(); }, [id]);
+  useEffect(() => { void load(); }, [load]);
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
     <Header title="Notification" onBack={() => router.back()} />
