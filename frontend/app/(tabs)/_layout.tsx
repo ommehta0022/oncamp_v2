@@ -4,10 +4,12 @@ import { StyleSheet, Platform } from "react-native";
 import { BlurView } from "expo-blur";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useTabBadges } from "@/src/hooks/useTabBadges";
+import { useRole } from "@/src/context/RoleProvider";
 
 export default function TabsLayout() {
   const { colors, isDark } = useTheme();
   const { groupsUnread, notificationsUnread } = useTabBadges();
+  const { canManageInstitution } = useRole();
 
   return (
     <Tabs
@@ -88,10 +90,20 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: canManageInstitution ? "Dashboard" : "Profile",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "person" : "person-outline"} size={24} color={color} />
+            <Ionicons
+              name={canManageInstitution ? (focused ? "business" : "business-outline") : (focused ? "person" : "person-outline")}
+              size={24}
+              color={color}
+            />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile/my-requests"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

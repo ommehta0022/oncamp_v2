@@ -17,16 +17,20 @@ export default function Discover() {
   const router = useRouter();
   const [category, setCategory] = useState<string>("Trending");
   const [query, setQuery] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [officialOnly, setOfficialOnly] = useState(false);
+  const [publicOnly, setPublicOnly] = useState(false);
   const [discoverCards, setDiscoverCards] = useState<DiscoverCard[]>([]);
 
   useEffect(() => {
     const fetchDiscover = async () => {
       try {
         const cached = await cache.get("discover_groups");
-        if (cached) setDiscoverCards(cached as any);
+        if (cached) setDiscoverCards((cached as any[]).map(normalizeDiscoverCard));
         const res = await api.groups.discover("");
-        setDiscoverCards((res as any).groups || res || []);
-        await cache.set("discover_groups", (res as any).groups || res || []);
+        const groups = ((res as any).groups || res || []).map(normalizeDiscoverCard);
+        setDiscoverCards(groups);
+        await cache.set("discover_groups", groups);
       } catch {}
     };
     fetchDiscover();
@@ -38,24 +42,33 @@ export default function Discover() {
   const filtered = useMemo(() => {
     let list = discoverCards;
     if (category !== "Trending") {
-      list = list.filter((c) => c.category.toLowerCase().includes(category.toLowerCase()));
+      list = list.filter((c) => String(c.category || "").toLowerCase().includes(category.toLowerCase()));
     }
-    if (query) {
+    if (officialOnly) {
+      list = list.filter((c) => c.verified || c.official);
+    }
+    if (publicOnly) {
+      list = list.filter((c) => String(c.visibility || "public").toLowerCase() === "public");
+    }
+    if (query.trim()) {
+      const needle = query.trim().toLowerCase();
       list = list.filter((c) =>
-        c.title.toLowerCase().includes(query.toLowerCase()) ||
-        c.city.toLowerCase().includes(query.toLowerCase())
+        String(c.title || "").toLowerCase().includes(needle) ||
+        String(c.city || "").toLowerCase().includes(needle) ||
+        String(c.category || "").toLowerCase().includes(needle)
       );
     }
     return list;
-  }, [category, discoverCards, query]);
+  }, [category, discoverCards, officialOnly, publicOnly, query]);
 
-  const sectionLabel = category === "Trending" ? "TRENDING IN MUMBAI" : category.toUpperCase();
+  const sectionLabel = category === "Trending" ? "TRENDING" : category.toUpperCase();
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="discover-screen">
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.onSurface }]}>Discover</Text>
         <Pressable
+          onPress={() => setShowFilters((value) => !value)}
           style={[styles.filterBtn, { borderColor: colors.borderStrong, backgroundColor: colors.surface }]}
           testID="discover-filter-btn"
         >
@@ -76,6 +89,16 @@ export default function Discover() {
           />
         </View>
       </View>
+
+      {showFilters && (
+        <View style={[styles.filterPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <FilterToggle label="Official only" active={officialOnly} onPress={() => setOfficialOnly((value) => !value)} />
+          <FilterToggle label="Public groups" active={publicOnly} onPress={() => setPublicOnly((value) => !value)} />
+          <Pressable onPress={() => { setOfficialOnly(false); setPublicOnly(false); setCategory("Trending"); setQuery(""); }} style={styles.clearFilters}>
+            <Text style={{ color: colors.brandPrimary, fontSize: font.sm, fontWeight: "500" }}>Clear filters</Text>
+          </Pressable>
+        </View>
+      )}
 
       <View style={{ height: 56, marginTop: spacing.md }}>
         <ScrollView
@@ -139,13 +162,14 @@ export default function Discover() {
 }
 
 function DiscoverCardTile({ card, width, onPress }: { card: DiscoverCard; width: number; onPress: () => void }) {
+  const image = card.image || card.avatarUrl || card.avatar_url || "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=900&q=80";
   return (
     <Pressable
       onPress={onPress}
       style={[styles.card, { width, height: width * 1.35 }]}
       testID={`discover-card-${card.id}`}
     >
-      <Image source={{ uri: card.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      <Image source={{ uri: image }} style={StyleSheet.absoluteFill} contentFit="cover" />
       <LinearGradient
         colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.4)", "rgba(0,0,0,0.9)"]}
         locations={[0, 0.4, 1]}
@@ -178,6 +202,29 @@ function DiscoverCardTile({ card, width, onPress }: { card: DiscoverCard; width:
   );
 }
 
+function FilterToggle({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable onPress={onPress} style={[styles.filterChip, { backgroundColor: active ? colors.brandPrimary : colors.surfaceTertiary }]}>
+      <Ionicons name={active ? "checkmark-circle" : "ellipse-outline"} size={15} color={active ? colors.onBrandPrimary : colors.onSurfaceTertiary} />
+      <Text style={{ color: active ? colors.onBrandPrimary : colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function normalizeDiscoverCard(group: any) {
+  return {
+    ...group,
+    title: group.title || group.name || "Campus group",
+    image: group.image || group.avatarUrl || group.avatar_url,
+    members: group.members || group.memberCount || group.member_count || 0,
+    city: group.city || (typeof group.institution === "object" ? group.institution?.name : group.institution) || "Campus",
+    category: group.category || "Social",
+    verified: Boolean(group.verified || group.official),
+    visibility: group.visibility || "public",
+  };
+}
+
 const styles = StyleSheet.create({
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
@@ -186,6 +233,19 @@ const styles = StyleSheet.create({
   title: { fontSize: 30, fontWeight: "500", letterSpacing: -0.5 },
   filterBtn: {
     width: 40, height: 40, borderRadius: 20, borderWidth: 1,
+    alignItems: "center", justifyContent: "center",
+  },
+  filterPanel: {
+    flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap",
+    marginHorizontal: spacing.lg, marginTop: spacing.sm, padding: spacing.md,
+    borderRadius: radius.md, borderWidth: 1,
+  },
+  filterChip: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    height: 32, paddingHorizontal: spacing.md, borderRadius: radius.pill,
+  },
+  clearFilters: {
+    height: 32, paddingHorizontal: spacing.md, borderRadius: radius.pill,
     alignItems: "center", justifyContent: "center",
   },
   searchBox: {

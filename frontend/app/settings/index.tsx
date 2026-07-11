@@ -24,7 +24,7 @@ export default function Settings() {
 
   const logout = async () => {
     if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await clearSession();
+    await clearSession(false);
     router.replace("/(auth)/welcome");
   };
 

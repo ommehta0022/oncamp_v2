@@ -11,6 +11,7 @@ import Avatar from "@/src/components/Avatar";
 import { useRole } from "@/src/context/RoleProvider";
 import { api } from "@/src/lib/api";
 import { normalizeGroup } from "@/src/lib/mappers";
+import InstitutionDashboard from "../institution/dashboard";
 
 interface UserStats {
   groups: number;
@@ -26,29 +27,33 @@ export default function Profile() {
   const [myGroups, setMyGroups] = useState<any[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [institutionDashboard, setInstitutionDashboard] = useState<any>(null);
 
   const loadProfileData = useCallback(async () => {
     try {
       setLoading(true);
-      const requests: Promise<any>[] = [
+      const [groupsRes, statsRes] = await Promise.all([
         api.groups.listMine().catch(() => ({ groups: [] })),
         api.users.stats().catch(() => ({ groups: 0, posts: 0, followers: 0, following: 0 })),
-      ];
-      if (canManageInstitution) requests.push(api.institutions.dashboard().catch(() => null));
-      const [groupsRes, statsRes, dashboardRes] = await Promise.all(requests);
+      ]);
       
       setMyGroups(((groupsRes as any).groups || groupsRes || []).map(normalizeGroup).slice(0, 4));
       setStats(statsRes as UserStats);
-      setInstitutionDashboard(dashboardRes || null);
     } finally {
       setLoading(false);
     }
-  }, [canManageInstitution]);
+  }, []);
 
   useEffect(() => {
+    if (canManageInstitution) {
+      setLoading(false);
+      return;
+    }
     void loadProfileData();
-  }, [loadProfileData]);
+  }, [canManageInstitution, loadProfileData]);
+
+  if (canManageInstitution) {
+    return <InstitutionDashboard embedded />;
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="profile-screen">
@@ -178,9 +183,17 @@ export default function Profile() {
           </View>
         )}
 
-        {canManageInstitution && (
-          <InstitutionWorkspace dashboard={institutionDashboard} onPress={(path) => router.push(path as any)} />
-        )}
+        <View style={{ marginTop: spacing.xl }}>
+          <View style={styles.sectionHeader}>
+            <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>Your activity</Text>
+          </View>
+          <View style={[styles.workspace, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <WorkspaceAction icon="clipboard-outline" label="My post requests" onPress={() => router.push("/(tabs)/profile/my-requests" as any)} />
+            <WorkspaceAction icon="bookmark-outline" label="Saved posts" onPress={() => router.push("/saved")} />
+            <WorkspaceAction icon="time-outline" label="Activity log" onPress={() => router.push("/settings/activity")} />
+          </View>
+        </View>
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -204,46 +217,6 @@ function Stat({ label, value }: { label: string; value: string }) {
       <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{label}</Text>
     </View>
   );
-}
-
-function InstitutionWorkspace({ dashboard, onPress }: { dashboard: any; onPress: (path: string) => void }) {
-  const { colors } = useTheme();
-  const institution = dashboard?.institution;
-  const counts = dashboard?.counts || {};
-  return (
-    <View style={{ marginTop: spacing.xl }}>
-      <View style={styles.sectionHeader}>
-        <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>Institution workspace</Text>
-        <Pressable onPress={() => onPress("/institution/dashboard")}><Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>Open</Text></Pressable>
-      </View>
-      <View style={[styles.workspace, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-          <View style={[styles.workspaceIcon, { backgroundColor: colors.brandTertiary }]}><Ionicons name="business" size={20} color={colors.onBrandTertiary} /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "600" }}>{institution?.name || "Institution management"}</Text>
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{institution?.status ? String(institution.status).replace(/_/g, " ") : "Loading institution details"}</Text>
-          </View>
-        </View>
-        <View style={{ flexDirection: "row", marginTop: spacing.md }}>
-          <WorkspaceStat label="Members" value={counts.members} />
-          <WorkspaceStat label="Groups" value={counts.groups} />
-          <WorkspaceStat label="Posts" value={counts.posts} />
-          <WorkspaceStat label="Requests" value={counts.verificationRequests} />
-        </View>
-        <View style={{ marginTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
-          <WorkspaceAction icon="stats-chart-outline" label="Dashboard & analytics" onPress={() => onPress("/institution/dashboard")} />
-          <WorkspaceAction icon="color-palette-outline" label="Branding and profile" onPress={() => onPress("/institution/branding")} />
-          <WorkspaceAction icon="shield-checkmark-outline" label="Verification & admins" onPress={() => onPress("/institution/verification")} />
-          <WorkspaceAction icon="settings-outline" label="Institution settings" onPress={() => onPress("/institution/settings")} />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function WorkspaceStat({ label, value }: { label: string; value: number | undefined }) {
-  const { colors } = useTheme();
-  return <View style={{ flex: 1, alignItems: "center" }}><Text style={{ color: colors.onSurface, fontWeight: "600" }}>{Number(value || 0).toLocaleString()}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 2 }}>{label}</Text></View>;
 }
 
 function WorkspaceAction({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {

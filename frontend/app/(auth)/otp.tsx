@@ -9,10 +9,12 @@ import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import { AccountRole, api, getUserErrorMessage, saveSession } from "@/src/lib/api";
 import { digitsOnly, validateOtp } from "@/src/utils/validation";
+import { useRole } from "@/src/context/RoleProvider";
 
 export default function Otp() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { refreshUser } = useRole();
 
   // Get params - challengeId may come as string or array
   const params = useLocalSearchParams();
@@ -87,9 +89,10 @@ export default function Otp() {
         await AsyncStorage.setItem("oncampus.role", resolveRole(sessionUser.accountType, sessionUser.roles));
       }
       await AsyncStorage.setItem("oncampus.authed", "true");
+      await refreshUser().catch(() => {});
       
-      if (sessionUser?.accountType === "institution_admin") {
-        router.replace("/institution/dashboard");
+      if (sessionUser?.accountType === "institution_admin" || sessionUser?.roles?.includes("institution_admin")) {
+        router.replace("/(tabs)/profile");
       } else {
         router.replace(session.isNewUser || !sessionUser?.profileCompleted ? "/(auth)/profile-setup" : "/(tabs)/feed");
       }

@@ -1,117 +1,235 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
-import { api } from "@/src/lib/api";
+import { api, getUserErrorMessage } from "@/src/lib/api";
+import { formDataFromAsset } from "@/src/lib/uploadFormData";
+import {
+  BRAND_PALETTES,
+  formatNumber,
+  getCoverUrl,
+  getInstitutionName,
+  getLogoUrl,
+  getPalette,
+  getPolicy,
+  type InstitutionDashboardData,
+  type InstitutionRecord,
+} from "@/src/lib/institution";
+
+const PENDING_BRANDING_KEY = "oncampus.pending_institution_branding";
 
 export default function Branding() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [form, setForm] = useState({ name: "", description: "", website: "", logoUrl: "", coverUrl: "" });
+  const [institution, setInstitution] = useState<InstitutionRecord | null>(null);
+  const [counts, setCounts] = useState<any>({});
+  const [form, setForm] = useState({ logoUrl: "", coverUrl: "", palette: "Moss" });
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState<"logo" | "cover" | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const data = (await api.institutions.dashboard()) as InstitutionDashboardData;
+      const next = data.institution || null;
+      const pendingBranding = await readPendingBranding();
+      setInstitution(next);
+      setCounts(data.counts || {});
+      setForm({
+        logoUrl: getLogoUrl(next) || pendingBranding.logoUrl || data.verificationRequests?.[0]?.logo_url || "",
+        coverUrl: getCoverUrl(next) || pendingBranding.coverUrl || "",
+        palette: pendingBranding.palette || getPolicy(next).brandPalette || "Moss",
+      });
+    } catch {
+      setInstitution(null);
+    }
+  }, []);
 
   useEffect(() => {
-    api.institutions.dashboard()
-      .then((data: any) => {
-        const institution = data.institution || {};
-        setForm({
-          name: institution.name || "",
-          description: institution.description || "",
-          website: institution.website || "",
-          logoUrl: institution.logo_url || "",
-          coverUrl: institution.cover_url || "",
-        });
-      })
-      .catch(() => {});
-  }, []);
+    load();
+  }, [load]);
+
+  const selectedPalette = getPalette(institution, form.palette);
+  const policy = getPolicy(institution);
+
+  const pickImage = async (kind: "logo" | "cover") => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Allow photo library access to upload institution images.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+      allowsEditing: kind === "logo",
+      aspect: kind === "logo" ? [1, 1] : [16, 9],
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+    const formData = await formDataFromAsset(
+      asset as any,
+      `${kind}.${asset.mimeType?.split("/")[1] || "jpg"}`,
+      "image/jpeg",
+    );
+
+    setUploading(kind);
+    try {
+      const response = kind === "logo"
+        ? await api.uploadInstitutionLogo(formData)
+        : await api.uploadInstitutionCover(formData);
+      setForm((current) => ({ ...current, [kind === "logo" ? "logoUrl" : "coverUrl"]: response.url }));
+    } catch (error) {
+      Alert.alert("Upload failed", getUserErrorMessage(error, "Could not upload this image."));
+    } finally {
+      setUploading(null);
+    }
+  };
 
   const save = async () => {
     if (saving) return;
     setSaving(true);
     try {
-      await api.institutions.updateMe(form);
+      await AsyncStorage.setItem(PENDING_BRANDING_KEY, JSON.stringify(form));
+      if (!institution?.id) {
+        api.institutions.updateMe({
+          logoUrl: form.logoUrl || undefined,
+          coverUrl: form.coverUrl || undefined,
+          verificationPolicy: { ...policy, brandPalette: form.palette },
+        }).catch(() => {});
+        router.back();
+        return;
+      }
+      await api.institutions.updateMe({
+        logoUrl: form.logoUrl || undefined,
+        coverUrl: form.coverUrl || undefined,
+        verificationPolicy: { ...policy, brandPalette: form.palette },
+      });
       router.back();
+    } catch (error) {
+      Alert.alert("Save failed", getUserErrorMessage(error, "Could not save institution branding."));
     } finally {
       setSaving(false);
     }
   };
 
-  const set = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="branding-screen">
       <Header
         title="Branding"
-        subtitle="Institution profile"
+        subtitle="Logo, cover & colors"
         onBack={() => router.back()}
         right={
-          <Pressable onPress={save} disabled={saving}>
+          <Pressable onPress={save} disabled={saving || !!uploading}>
             <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>{saving ? "Saving" : "Save"}</Text>
           </Pressable>
         }
       />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
-        <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>COVER IMAGE URL</Text>
-        <View style={[styles.coverWrap, { backgroundColor: colors.brandPrimary }]}>
+        <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>COVER IMAGE</Text>
+        <View style={[styles.coverWrap, { backgroundColor: selectedPalette.primary }]}>
           {form.coverUrl ? <Image source={{ uri: form.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
+          <LinearGradient colors={["rgba(0,0,0,0.08)", "rgba(0,0,0,0.58)"]} style={StyleSheet.absoluteFill} />
+          {!form.coverUrl && (
+            <View style={styles.emptyCover}>
+              <Ionicons name="business" size={42} color="#ffffffcc" />
+            </View>
+          )}
+          <Pressable style={styles.editBtn} onPress={() => pickImage("cover")} disabled={!!uploading}>
+            <Ionicons name="camera" size={16} color="#fff" />
+            <Text style={{ color: "#fff", fontSize: font.sm, fontWeight: "500" }}>{uploading === "cover" ? "Uploading" : "Change cover"}</Text>
+          </Pressable>
         </View>
-        <Field label="Cover URL" value={form.coverUrl} onChange={(v) => set("coverUrl", v)} placeholder="https://..." />
 
-        <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>LOGO URL</Text>
+        <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>LOGO</Text>
         <View style={styles.logoRow}>
-          <View style={[styles.logo, { backgroundColor: colors.brandPrimary }]}>
+          <View style={[styles.logo, { backgroundColor: selectedPalette.primary }]}>
             {form.logoUrl ? <Image source={{ uri: form.logoUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="school" size={32} color="#fff" />}
           </View>
-          <View style={{ flex: 1 }}>
-            <Field label="Logo URL" value={form.logoUrl} onChange={(v) => set("logoUrl", v)} placeholder="https://..." compact />
+          <View style={{ flex: 1, gap: 6 }}>
+            <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{getInstitutionName(institution)} logo</Text>
+            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>PNG or SVG - Minimum 512x512</Text>
+            <Pressable style={[styles.uploadBtn, { borderColor: colors.borderStrong }]} onPress={() => pickImage("logo")} disabled={!!uploading}>
+              <Ionicons name="cloud-upload-outline" size={14} color={colors.onSurface} />
+              <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>{uploading === "logo" ? "Uploading" : "Upload new"}</Text>
+            </Pressable>
           </View>
         </View>
 
-        <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>PUBLIC PROFILE</Text>
-        <Field label="Institution name" value={form.name} onChange={(v) => set("name", v)} placeholder="Institution name" />
-        <Field label="Description" value={form.description} onChange={(v) => set("description", v)} placeholder="Short institution description" multiline />
-        <Field label="Website" value={form.website} onChange={(v) => set("website", v)} placeholder="https://institution.edu" />
+        <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>BRAND PALETTE</Text>
+        <View style={styles.palettes}>
+          {BRAND_PALETTES.map((p) => {
+            const selected = p.name === form.palette;
+            return (
+              <Pressable
+                key={p.name}
+                onPress={() => setForm((current) => ({ ...current, palette: p.name }))}
+                style={[styles.palette, { backgroundColor: colors.surfaceSecondary, borderColor: selected ? colors.brandPrimary : colors.border, borderWidth: selected ? 2 : 1 }]}
+              >
+                <View style={{ flexDirection: "row", gap: 4 }}>
+                  <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: p.primary }} />
+                  <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: p.secondary }} />
+                </View>
+                <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500", marginTop: spacing.sm }}>{p.name}</Text>
+                {selected && <Ionicons name="checkmark-circle" size={16} color={colors.brandPrimary} style={{ position: "absolute", top: 8, right: 8 }} />}
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>PREVIEW</Text>
+        <View style={[styles.preview, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <View style={{ height: 80, backgroundColor: selectedPalette.primary }}>
+            {form.coverUrl ? <Image source={{ uri: form.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
+            <LinearGradient colors={["transparent", "rgba(0,0,0,0.6)"]} style={StyleSheet.absoluteFill} />
+          </View>
+          <View style={{ padding: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+            <View style={[styles.logoSmall, { backgroundColor: selectedPalette.primary }]}>
+              {form.logoUrl ? <Image source={{ uri: form.logoUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="school" size={18} color="#fff" />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }} numberOfLines={1}>{getInstitutionName(institution)}</Text>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>Verified - {formatNumber(counts.members)} members</Text>
+            </View>
+            <View style={[styles.btnPreview, { backgroundColor: selectedPalette.primary }]}>
+              <Text style={{ color: "#fff", fontSize: font.sm, fontWeight: "500" }}>Follow</Text>
+            </View>
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function Field({ label, value, onChange, placeholder, multiline, compact }: { label: string; value: string; onChange: (v: string) => void; placeholder: string; multiline?: boolean; compact?: boolean }) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ marginHorizontal: compact ? 0 : spacing.lg, marginTop: compact ? 0 : spacing.sm }}>
-      <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginBottom: spacing.sm }}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor={colors.muted}
-        multiline={multiline}
-        style={{
-          backgroundColor: colors.surfaceSecondary,
-          borderColor: colors.borderStrong,
-          borderWidth: 1,
-          borderRadius: radius.md,
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.md,
-          color: colors.onSurface,
-          fontSize: font.base,
-          minHeight: multiline ? 100 : 48,
-          textAlignVertical: multiline ? "top" : "center",
-        }}
-      />
-    </View>
-  );
+async function readPendingBranding(): Promise<{ logoUrl?: string; coverUrl?: string; palette?: string }> {
+  try {
+    const value = await AsyncStorage.getItem(PENDING_BRANDING_KEY);
+    return value ? JSON.parse(value) : {};
+  } catch {
+    return {};
+  }
 }
 
 const styles = StyleSheet.create({
   section: { fontSize: font.sm, fontWeight: "500", letterSpacing: 0.5, paddingHorizontal: spacing.lg, marginTop: spacing.xl, marginBottom: spacing.sm },
-  coverWrap: { height: 140, marginHorizontal: spacing.lg, borderRadius: radius.md, overflow: "hidden" },
-  logoRow: { flexDirection: "row", gap: spacing.md, alignItems: "center", marginHorizontal: spacing.lg, paddingVertical: spacing.md },
+  coverWrap: { height: 140, marginHorizontal: spacing.lg, borderRadius: radius.md, overflow: "hidden", justifyContent: "flex-end" },
+  emptyCover: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  editBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-end", backgroundColor: "#00000066", paddingHorizontal: spacing.md, height: 32, borderRadius: radius.pill, margin: spacing.md },
+  logoRow: { flexDirection: "row", gap: spacing.md, alignItems: "center", marginHorizontal: spacing.lg, padding: spacing.md },
   logo: { width: 72, height: 72, borderRadius: 20, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  uploadBtn: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingHorizontal: spacing.md, height: 30, borderRadius: radius.pill, borderWidth: 1, marginTop: 4 },
+  palettes: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, paddingHorizontal: spacing.lg },
+  palette: { width: "30%", padding: spacing.md, borderRadius: radius.md, alignItems: "flex-start" },
+  preview: { marginHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, overflow: "hidden" },
+  logoSmall: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  btnPreview: { paddingHorizontal: spacing.md, height: 32, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
 });

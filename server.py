@@ -12,8 +12,12 @@ from pathlib import Path
 import uuid
 from typing import Any, Optional
 
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
+try:
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as google_requests
+except Exception:
+    id_token = None
+    google_requests = None
 import jwt
 import requests
 from dotenv import load_dotenv
@@ -144,7 +148,8 @@ app.add_middleware(
 
 @app.middleware("http")
 async def maintenance_mode_middleware(request: Request, call_next):
-    if request.url.path.startswith("/admin") or request.url.path.startswith("/health"):
+    health_paths = {"/health", "/v1/health", "/v1/integrations/health"}
+    if request.url.path.startswith("/admin") or request.url.path in health_paths:
         return await call_next(request)
         
     try:
@@ -569,6 +574,27 @@ def safe_get(table: str, params: Optional[dict[str, Any]] = None, fallback: Any 
         return [] if fallback is None else fallback
 
 
+def safe_post(table: str, payload: dict[str, Any], fallback: Any = None) -> Any:
+    try:
+        return db.post(table, payload)
+    except HTTPException as exc:
+        logger.info(f"Optional insert into {table} failed: {exc.detail}")
+        return fallback
+
+
+def notify_admins(title: str, body: str, notification_type: str, data: Optional[dict[str, Any]] = None) -> None:
+    safe_post(
+        "notifications",
+        {
+            "title": title,
+            "body": body,
+            "type": notification_type,
+            "data": data or {},
+            "created_at": now_iso(),
+        },
+    )
+
+
 def serialize_user(row: dict[str, Any]) -> dict[str, Any]:
     account_type = row.get("account_type") or "normal_user"
     return {
@@ -628,13 +654,23 @@ def current_institution_admin(user: CurrentUser) -> Optional[dict[str, Any]]:
     return None
 
 
-def require_institution_admin(user: CurrentUser) -> dict[str, Any]:
+def require_institution_admin(user: CurrentUser, institution_id: Optional[str] = None) -> dict[str, Any]:
     admin = current_institution_admin(user)
-    if admin:
+    if admin and (institution_id is None or admin.get("institution_id") == institution_id):
         return admin
     if user.role == "platform_admin":
-        return {"institution_id": None, "role": "platform_admin"}
+        return {"institution_id": institution_id, "role": "platform_admin"}
     raise HTTPException(status_code=403, detail="Institution admin access required")
+
+
+def require_institution_admin_for(institution_id: str, user: CurrentUser) -> dict[str, Any]:
+    return require_institution_admin(user, institution_id)
+
+
+def get_institution_policy_by_id(institution_id: str) -> dict[str, Any]:
+    rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "verification_policy", "limit": "1"})
+    institution = rows[0] if rows else None
+    return merged_institution_policy(institution)
 
 
 @app.get("/")
@@ -959,11 +995,13 @@ class VerifyOtpDto(BaseModel):
 def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
     """Verify Firebase phone auth ID token and create/login user."""
     try:
-        req = google_requests.Request()
         project_id = firebase_project_id()
         if not project_id:
             raise HTTPException(status_code=503, detail="Firebase project ID not configured on backend")
+        if id_token is None or google_requests is None:
+            raise HTTPException(status_code=503, detail="Firebase auth dependency missing")
 
+        req = google_requests.Request()
         decoded = id_token.verify_firebase_token(payload.firebaseIdToken, req, audience=project_id)
         phone = decoded.get("phone_number")
         if not phone:
@@ -1554,47 +1592,45 @@ class InstitutionRegistrationDto(BaseModel):
 def register_institution(payload: InstitutionRegistrationDto, user: Optional[CurrentUser] = Depends(optional_user)) -> Any:
     """Register institution for verification - allows unauthenticated submission"""
     
-    # Check if user already has a pending or approved request (only if logged in)
-    if user:
-        existing = safe_get("institution_verification_requests", {
-            "submitted_by": f"eq.{user.id}",
-            "select": "id,status",
-            "order": "created_at.desc",
-            "limit": "1"
-        })
-        if existing:
-            status = existing[0].get("status")
-            if status == "pending":
-                raise HTTPException(status_code=400, detail="You already have a pending verification request")
-            elif status == "approved":
-                raise HTTPException(status_code=400, detail="Your institution is already verified")
-            elif status == "needs_changes":
-                # Allow updating the existing request
-                request_id = existing[0]["id"]
-                db.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
-                    "institution_name": payload.institutionName,
-                    "institution_type": payload.institutionType,
-                    "city": payload.city,
-                    "state": payload.state,
-                    "country": payload.country,
-                    "official_email": payload.officialEmail,
-                    "phone": payload.phone,
-                    "website": payload.website,
-                    "admin_name": payload.adminName,
-                    "designation": payload.designation,
-                    "document_url": payload.documentUrl,
-                    "logo_url": payload.logoUrl,
-                    "status": "pending",
-                    "review_notes": None
-                })
-                # Add notification for admin
-                db.post("admin_notifications", {
-                    "type": "institution_verification",
-                    "title": "Institution Request Updated",
-                    "message": f"Institution {payload.institutionName} updated their request.",
-                    "status": "unread"
-                })
-                return {"success": True, "message": "Verification request updated"}
+    existing_filter = {"submitted_by": f"eq.{user.id}"} if user else {"official_email": f"eq.{payload.officialEmail}"}
+    existing = safe_get("institution_verification_requests", {
+        **existing_filter,
+        "select": "id,status",
+        "order": "created_at.desc",
+        "limit": "1"
+    })
+    if existing:
+        status = existing[0].get("status")
+        if status == "pending":
+            return {"success": True, "message": "Verification request is already pending", "request": existing[0]}
+        if status == "approved":
+            raise HTTPException(status_code=400, detail="Your institution is already verified")
+        if status == "needs_changes":
+            # Allow updating the existing request
+            request_id = existing[0]["id"]
+            db.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+                "institution_name": payload.institutionName,
+                "institution_type": payload.institutionType,
+                "city": payload.city,
+                "state": payload.state,
+                "country": payload.country,
+                "official_email": payload.officialEmail,
+                "phone": payload.phone,
+                "website": payload.website,
+                "admin_name": payload.adminName,
+                "designation": payload.designation,
+                "document_url": payload.documentUrl,
+                "logo_url": payload.logoUrl,
+                "status": "pending",
+                "review_notes": None
+            })
+            notify_admins(
+                "Institution Request Updated",
+                f"Institution {payload.institutionName} updated their request.",
+                "institution_verification",
+                {"request_id": request_id, "institution_name": payload.institutionName},
+            )
+            return {"success": True, "message": "Verification request updated"}
             
     # Create new request
     response = db.post(
@@ -1619,13 +1655,12 @@ def register_institution(payload: InstitutionRegistrationDto, user: Optional[Cur
         },
     )
     
-    # Add notification for admin
-    db.post("admin_notifications", {
-        "type": "institution_verification",
-        "title": "New Institution Request",
-        "message": f"New verification request from {payload.institutionName}",
-        "status": "unread"
-    })
+    notify_admins(
+        "New Institution Request",
+        f"New verification request from {payload.institutionName}",
+        "institution_verification",
+        {"request_id": response[0].get("id") if response else None, "institution_name": payload.institutionName},
+    )
     
     return response[0]
 
@@ -1667,14 +1702,13 @@ def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str
         rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "*"})
         institution = rows[0] if rows else None
 
-    # Scope queries by institution_id if available
-    scoped = {"institution_id": f"eq.{institution_id}"} if institution_id else {}
-    
-    # Fetch posts with error handling
-    posts = safe_get("posts", {**scoped, "select": "id,status,type,created_at", "order": "created_at.desc", "limit": "20"}) or []
-    
-    # Fetch groups with error handling
-    groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,city,category,visibility,official"}) or []
+    if institution_id:
+        scoped = {"institution_id": f"eq.{institution_id}"}
+        posts = safe_get("posts", {**scoped, "select": "id,status,type,created_at", "order": "created_at.desc", "limit": "20"}) or []
+        groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,city,category,visibility,official"}) or []
+    else:
+        posts = []
+        groups = []
     
     # Batch fetch group members
     group_ids = [g["id"] for g in groups]
@@ -1713,7 +1747,45 @@ def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str
 
 @app.get("/v1/institutions/me/analytics")
 def institution_analytics(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    admin = require_institution_admin(user)
+    admin = current_institution_admin(user)
+    if not admin and user.role != "platform_admin":
+        requests = safe_get(
+            "institution_verification_requests",
+            {
+                "submitted_by": f"eq.{user.id}",
+                "select": "*",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if requests:
+            request = requests[0]
+            return {
+                "institution": {
+                    "name": request.get("institution_name"),
+                    "institution_type": request.get("institution_type"),
+                    "city": request.get("city"),
+                    "state": request.get("state"),
+                    "country": request.get("country"),
+                    "logo_url": request.get("logo_url"),
+                    "status": request.get("status") or "pending",
+                },
+                "counts": {
+                    "reach": 0,
+                    "members": 0,
+                    "groups": 0,
+                    "posts": 0,
+                    "engagements": 0,
+                    "approvalRate": 0,
+                },
+                "topGroups": [],
+                "topPosts": [],
+                "pendingVerification": True,
+            }
+        raise HTTPException(status_code=403, detail="Institution admin access required")
+
+    if not admin:
+        admin = {"institution_id": None, "role": "platform_admin"}
     institution_id = admin.get("institution_id")
     scoped = {"institution_id": f"eq.{institution_id}"} if institution_id else {}
     institution = None
@@ -1797,6 +1869,7 @@ def institution_analytics(user: CurrentUser = Depends(current_user)) -> dict[str
 
 class InstitutionUpdateDto(BaseModel):
     name: Optional[str] = None
+    domain: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
     country: Optional[str] = None
@@ -1805,18 +1878,59 @@ class InstitutionUpdateDto(BaseModel):
     description: Optional[str] = None
     logoUrl: Optional[str] = None
     coverUrl: Optional[str] = None
+    documentUrl: Optional[str] = None
     verificationPolicy: Optional[dict[str, Any]] = None
 
 
 @app.patch("/v1/institutions/me")
 def update_institution(payload: InstitutionUpdateDto, user: CurrentUser = Depends(current_user)) -> Any:
-    admin = require_institution_admin(user)
+    admin = current_institution_admin(user)
+    if not admin and user.role != "platform_admin":
+        requests = safe_get(
+            "institution_verification_requests",
+            {
+                "submitted_by": f"eq.{user.id}",
+                "select": "id,status",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if not requests:
+            raise HTTPException(status_code=403, detail="Institution admin access required")
+
+        request_id = requests[0]["id"]
+        request_data: dict[str, Any] = {}
+        for source, target in {
+            "name": "institution_name",
+            "city": "city",
+            "state": "state",
+            "country": "country",
+            "website": "website",
+            "phone": "phone",
+            "logoUrl": "logo_url",
+            "documentUrl": "document_url",
+        }.items():
+            value = getattr(payload, source)
+            if value is not None:
+                request_data[target] = value
+
+        updated = db.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, request_data)[0] if request_data else requests[0]
+        return {
+            "success": True,
+            "pendingVerification": True,
+            "request": updated,
+            "message": "Pending institution request updated",
+        }
+
+    if not admin:
+        admin = {"institution_id": None, "role": "platform_admin"}
     institution_id = admin.get("institution_id")
     if not institution_id:
         raise HTTPException(status_code=400, detail="No institution scope available")
     data: dict[str, Any] = {}
     for source, target in {
         "name": "name",
+        "domain": "domain",
         "city": "city",
         "state": "state",
         "country": "country",
@@ -1837,11 +1951,22 @@ def update_institution(payload: InstitutionUpdateDto, user: CurrentUser = Depend
 
 @app.get("/v1/institutions/me/admins")
 def institution_admins(user: CurrentUser = Depends(current_user)) -> Any:
-    admin_rows = db.get(
+    admin_rows = safe_get(
         "institution_admins",
         {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "institution_id,role"},
     )
     if not admin_rows and user.role != "platform_admin":
+        requests = safe_get(
+            "institution_verification_requests",
+            {
+                "submitted_by": f"eq.{user.id}",
+                "select": "id,status",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if requests:
+            return []
         raise HTTPException(status_code=403, detail="Institution admin access required")
     if not admin_rows:
         return []
@@ -1867,6 +1992,382 @@ def institution_admins(user: CurrentUser = Depends(current_user)) -> Any:
         }
         for row in rows
     ]
+
+
+ADMIN_ROLES = {"owner", "admin", "content_admin", "moderator"}
+
+
+class InstitutionAdminInviteDto(BaseModel):
+    email: str
+    role: str = "admin"
+
+
+class InstitutionAdminRoleDto(BaseModel):
+    role: str
+
+
+def current_admin_scope_or_400(user: CurrentUser) -> dict[str, Any]:
+    admin = require_institution_admin(user)
+    institution_id = admin.get("institution_id")
+    if not institution_id:
+        raise HTTPException(status_code=400, detail="No institution scope available")
+    return admin
+
+
+@app.post("/v1/institutions/me/admins")
+def invite_institution_admin(payload: InstitutionAdminInviteDto, user: CurrentUser = Depends(current_user)) -> Any:
+    admin = current_admin_scope_or_400(user)
+    institution_id = admin["institution_id"]
+    role = payload.role if payload.role in ADMIN_ROLES and payload.role != "owner" else "admin"
+    email = payload.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email is required")
+
+    users = safe_get("users", {"email": f"eq.{email}", "select": "id,email,name,avatar_url,verified,account_type", "limit": "1"})
+    if not users:
+        log_institution_activity(user, institution_id, "admin_invite_pending", {"email": email, "role": role})
+        return {"success": True, "pending": True, "email": email, "role": role, "message": "Invite recorded. The user can be activated after they join OnCampus."}
+
+    target_user = users[0]
+    existing = safe_get(
+        "institution_admins",
+        {"institution_id": f"eq.{institution_id}", "user_id": f"eq.{target_user['id']}", "select": "id,status", "limit": "1"},
+    )
+    if existing:
+        row = db.patch(
+            "institution_admins",
+            {"id": f"eq.{existing[0]['id']}"},
+            {"role": role, "status": "active"},
+        )[0]
+    else:
+        row = db.post(
+            "institution_admins",
+            {
+                "id": str(uuid.uuid4()),
+                "institution_id": institution_id,
+                "user_id": target_user["id"],
+                "role": role,
+                "status": "active",
+                "created_at": now_iso(),
+            },
+        )[0]
+    log_institution_activity(user, institution_id, "admin_invited", {"email": email, "role": role, "admin_id": row.get("id")})
+    return {"success": True, "pending": False, "admin": row, "user": serialize_user(target_user)}
+
+
+@app.patch("/v1/institutions/me/admins/{admin_id}")
+def update_institution_admin_role(admin_id: str, payload: InstitutionAdminRoleDto, user: CurrentUser = Depends(current_user)) -> Any:
+    admin = current_admin_scope_or_400(user)
+    institution_id = admin["institution_id"]
+    if payload.role not in ADMIN_ROLES or payload.role == "owner":
+        raise HTTPException(status_code=400, detail="Invalid admin role")
+    rows = safe_get("institution_admins", {"id": f"eq.{admin_id}", "institution_id": f"eq.{institution_id}", "select": "id,role,user_id", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    if rows[0].get("role") == "owner":
+        raise HTTPException(status_code=400, detail="Owner role cannot be changed")
+    updated = db.patch("institution_admins", {"id": f"eq.{admin_id}"}, {"role": payload.role})[0]
+    log_institution_activity(user, institution_id, "admin_role_changed", {"admin_id": admin_id, "role": payload.role})
+    return updated
+
+
+@app.delete("/v1/institutions/me/admins/{admin_id}")
+def remove_institution_admin(admin_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    admin = current_admin_scope_or_400(user)
+    institution_id = admin["institution_id"]
+    rows = safe_get("institution_admins", {"id": f"eq.{admin_id}", "institution_id": f"eq.{institution_id}", "select": "id,role,user_id", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    if rows[0].get("role") == "owner":
+        raise HTTPException(status_code=400, detail="Owner cannot be removed")
+    if rows[0].get("user_id") == user.id:
+        raise HTTPException(status_code=400, detail="You cannot remove yourself")
+    db.patch("institution_admins", {"id": f"eq.{admin_id}"}, {"status": "removed"})
+    log_institution_activity(user, institution_id, "admin_removed", {"admin_id": admin_id})
+    return {"success": True}
+
+
+INSTITUTION_DEFAULT_POLICY: dict[str, Any] = {
+    "publicPage": True,
+    "autoApproveStudents": False,
+    "allowExternalRequests": True,
+    "membersCanCreateGroups": False,
+    "verifiedBadgeVisible": True,
+    "weeklyDigest": True,
+    "brandPalette": "Moss",
+    "rolePermissions": {
+        "owner": ["manage_profile", "manage_admins", "billing", "moderation", "analytics"],
+        "admin": ["manage_profile", "moderation", "analytics"],
+        "content_admin": ["moderation", "analytics"],
+        "moderator": ["moderation"],
+    },
+    "contentFilters": [],
+    "slowMode": {"enabled": False, "seconds": 30},
+    "pushChannels": {"critical": True, "reports": True, "weeklyDigest": True},
+    "twoFactorRequired": False,
+    "billing": {"plan": "free", "paymentContactEmail": "", "invoiceName": ""},
+    "danger": {},
+}
+
+
+class InstitutionSettingsPatchDto(BaseModel):
+    profile: Optional[dict[str, Any]] = None
+    policy: Optional[dict[str, Any]] = None
+    action: Optional[str] = None
+
+
+def institution_scope_for_settings(user: CurrentUser) -> dict[str, Any]:
+    admin = current_institution_admin(user)
+    if admin or user.role == "platform_admin":
+        institution_id = admin.get("institution_id") if admin else None
+        institution = None
+        if institution_id:
+            rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "*", "limit": "1"})
+            institution = rows[0] if rows else None
+        return {
+            "admin": admin or {"institution_id": institution_id, "role": "platform_admin"},
+            "institution_id": institution_id,
+            "institution": institution,
+            "request": None,
+            "pending": False,
+        }
+
+    requests = safe_get(
+        "institution_verification_requests",
+        {
+            "submitted_by": f"eq.{user.id}",
+            "select": "*",
+            "order": "created_at.desc",
+            "limit": "1",
+        },
+    )
+    if requests:
+        return {
+            "admin": None,
+            "institution_id": None,
+            "institution": None,
+            "request": requests[0],
+            "pending": True,
+        }
+    raise HTTPException(status_code=403, detail="Institution admin access required")
+
+
+def merged_institution_policy(institution: Optional[dict[str, Any]], request: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    policy = dict(INSTITUTION_DEFAULT_POLICY)
+    stored = (institution or {}).get("verification_policy") or {}
+    if isinstance(stored, dict):
+        policy.update(stored)
+    if request and not institution:
+        policy["billing"] = {**policy["billing"], "paymentContactEmail": request.get("official_email") or ""}
+    return policy
+
+
+def coerce_json_object(value: Any) -> Optional[dict[str, Any]]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+def apply_latest_pending_settings_snapshot(user_id: str, policy: dict[str, Any]) -> dict[str, Any]:
+    snapshots = safe_get(
+        "audit_logs",
+        {
+            "target_type": "eq.institution",
+            "target_id": f"eq.{user_id}",
+            "action": "eq.pending_settings_updated",
+            "select": "details,created_at",
+            "order": "created_at.desc",
+            "limit": "1",
+        },
+    )
+    details = coerce_json_object(snapshots[0].get("details")) if snapshots else None
+    if isinstance(details, dict) and isinstance(details.get("policy"), dict):
+        policy.update(details["policy"])
+    return policy
+
+
+def apply_pending_profile_snapshot(request: Optional[dict[str, Any]], policy: dict[str, Any]) -> Optional[dict[str, Any]]:
+    if not request:
+        return request
+    pending_profile = coerce_json_object(policy.get("pendingProfile"))
+    if not pending_profile:
+        return request
+    next_request = dict(request)
+    for source, target in {
+        "name": "institution_name",
+        "description": "description",
+        "phone": "phone",
+        "city": "city",
+        "state": "state",
+        "country": "country",
+        "website": "website",
+        "domain": "domain",
+    }.items():
+        if source in pending_profile and pending_profile[source] is not None:
+            next_request[target] = pending_profile[source]
+    return next_request
+
+
+def log_institution_activity(user: CurrentUser, institution_id: Optional[str], action: str, details: dict[str, Any]) -> None:
+    safe_post(
+        "audit_logs",
+        {
+            "action": action,
+            "target_type": "institution",
+            "target_id": institution_id or user.id,
+            "details": details,
+            "created_at": now_iso(),
+        },
+    )
+
+
+def institution_counts(institution_id: Optional[str]) -> dict[str, int]:
+    if not institution_id:
+        return {"posts": 0, "groups": 0, "members": 0, "reports": 0}
+    groups = safe_get("groups", {"institution_id": f"eq.{institution_id}", "deleted_at": "is.null", "select": "id"})
+    group_ids = [row["id"] for row in groups]
+    posts = safe_get("posts", {"institution_id": f"eq.{institution_id}", "select": "id"})
+    members = safe_get(
+        "group_members",
+        {"group_id": f"in.({','.join(group_ids)})", "status": "eq.active", "select": "user_id"} if group_ids else {"group_id": "eq.__none__", "select": "user_id"},
+    )
+    return {"posts": len(posts), "groups": len(groups), "members": len(members), "reports": 0}
+
+
+@app.get("/v1/institutions/me/settings")
+def institution_settings_summary(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    scope = institution_scope_for_settings(user)
+    institution = scope["institution"]
+    request = scope["request"]
+    institution_id = scope["institution_id"]
+    policy = merged_institution_policy(institution, request)
+    if scope["pending"]:
+        policy = apply_latest_pending_settings_snapshot(user.id, policy)
+        request = apply_pending_profile_snapshot(request, policy)
+    counts = institution_counts(institution_id)
+
+    activity = safe_get(
+        "audit_logs",
+        {
+            "target_type": "eq.institution",
+            "target_id": f"eq.{institution_id or user.id}",
+            "select": "id,action,details,created_at",
+            "order": "created_at.desc",
+            "limit": "20",
+        },
+    )
+
+    related_ids: list[str] = []
+    if institution_id:
+        groups = safe_get("groups", {"institution_id": f"eq.{institution_id}", "select": "id"})
+        posts = safe_get("posts", {"institution_id": f"eq.{institution_id}", "select": "id"})
+        related_ids = [row["id"] for row in groups + posts] + [institution_id]
+    reports = safe_get(
+        "reports",
+        {"target_id": f"in.({','.join(related_ids)})", "select": "*", "order": "created_at.desc", "limit": "20"} if related_ids else {"id": "eq.__none__", "select": "*"},
+    )
+    counts["reports"] = len([row for row in reports if row.get("status") == "pending"])
+
+    banned_users = safe_get(
+        "users",
+        {"status": "eq.banned", "select": "id,name,avatar_url,city,course,status", "limit": "20"},
+    )
+
+    billing = policy.get("billing") or {}
+    plan = billing.get("plan") or "free"
+    return {
+        "institution": institution,
+        "request": request,
+        "pendingVerification": scope["pending"],
+        "policy": policy,
+        "counts": counts,
+        "activity": activity,
+        "reports": reports,
+        "bannedUsers": [serialize_user(row) for row in banned_users],
+        "billing": {
+            "plan": plan,
+            "status": "Free tier" if plan == "free" else "Upgrade requested",
+            "paymentContactEmail": billing.get("paymentContactEmail") or "",
+            "invoiceName": billing.get("invoiceName") or "",
+            "invoices": billing.get("invoices") or [],
+        },
+    }
+
+
+@app.patch("/v1/institutions/me/settings")
+def update_institution_settings(payload: InstitutionSettingsPatchDto, user: CurrentUser = Depends(current_user)) -> Any:
+    scope = institution_scope_for_settings(user)
+    institution = scope["institution"]
+    request = scope["request"]
+    institution_id = scope["institution_id"]
+
+    profile_snapshot: dict[str, Any] = {}
+    if payload.profile:
+        profile_snapshot = {key: value for key, value in payload.profile.items() if value is not None}
+        profile_payload = InstitutionUpdateDto(**payload.profile)
+        update_institution(profile_payload, user)
+
+    next_policy = merged_institution_policy(institution, request)
+    if scope["pending"]:
+        next_policy = apply_latest_pending_settings_snapshot(user.id, next_policy)
+        if profile_snapshot:
+            next_policy["pendingProfile"] = {**(next_policy.get("pendingProfile") or {}), **profile_snapshot}
+    if payload.policy:
+        for key, value in payload.policy.items():
+            if isinstance(value, dict) and isinstance(next_policy.get(key), dict):
+                next_policy[key] = {**next_policy[key], **value}
+            else:
+                next_policy[key] = value
+
+    if payload.action == "pause":
+        next_policy["publicPage"] = False
+        next_policy["danger"] = {**(next_policy.get("danger") or {}), "pausedAt": now_iso(), "pausedBy": user.id}
+    elif payload.action == "resume":
+        next_policy["publicPage"] = True
+        danger = dict(next_policy.get("danger") or {})
+        danger.pop("pausedAt", None)
+        next_policy["danger"] = danger
+    elif payload.action == "request_delete":
+        next_policy["danger"] = {**(next_policy.get("danger") or {}), "deletionRequestedAt": now_iso(), "deletionRequestedBy": user.id}
+
+    if institution_id:
+        updated = db.patch("institutions", {"id": f"eq.{institution_id}"}, {"verification_policy": next_policy})[0]
+        log_institution_activity(user, institution_id, payload.action or "settings_updated", {"policyKeys": list((payload.policy or {}).keys())})
+        return {"success": True, "institution": updated, "policy": next_policy}
+
+    log_institution_activity(user, None, "pending_settings_updated", {"policyKeys": list((payload.policy or {}).keys()), "policy": next_policy, "action": payload.action})
+    return {"success": True, "pendingVerification": True, "policy": next_policy}
+
+
+@app.get("/v1/institutions/me/export")
+def export_institution_data(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    scope = institution_scope_for_settings(user)
+    institution_id = scope["institution_id"]
+    institution = scope["institution"]
+    request = scope["request"]
+    groups = safe_get("groups", {"institution_id": f"eq.{institution_id}", "select": "*"} if institution_id else {"id": "eq.__none__", "select": "*"})
+    posts = safe_get("posts", {"institution_id": f"eq.{institution_id}", "select": "*"} if institution_id else {"id": "eq.__none__", "select": "*"})
+    admins = safe_get("institution_admins", {"institution_id": f"eq.{institution_id}", "select": "*"} if institution_id else {"id": "eq.__none__", "select": "*"})
+    policy = merged_institution_policy(institution, request)
+    if scope["pending"]:
+        policy = apply_latest_pending_settings_snapshot(user.id, policy)
+        request = apply_pending_profile_snapshot(request, policy)
+    log_institution_activity(user, institution_id, "data_exported", {"groups": len(groups), "posts": len(posts)})
+    return {
+        "exportedAt": now_iso(),
+        "institution": institution,
+        "pendingRequest": request,
+        "policy": policy,
+        "groups": groups,
+        "posts": posts,
+        "admins": admins,
+    }
 
 
 class GroupPostRequestDto(BaseModel):
@@ -2366,14 +2867,6 @@ async def upload_institution_doc(
     return {"url": public_url, "type": "institution_document"}
 
 
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    port = int(os.environ.get("PORT", 8000))
-    is_dev = os.environ.get("DEV_MODE", "true").lower() == "true"
-    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=is_dev)
-
-
 # -- POST REQUESTS (INSTITUTION LEVEL & MY REQUESTS) ---------
 
 @app.get("/v1/users/me/post-requests")
@@ -2394,6 +2887,11 @@ def create_institution_post_request(
     user: CurrentUser = Depends(current_user),
 ) -> Any:
     """Create a post request for an institution."""
+    policy = get_institution_policy_by_id(institution_id)
+    requester_admin = current_institution_admin(user)
+    is_admin_requester = user.role == "platform_admin" or bool(requester_admin and requester_admin.get("institution_id") == institution_id)
+    if not policy.get("allowExternalRequests", True) and not is_admin_requester:
+        raise HTTPException(status_code=403, detail="External post requests are disabled for this institution")
     return db.post(
         "group_post_requests",
         {
@@ -2414,7 +2912,7 @@ def get_institution_post_requests(
     institution_id: str, user: CurrentUser = Depends(current_user)
 ) -> Any:
     """Get all post requests for an institution (Admin only)."""
-    require_institution_admin(institution_id, user)
+    require_institution_admin_for(institution_id, user)
     return db.get("group_post_requests", {"institution_id": f"eq.{institution_id}"})
 
 class ApproveInstitutionRequestDto(BaseModel):
@@ -2427,7 +2925,7 @@ def approve_institution_post_request(
     payload: ApproveInstitutionRequestDto,
     user: CurrentUser = Depends(current_user),
 ) -> Any:
-    require_institution_admin(institution_id, user)
+    require_institution_admin_for(institution_id, user)
     
     req = db.get("group_post_requests", {"id": f"eq.{request_id}", "institution_id": f"eq.{institution_id}"})
     if not req:
@@ -2480,7 +2978,7 @@ def reject_institution_post_request(
     payload: RejectRequestDto,
     user: CurrentUser = Depends(current_user),
 ) -> Any:
-    require_institution_admin(institution_id, user)
+    require_institution_admin_for(institution_id, user)
     req = db.patch(
         "group_post_requests",
         {"id": f"eq.{request_id}", "institution_id": f"eq.{institution_id}"},

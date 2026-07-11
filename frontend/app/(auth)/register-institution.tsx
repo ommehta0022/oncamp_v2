@@ -319,7 +319,7 @@ export default function RegisterInstitution() {
         Alert.alert(
           'Registration Updated',
           'Your verification request has been successfully submitted.',
-          [{ text: 'OK', onPress: () => router.replace("/institution/dashboard") }]
+          [{ text: 'OK', onPress: () => router.replace("/(tabs)/profile") }]
         );
       } else {
         Alert.alert(
@@ -361,7 +361,7 @@ export default function RegisterInstitution() {
               label="Continue to Dashboard"
               fullWidth
               size="lg"
-              onPress={() => router.replace("/institution/dashboard")}
+              onPress={() => router.replace("/(tabs)/profile")}
             />
           </View>
         </View>
@@ -387,7 +387,7 @@ export default function RegisterInstitution() {
               label="Go to Dashboard Preview"
               fullWidth
               size="lg"
-              onPress={() => router.replace("/institution/dashboard")}
+              onPress={() => router.replace("/(tabs)/profile")}
             />
             <Pressable onPress={() => router.back()} style={{ alignItems: "center", paddingVertical: spacing.lg }}>
               <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Back to Home</Text>
