@@ -365,6 +365,7 @@ export type SessionUser = {
   avatarUrl?: string;
   city?: string;
   course?: string;
+  email?: string;
   bio?: string;
   handle?: string;
   accountType?: AccountRole;

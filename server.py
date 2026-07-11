@@ -573,6 +573,7 @@ def serialize_user(row: dict[str, Any]) -> dict[str, Any]:
     account_type = row.get("account_type") or "normal_user"
     return {
         "id": row["id"],
+        "email": row.get("email"),
         "name": row.get("name"),
         "city": row.get("city"),
         "course": row.get("course"),
@@ -593,6 +594,7 @@ def serialize_user(row: dict[str, Any]) -> dict[str, Any]:
 def serialize_group(row: dict[str, Any], role: Optional[str] = None) -> dict[str, Any]:
     return {
         "id": row["id"],
+        "email": row.get("email"),
         "name": row.get("name"),
         "description": row.get("description"),
         "city": row.get("city"),
@@ -1058,6 +1060,37 @@ def me(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     return serialize_user(rows[0])
 
 
+
+class UpdateUserDto(BaseModel):
+    name: Optional[str] = None
+    course: Optional[str] = None
+    city: Optional[str] = None
+    bio: Optional[str] = None
+    avatarUrl: Optional[str] = None
+    email: Optional[str] = None
+    profileCompleted: Optional[bool] = None
+    defaultAvatarKey: Optional[str] = None
+    onboardingSkipped: Optional[dict] = None
+
+@app.patch("/v1/users/me")
+def update_user_me(payload: UpdateUserDto, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    data = {"updated_at": now_iso()}
+    if payload.name is not None: data["name"] = payload.name
+    if payload.course is not None: data["course"] = payload.course
+    if payload.city is not None: data["city"] = payload.city
+    if payload.bio is not None: data["bio"] = payload.bio
+    if payload.avatarUrl is not None: data["avatar_url"] = payload.avatarUrl
+    if payload.email is not None: data["email"] = payload.email
+    if payload.profileCompleted is not None: data["profile_completed"] = payload.profileCompleted
+    if payload.defaultAvatarKey is not None: data["default_avatar_key"] = payload.defaultAvatarKey
+    if payload.onboardingSkipped is not None: data["onboarding_skipped"] = payload.onboardingSkipped
+
+    if len(data) > 1:
+        updated = db.patch("users", {"id": f"eq.{user.id}"}, data)
+        if updated:
+            return serialize_user(updated[0])
+    return me(user=user)
+
 @app.get("/v1/users/me/stats")
 def me_stats(user: CurrentUser = Depends(current_user)) -> dict[str, int]:
     groups = safe_get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id"})
@@ -1193,6 +1226,7 @@ def get_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
         "comments": [
             {
                 "id": row["id"],
+        "email": row.get("email"),
                 "content": row.get("content"),
                 "createdAt": row.get("created_at"),
                 "user": {
@@ -1825,6 +1859,7 @@ def institution_admins(user: CurrentUser = Depends(current_user)) -> Any:
     return [
         {
             "id": row["id"],
+        "email": row.get("email"),
             "role": row.get("role"),
             "status": row.get("status"),
             "createdAt": row.get("created_at"),
@@ -2018,6 +2053,7 @@ def search(q: str = Query(default="", max_length=80), user: CurrentUser = Depend
         "posts": [
             {
                 "id": row["id"],
+        "email": row.get("email"),
                 "title": row.get("title"),
                 "content": row.get("content"),
                 "mediaUrl": row.get("media_url"),
@@ -2093,6 +2129,7 @@ def search_posts(q: str = Query(default="", max_length=80), user: CurrentUser = 
     return [
         {
             "id": row["id"],
+        "email": row.get("email"),
             "title": row.get("title"),
             "content": row.get("content"),
             "mediaUrl": row.get("media_url"),

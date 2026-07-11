@@ -19,6 +19,7 @@ export default function Otp() {
   const phone = Array.isArray(params.phone) ? params.phone[0] : (params.phone as string) ?? "";
   const from = Array.isArray(params.from) ? params.from[0] : (params.from as string) ?? "login";
   const name = Array.isArray(params.name) ? params.name[0] : (params.name as string) ?? "";
+  const email = Array.isArray(params.email) ? params.email[0] : (params.email as string) ?? "";
   
   const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
@@ -79,7 +80,7 @@ export default function Otp() {
       await saveSession(session.accessToken, session.refreshToken);
       let sessionUser = session.user;
       if (from === "signup" && name.trim()) {
-        sessionUser = await api.users.updateMe({ name: name.trim() });
+        sessionUser = await api.users.updateMe({ name: name.trim(), email: email.trim() || undefined });
       }
       if (sessionUser) {
         await AsyncStorage.setItem("oncampus.user", JSON.stringify(sessionUser));

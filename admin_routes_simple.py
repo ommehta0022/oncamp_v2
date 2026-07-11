@@ -862,10 +862,12 @@ async def get_users(
         params["verified"] = f"eq.{verified}"
 
     response = table_rows("users", params, page, limit)
+    for row in response["data"]:
+        row["institution"] = row.get("course")
     if institution:
         response["data"] = [
             row for row in response["data"]
-            if institution.lower() in str(row.get("institution", "")).lower()
+            if institution.lower() in str(row.get("course", "")).lower()
         ]
     return response
 
