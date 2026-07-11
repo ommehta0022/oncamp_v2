@@ -715,10 +715,12 @@ class ResetPasswordRequest(BaseModel):
 @limiter.limit("50/minute")
 async def reset_password(request: Request, reset_req: ResetPasswordRequest):
     """
-    Emergency password reset route using the 2006 security code bypass.
+    Emergency password reset route using a configurable security code bypass.
+    The default fallback is "2006" if ADMIN_RESET_SECRET_CODE is not set in environment.
     """
-    if reset_req.security_code != "2006":
-        raise HTTPException(status_code=403, detail="Invalid security code")
+    secret_code = os.getenv("ADMIN_RESET_SECRET_CODE", "2006")
+    if reset_req.security_code != secret_code:
+        raise HTTPException(status_code=401, detail="Invalid security code")
         
     # Verify user exists
     admins = safe_get(
