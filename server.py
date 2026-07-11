@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import sys
 
 import os
@@ -741,16 +742,197 @@ class StartOtpDevDto(BaseModel):
     action: Optional[str] = None
 
 
+class StartInstitutionOtpDto(BaseModel):
+    identifier: str
+
+
 class VerifyOtpDevDto(BaseModel):
     phone: str
     code: str
     platform: Optional[str] = None
 
 
+class VerifyInstitutionOtpDto(BaseModel):
+    phone: str
+    code: str
+    identifier: Optional[str] = None
+    platform: Optional[str] = None
+
+
+def normalized_login_phone(value: str) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) == 10:
+        return f"+91{digits}"
+    if len(digits) == 12 and digits.startswith("91"):
+        return f"+{digits}"
+    if (value or "").strip().startswith("+") and len(digits) >= 10:
+        return f"+{digits}"
+    return (value or "").strip()
+
+
+def is_email_identifier(value: str) -> bool:
+    return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", (value or "").strip().lower()))
+
+
+def user_has_institution_access(user_row: Optional[dict[str, Any]]) -> bool:
+    if not user_row:
+        return False
+    if user_row.get("account_type") in {"institution_admin", "platform_admin"}:
+        return True
+    admin_rows = safe_get(
+        "institution_admins",
+        {"user_id": f"eq.{user_row.get('id')}", "status": "eq.active", "select": "id", "limit": "1"},
+    )
+    if admin_rows:
+        return True
+    requests = safe_get(
+        "institution_verification_requests",
+        {"submitted_by": f"eq.{user_row.get('id')}", "select": "id,status", "order": "created_at.desc", "limit": "1"},
+    )
+    return bool(requests)
+
+
+def ensure_user_login_allowed(user_row: Optional[dict[str, Any]]) -> None:
+    if user_has_institution_access(user_row):
+        raise HTTPException(status_code=403, detail="Use Institution Login for this account.")
+
+
+def find_institution_login(identifier: str) -> dict[str, Any]:
+    raw = (identifier or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Enter your registered institution email or phone number.")
+
+    request_row: Optional[dict[str, Any]] = None
+    user_row: Optional[dict[str, Any]] = None
+    phone = ""
+
+    if is_email_identifier(raw):
+        email = raw.lower()
+        users = safe_get(
+            "users",
+            {"email": f"eq.{email}", "select": "*", "limit": "1"},
+        )
+        user_row = users[0] if users else None
+        requests = safe_get(
+            "institution_verification_requests",
+            {"official_email": f"eq.{email}", "select": "*", "order": "created_at.desc", "limit": "1"},
+        )
+        request_row = requests[0] if requests else None
+        if request_row and request_row.get("submitted_by"):
+            submitted_users = safe_get(
+                "users",
+                {"id": f"eq.{request_row.get('submitted_by')}", "select": "*", "limit": "1"},
+            )
+            user_row = submitted_users[0] if submitted_users else user_row
+        phone = normalized_login_phone(str((request_row or {}).get("phone") or ""))
+    else:
+        phone = normalized_login_phone(raw)
+        if not phone or len(re.sub(r"\D", "", phone)) < 10:
+            raise HTTPException(status_code=400, detail="Enter a valid registered institution phone number.")
+        hashed_phone = phone_hash(phone)
+        users = safe_get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*", "limit": "1"})
+        user_row = users[0] if users else None
+        request_filters = [
+            {"phone": f"eq.{phone}", "select": "*", "order": "created_at.desc", "limit": "1"},
+            {"phone": f"eq.{re.sub(r'^\+91', '', phone)}", "select": "*", "order": "created_at.desc", "limit": "1"},
+        ]
+        for filters in request_filters:
+            requests = safe_get("institution_verification_requests", filters)
+            if requests:
+                request_row = requests[0]
+                break
+
+    if not user_row and request_row and request_row.get("submitted_by"):
+        users = safe_get("users", {"id": f"eq.{request_row.get('submitted_by')}", "select": "*", "limit": "1"})
+        user_row = users[0] if users else None
+
+    if not user_row or not user_has_institution_access(user_row):
+        raise HTTPException(status_code=404, detail="No registered institution account found. Please register your institution first.")
+    if not phone or len(re.sub(r"\D", "", phone)) < 10:
+        raise HTTPException(status_code=400, detail="This institution account has no verified phone number. Contact support or log in with the registered phone.")
+
+    return {"phone": phone, "user": user_row, "request": request_row}
+
+
+def verify_phone_otp_code(phone: str, code: str) -> None:
+    if not phone or len(phone) < 10:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+
+    if DEV_MODE:
+        if code != DEV_OTP_CODE:
+            raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
+        return
+
+    try:
+        challenges = db.get("otp_challenges", {
+            "phone": f"eq.{phone}",
+            "verified": "eq.false",
+            "order": "created_at.desc",
+            "limit": "1"
+        })
+        
+        if not challenges:
+            raise HTTPException(status_code=400, detail="No OTP found for this number. Please request a new one.")
+        
+        challenge = challenges[0]
+        expires_at_str = challenge.get("expires_at", "")
+        expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
+        
+        if challenge["attempts"] >= 3:
+            raise HTTPException(status_code=429, detail="Too many failed attempts. Please request a new OTP.")
+        
+        if not verify_otp_code(code, challenge["code_hash"]):
+            db.patch("otp_challenges", 
+                {"id": f"eq.{challenge['id']}"}, 
+                {"attempts": challenge["attempts"] + 1}
+            )
+            raise HTTPException(status_code=400, detail="Invalid OTP code. Please try again.")
+        
+        db.patch("otp_challenges",
+            {"id": f"eq.{challenge['id']}"},
+            {"verified": True, "verified_at": now_iso()}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.info(f"OTP verification error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to verify OTP. Please try again.")
+
+
+def create_auth_session_for_user(user: dict[str, Any], is_new_user: bool, platform: Optional[str], x_device_id: Optional[str]) -> dict[str, Any]:
+    device_id = x_device_id or str(uuid.uuid4())
+    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
+    device_data = {
+        "platform": platform or "unknown",
+        "trusted": True,
+        "last_seen_at": now_iso(),
+    }
+    if existing_device:
+        db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
+    else:
+        db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
+    
+    role = user.get("account_type") or "normal_user"
+    access = create_access_token(user["id"], role)
+    refresh = str(uuid.uuid4())
+    
+    return {
+        "accessToken": access,
+        "refreshToken": refresh,
+        "userId": user["id"],
+        "isNewUser": is_new_user,
+        "user": serialize_user(user),
+    }
+
+
 @app.post("/v1/auth/otp/start")
 def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
     """Start OTP authentication - Sends real SMS via Twilio or uses dev mode."""
-    phone = payload.phone.strip()
+    phone = normalized_login_phone(payload.phone)
 
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
@@ -758,7 +940,7 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
     # Fast DB check for registration/login
     if payload.action:
         hashed_phone = phone_hash(phone)
-        user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "id", "limit": "1"})
+        user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*", "limit": "1"})
         is_registered = bool(user_rows)
 
         if payload.action == "register" and is_registered:
@@ -766,6 +948,8 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
         
         if payload.action == "login" and not is_registered:
             raise HTTPException(status_code=400, detail="Number is not registered. Please register first.")
+        if payload.action == "login" and user_rows:
+            ensure_user_login_allowed(user_rows[0])
 
 
     # Development mode - return success without sending
@@ -819,21 +1003,75 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
     }
 
 
+@app.post("/v1/auth/institution/otp/start")
+def start_institution_otp(payload: StartInstitutionOtpDto) -> dict[str, Any]:
+    """Start OTP for registered institution accounts only."""
+    login = find_institution_login(payload.identifier)
+    phone = login["phone"]
+
+    if DEV_MODE:
+        return {
+            "success": True,
+            "challengeId": str(uuid.uuid4()),
+            "expiresInSeconds": 300,
+            "message": f"OTP sent to {phone}",
+            "phone": phone,
+            "devMode": True,
+            "devCode": DEV_OTP_CODE,
+        }
+
+    if not twilio_otp or not twilio_otp.enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="OTP service not configured. Contact support."
+        )
+
+    success, message, otp_code = send_otp_sms(phone)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+
+    challenge_id = str(uuid.uuid4())
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    try:
+        db.post("otp_challenges", {
+            "id": challenge_id,
+            "phone": phone,
+            "code_hash": hash_otp_code(otp_code),
+            "attempts": 0,
+            "verified": False,
+            "expires_at": expires_at,
+            "created_at": now_iso(),
+        })
+    except Exception as e:
+        logger.info(f"Failed to store institution OTP challenge: {e}")
+
+    return {
+        "success": True,
+        "challengeId": challenge_id,
+        "expiresInSeconds": 300,
+        "message": message,
+        "phone": phone,
+        "devMode": False,
+    }
+
+
 @app.post("/v1/auth/otp/verify-dev")
 @app.post("/v1/auth/otp/verify-code")
 def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
     """Verify OTP code - Works with both dev mode and Twilio."""
-    phone = payload.phone.strip()
+    phone = normalized_login_phone(payload.phone)
     code = payload.code.strip()
 
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
 
+    verify_phone_otp_code(phone, code)
+
     # Development mode - check against dev OTP
-    if DEV_MODE:
+    if False:
         if code != DEV_OTP_CODE:
             raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
-    else:
+    elif False:
         # Production mode - verify against stored OTP
         try:
             # Get OTP challenge from database
@@ -889,6 +1127,7 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
     
     if user_rows:
         user = user_rows[0]
+        ensure_user_login_allowed(user)
     else:
         user = db.post(
             "users",
@@ -944,6 +1183,7 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
     is_new_user = not bool(user_rows)
     if user_rows:
         user = user_rows[0]
+        ensure_user_login_allowed(user)
     else:
         user = db.post(
             "users",
@@ -981,6 +1221,28 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
         "isNewUser": is_new_user,
         "user": serialize_user(user),
     }
+
+
+@app.post("/v1/auth/institution/otp/verify")
+def verify_institution_otp(payload: VerifyInstitutionOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    phone = normalized_login_phone(payload.phone)
+    code = payload.code.strip()
+    login = find_institution_login(payload.identifier or phone)
+
+    if normalized_login_phone(login["phone"]) != phone:
+        raise HTTPException(status_code=400, detail="This OTP does not match the registered institution account.")
+
+    verify_phone_otp_code(phone, code)
+    user = login["user"]
+    if user.get("account_type") != "institution_admin":
+        patched = db.patch(
+            "users",
+            {"id": f"eq.{user['id']}"},
+            {"account_type": "institution_admin", "can_create_posts": True, "can_create_groups": True, "updated_at": now_iso()},
+        )
+        user = patched[0] if patched else {**user, "account_type": "institution_admin", "can_create_posts": True, "can_create_groups": True}
+
+    return create_auth_session_for_user(user, False, payload.platform, x_device_id)
 
 
 class RefreshRequest(BaseModel):
