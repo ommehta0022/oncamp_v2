@@ -980,29 +980,45 @@ async def delete_user(user_id: str, admin: dict = Depends(get_current_admin)):
         print(f"Warning: Failed to blacklist user tokens: {e}")
 
     # Cascade delete related data first (FK constraints)
-    try:
-        db_client.delete("user_devices", {"user_id": f"eq.{user_id}"})
-    except Exception:
-        pass
-    try:
-        db_client.delete("group_members", {"user_id": f"eq.{user_id}"})
-    except Exception:
-        pass
-    try:
-        db_client.delete("messages", {"sender_id": f"eq.{user_id}"})
-    except Exception:
-        pass
-    try:
-        db_client.delete("notifications", {"user_id": f"eq.{user_id}"})
-    except Exception:
-        pass
-    try:
-        db_client.delete("otp_challenges", {"phone": f"eq.{user_id}"})
-    except Exception:
-        pass
+    tables_to_delete = [
+        ("post_comments", "user_id"),
+        ("user_settings", "user_id"),
+        ("saved_posts", "user_id"),
+        ("posts", "author_id"),
+        ("user_activity_aggregates", "user_id"),
+        ("institution_admins", "user_id"),
+        ("analytics_events", "user_id"),
+        ("refresh_tokens", "user_id"),
+        ("active_group_members", "user_id"),
+        ("user_blocks", "blocker_id"),
+        ("user_blocks", "blocked_user_id"),
+        ("error_logs", "user_id"),
+        ("group_post_requests", "requester_id"),
+        ("post_views", "user_id"),
+        ("group_member_mutes", "user_id"),
+        ("token_blacklist", "user_id"),
+        ("user_follows", "follower_id"),
+        ("user_follows", "following_id"),
+        ("group_member_bans", "user_id"),
+        ("join_requests", "user_id"),
+        ("user_devices", "user_id"),
+        ("group_members", "user_id"),
+        ("messages", "sender_id"),
+        ("notifications", "user_id"),
+        ("user_institutions", "user_id"),
+        ("otp_challenges", "phone")
+    ]
+    for table, col in tables_to_delete:
+        try:
+            db_client.delete(table, {col: f"eq.{user_id}"})
+        except Exception:
+            pass
 
     # Hard-delete the user row
-    db_client.delete("users", {"id": f"eq.{user_id}"})
+    try:
+        db_client.delete("users", {"id": f"eq.{user_id}"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete user due to constraints: {str(e)}")
 
     log_admin_action(admin, "USER_DELETE", f"Permanently deleted user: {user_name}", "user", user_id)
     return {"success": True, "message": f"User '{user_name}' permanently deleted"}
@@ -2345,3 +2361,59 @@ async def send_admin_notification(data: dict, admin: dict = Depends(get_current_
             k: {"status": "sent"} for k, v in data.get("channels", {}).items() if v
         }
     }
+
+
+@router.get("/institutions")
+async def get_all_institutions(
+    page: int = 1, limit: int = 50, search: Optional[str] = None, status: Optional[str] = None, admin: dict = Depends(get_current_admin)
+):
+    params = {}
+    if search: params["name"] = f"ilike.*{search}*"
+    if status: params["status"] = f"eq.{status}"
+    return table_rows("institutions", params, page, limit)
+
+@router.get("/institutions/{institution_id}")
+async def get_institution_by_id(institution_id: str, admin: dict = Depends(get_current_admin)):
+    rows = safe_get("institutions", {"id": f"eq.{institution_id}"})
+    if not rows: raise HTTPException(status_code=404, detail="Institution not found")
+    return {"data": rows[0]}
+
+@router.patch("/institutions/{institution_id}")
+async def update_institution(institution_id: str, data: dict, admin: dict = Depends(get_current_admin)):
+    updated = safe_patch("institutions", {"id": f"eq.{institution_id}"}, data)
+    if not updated: raise HTTPException(status_code=404, detail="Institution not found")
+    return {"success": True, "data": updated[0]}
+
+@router.delete("/institutions/{institution_id}")
+async def delete_institution(institution_id: str, admin: dict = Depends(get_current_admin)):
+    deleted = safe_delete("institutions", {"id": f"eq.{institution_id}"})
+    if not deleted: raise HTTPException(status_code=404, detail="Institution not found")
+    return {"success": True}
+
+@router.get("/posts")
+async def get_all_posts(
+    page: int = 1, limit: int = 50, search: Optional[str] = None, type: Optional[str] = None, status: Optional[str] = None, admin: dict = Depends(get_current_admin)
+):
+    params = {}
+    if search: params["title"] = f"ilike.*{search}*"
+    if type and type != 'all': params["type"] = f"eq.{type}"
+    if status and status != 'all': params["status"] = f"eq.{status}"
+    return table_rows("posts", params, page, limit)
+
+@router.get("/posts/{post_id}")
+async def get_post_by_id(post_id: str, admin: dict = Depends(get_current_admin)):
+    rows = safe_get("posts", {"id": f"eq.{post_id}"})
+    if not rows: raise HTTPException(status_code=404, detail="Post not found")
+    return {"data": rows[0]}
+
+@router.patch("/posts/{post_id}")
+async def update_post(post_id: str, data: dict, admin: dict = Depends(get_current_admin)):
+    updated = safe_patch("posts", {"id": f"eq.{post_id}"}, data)
+    if not updated: raise HTTPException(status_code=404, detail="Post not found")
+    return {"success": True, "data": updated[0]}
+
+@router.delete("/posts/{post_id}")
+async def delete_post(post_id: str, admin: dict = Depends(get_current_admin)):
+    deleted = safe_delete("posts", {"id": f"eq.{post_id}"})
+    if not deleted: raise HTTPException(status_code=404, detail="Post not found")
+    return {"success": True}
