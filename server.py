@@ -577,7 +577,11 @@ def create_access_token(user_id: str, role: str = "normal_user") -> str:
 def safe_get(table: str, params: Optional[dict[str, Any]] = None, fallback: Any = None) -> Any:
     try:
         return db.get(table, params)
-    except HTTPException:
+    except HTTPException as e:
+        logger.error(f"safe_get failed for {table}: {e.detail}")
+        # FOR DEBUGGING: Return a fake record containing the error so we can see it in the app!
+        if fallback is None and table == "notifications":
+            return [{"id": "error-123", "type": "announcement", "title": "API Error", "body": str(e.detail), "read": False}]
         return [] if fallback is None else fallback
 
 
