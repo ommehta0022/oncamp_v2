@@ -82,7 +82,7 @@ export default function GroupSearch() {
               ) : query.trim().length >= 2 ? (
                 <EmptyState icon="search-outline" title="No messages found" message="Try a different keyword." />
               ) : (
-                <EmptyState icon="chatbubbles-outline" title="Search Chat" message="Enter at least 2 characters to search past messages." />
+                <EmptyState icon="search-circle-outline" title="Search Chat" message="Enter at least 2 characters to search past messages." />
               )}
             </View>
           }

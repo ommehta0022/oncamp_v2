@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, useWindowDimensions } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,45 +9,78 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
+import { normalizeGroup } from "@/src/lib/mappers";
+import { useToast } from "@/src/components/Toast";
+
 type DiscoverCard = any;
-const discoverCategories = ["Trending", "Academics", "Sports", "Social", "Career", "Tech", "Arts"];
+
+const discoverCategories = ["Trending", "Institution", "Exam Prep", "Entrepreneurship", "Creative", "Sports", "Culture"];
+const categoryAliases: Record<string, string[]> = {
+  Institution: ["institution", "official", "batch"],
+  "Exam Prep": ["exam", "study", "career"],
+  Entrepreneurship: ["entrepreneurship", "startup", "tech", "career"],
+  Creative: ["creative", "arts", "design"],
+  Sports: ["sports"],
+  Culture: ["culture", "clubs", "events"],
+};
 
 export default function Discover() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [category, setCategory] = useState<string>("Trending");
+  const { showToast } = useToast();
+  const [category, setCategory] = useState("Trending");
   const [query, setQuery] = useState("");
   const [discoverCards, setDiscoverCards] = useState<DiscoverCard[]>([]);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const { width } = useWindowDimensions();
 
   useEffect(() => {
     const fetchDiscover = async () => {
       try {
-        const cached = await cache.get("discover_groups");
-        if (cached) setDiscoverCards(cached as any);
+        const cached = await cache.get<DiscoverCard[]>("discover_groups");
+        if (cached?.length) setDiscoverCards(cached.map(normalizeGroup));
         const res = await api.groups.discover("");
-        setDiscoverCards((res as any).groups || res || []);
-        await cache.set("discover_groups", (res as any).groups || res || []);
+        const next = ((res as any).groups || res || []).map(normalizeGroup);
+        setDiscoverCards(next);
+        await cache.set("discover_groups", next);
       } catch {}
     };
-    fetchDiscover();
+    void fetchDiscover();
   }, []);
-  const { width } = useWindowDimensions();
 
   const cardWidth = (width - spacing.lg * 2 - spacing.md) / 2;
 
   const filtered = useMemo(() => {
     let list = discoverCards;
     if (category !== "Trending") {
-      list = list.filter((c) => c.category.toLowerCase().includes(category.toLowerCase()));
+      list = list.filter((card) => {
+        const haystack = `${card.category || ""} ${card.title || card.name || ""} ${card.description || ""}`.toLowerCase();
+        if (category === "Institution") return card.official || card.verified || categoryAliases.Institution.some((alias) => haystack.includes(alias));
+        return (categoryAliases[category] || [category]).some((alias) => haystack.includes(alias.toLowerCase()));
+      });
     }
-    if (query) {
-      list = list.filter((c) =>
-        c.title.toLowerCase().includes(query.toLowerCase()) ||
-        c.city.toLowerCase().includes(query.toLowerCase())
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      list = list.filter((card) =>
+        String(card.title || card.name || "").toLowerCase().includes(q) ||
+        String(card.city || card.institution || "").toLowerCase().includes(q)
       );
     }
     return list;
   }, [category, discoverCards, query]);
+
+  const joinGroup = async (groupId: string) => {
+    if (joiningId) return;
+    setJoiningId(groupId);
+    try {
+      await api.groups.join(groupId);
+      showToast({ message: "Join request sent", variant: "success" });
+    } catch (err) {
+      showToast({ message: err instanceof Error ? err.message : "Could not request to join this group.", variant: "error" });
+    } finally {
+      setJoiningId(null);
+    }
+  };
 
   const sectionLabel = category === "Trending" ? "TRENDING IN MUMBAI" : category.toUpperCase();
 
@@ -83,12 +116,12 @@ export default function Discover() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: "center" }}
         >
-          {discoverCategories.map((c) => {
-            const active = category === c;
+          {discoverCategories.map((item) => {
+            const active = category === item;
             return (
               <Pressable
-                key={c}
-                onPress={() => setCategory(c)}
+                key={item}
+                onPress={() => setCategory(item)}
                 style={[
                   styles.chip,
                   {
@@ -96,16 +129,10 @@ export default function Discover() {
                     borderColor: active ? "#111414" : colors.borderStrong,
                   },
                 ]}
-                testID={`discover-chip-${c}`}
+                testID={`discover-chip-${item}`}
               >
-                <Text
-                  style={{
-                    color: active ? "#fff" : colors.onSurface,
-                    fontSize: font.base,
-                    fontWeight: "500",
-                  }}
-                >
-                  {c}
+                <Text style={{ color: active ? "#fff" : colors.onSurface, fontSize: font.base, fontWeight: "500" }}>
+                  {item}
                 </Text>
               </Pressable>
             );
@@ -113,15 +140,19 @@ export default function Discover() {
         </ScrollView>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
-      >
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>{sectionLabel}</Text>
 
         <View style={styles.grid}>
           {filtered.map((card) => (
-            <DiscoverCardTile key={card.id} card={card} width={cardWidth} onPress={() => router.push(`/group/info/${card.id}`)} />
+            <DiscoverCardTile
+              key={card.id}
+              card={card}
+              width={cardWidth}
+              joining={joiningId === card.id}
+              onJoin={() => joinGroup(card.id)}
+              onPress={() => router.push(`/group/info/${card.id}`)}
+            />
           ))}
         </View>
 
@@ -138,14 +169,33 @@ export default function Discover() {
   );
 }
 
-function DiscoverCardTile({ card, width, onPress }: { card: DiscoverCard; width: number; onPress: () => void }) {
+function DiscoverCardTile({
+  card,
+  width,
+  joining,
+  onJoin,
+  onPress,
+}: {
+  card: DiscoverCard;
+  width: number;
+  joining: boolean;
+  onJoin: () => void;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const title = card.title || card.name || "Group";
+  const members = card.membersText || `${Number(card.members || card.memberCount || 0).toLocaleString()} members`;
+  const location = [card.city, card.institution].filter(Boolean).join(" - ");
+
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.card, { width, height: width * 1.35 }]}
-      testID={`discover-card-${card.id}`}
-    >
-      <Image source={{ uri: card.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
+    <Pressable onPress={onPress} style={[styles.card, { width, height: width * 1.35 }]} testID={`discover-card-${card.id}`}>
+      {card.image ? (
+        <Image source={{ uri: card.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, styles.cardFallback, { backgroundColor: colors.brandPrimary }]}>
+          <Ionicons name="school" size={38} color={colors.onBrandPrimary} />
+        </View>
+      )}
       <LinearGradient
         colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.4)", "rgba(0,0,0,0.9)"]}
         locations={[0, 0.4, 1]}
@@ -154,13 +204,13 @@ function DiscoverCardTile({ card, width, onPress }: { card: DiscoverCard; width:
 
       <View style={styles.cardTop}>
         <View style={styles.categoryPill}>
-          <Text style={styles.categoryPillText}>{card.category}</Text>
+          <Text style={styles.categoryPillText}>{String(card.category || "Community").toUpperCase()}</Text>
         </View>
       </View>
 
       <View style={styles.cardBottom}>
         <View style={styles.titleRow}>
-          <Text style={styles.cardTitle} numberOfLines={2}>{card.title}</Text>
+          <Text style={styles.cardTitle} numberOfLines={2}>{title}</Text>
           {card.verified && (
             <View style={styles.verifiedDot}>
               <Ionicons name="checkmark" size={10} color="#fff" />
@@ -168,10 +218,18 @@ function DiscoverCardTile({ card, width, onPress }: { card: DiscoverCard; width:
           )}
         </View>
         <Text style={styles.cardMeta} numberOfLines={1}>
-          {card.members} · {card.city}
+          {members}{location ? ` - ${location}` : ""}
         </Text>
-        <Pressable style={styles.joinBtn} testID={`join-${card.id}`}>
-          <Text style={styles.joinBtnText}>Request to join</Text>
+        <Pressable
+          style={[styles.joinBtn, { opacity: joining ? 0.75 : 1 }]}
+          onPress={(event) => {
+            event.stopPropagation();
+            onJoin();
+          }}
+          disabled={joining}
+          testID={`join-${card.id}`}
+        >
+          {joining ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.joinBtnText}>Request to join</Text>}
         </Pressable>
       </View>
     </Pressable>
@@ -183,7 +241,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm,
   },
-  title: { fontSize: 30, fontWeight: "500", letterSpacing: -0.5 },
+  title: { fontSize: 30, fontWeight: "500", letterSpacing: 0 },
   filterBtn: {
     width: 40, height: 40, borderRadius: 20, borderWidth: 1,
     alignItems: "center", justifyContent: "center",
@@ -198,7 +256,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   sectionLabel: {
-    fontSize: 12, fontWeight: "500", letterSpacing: 0.5,
+    fontSize: 12, fontWeight: "500", letterSpacing: 0,
     paddingHorizontal: spacing.lg, marginBottom: spacing.md,
   },
   grid: {
@@ -207,6 +265,10 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: 20, overflow: "hidden", backgroundColor: "#222",
+  },
+  cardFallback: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   cardTop: {
     padding: spacing.md,
@@ -218,7 +280,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   categoryPillText: {
-    color: "#111414", fontSize: 10, fontWeight: "500", letterSpacing: 0.3,
+    color: "#111414", fontSize: 10, fontWeight: "500", letterSpacing: 0,
   },
   cardBottom: {
     position: "absolute", left: 0, right: 0, bottom: 0,
@@ -229,7 +291,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     flex: 1, color: "#fff", fontSize: font.lg, fontWeight: "500",
-    letterSpacing: -0.3, lineHeight: 22,
+    letterSpacing: 0, lineHeight: 22,
   },
   verifiedDot: {
     width: 16, height: 16, borderRadius: 8,

@@ -20,7 +20,7 @@ import { showImagePicker, uploadPostMedia } from "@/src/lib/imageUpload";
 import { validatePostContent } from "@/src/utils/validation";
 
 const POST_TYPES = [
-  { value: "general", label: "General", icon: "chatbubble-ellipses-outline" },
+  { value: "general", label: "General", icon: "create-outline" },
   { value: "announcement", label: "Announcement", icon: "megaphone-outline" },
   { value: "event", label: "Event", icon: "calendar-outline" },
   { value: "notice", label: "Notice", icon: "information-circle-outline" },

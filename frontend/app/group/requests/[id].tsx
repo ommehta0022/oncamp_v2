@@ -49,7 +49,7 @@ export default function Requests() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="requests-screen">
       <Header title="Join requests" subtitle={`${items.length} pending`} onBack={() => router.back()} />
       {items.length === 0 ? (
-        <EmptyState icon="checkmark-done" title="All caught up" message="No pending join requests right now." />
+        <EmptyState icon="shield-checkmark-outline" title="All caught up" message="No pending join requests right now." />
       ) : (
         <FlatList showsVerticalScrollIndicator={false}
           data={items}

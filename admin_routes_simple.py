@@ -1685,36 +1685,6 @@ async def resolve_error(error_id: str, admin: dict = Depends(get_current_admin))
 # SYSTEM CONTROL
 # ============================================================================
 
-@router.post("/system/cache/clear")
-async def clear_cache(admin: dict = Depends(get_current_admin)):
-    """Clear system cache - Super admin only"""
-    # Only super admins can clear cache
-    if admin.get("role") != "super_admin":
-        raise HTTPException(status_code=403, detail="Super admin access required")
-    
-    try:
-        # Log action
-        db_client.post("audit_logs", {
-            "admin_id": admin.get("user_id"),
-            "action": "CACHE_CLEAR",
-            "details": "System cache cleared"
-        })
-    except:
-        pass
-    
-    return {"success": True, "message": "Cache cleared successfully"}
-
-@router.get("/system/status")
-async def get_system_status(admin: dict = Depends(get_current_admin)):
-    """Get system status information"""
-    return {
-        "status": "operational",
-        "database": "connected",
-        "version": "1.0.0",
-        "uptime": "99.9%",
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
-
 @router.post("/system/restart")
 async def restart_system(admin: dict = Depends(get_current_admin)):
     """Restart system - Super admin only"""
@@ -1825,74 +1795,6 @@ async def unblock_ip(
     
     return {"success": True}
 
-@router.get("/security/blocked-keywords")
-async def get_blocked_keywords(admin: dict = Depends(get_current_admin)):
-    """Get all blocked keywords"""
-    keywords = db_client.get("blocked_keywords", {
-        "select": "*",
-        "order": "created_at.desc"
-    })
-    return {"data": keywords or []}
-
-@router.post("/security/blocked-keywords")
-async def add_blocked_keyword(
-    data: dict,
-    admin: dict = Depends(get_current_admin)
-):
-    """Add a blocked keyword"""
-    result = db_client.post("blocked_keywords", {
-        "keyword": data.get("keyword"),
-        "match_type": data.get("match_type", "exact"),
-        "category": data.get("category", "general"),
-        "added_by": admin.get("user_id")
-    })
-    
-    # Log action
-    try:
-        db_client.post("audit_logs", {
-            "admin_id": admin.get("user_id"),
-            "action": "KEYWORD_ADD",
-            "details": f"Blocked keyword added: {data.get('keyword')}"
-        })
-    except:
-        pass
-    
-    return result[0] if result else {"success": True}
-
-@router.delete("/security/blocked-keywords/{keyword_id}")
-async def remove_blocked_keyword(
-    keyword_id: str,
-    admin: dict = Depends(get_current_admin)
-):
-    """Remove a blocked keyword"""
-    db_client.delete("blocked_keywords", {"id": f"eq.{keyword_id}"})
-    
-    # Log action
-    try:
-        db_client.post("audit_logs", {
-            "admin_id": admin.get("user_id"),
-            "action": "KEYWORD_REMOVE",
-            "target_id": keyword_id,
-            "details": "Blocked keyword removed"
-        })
-    except:
-        pass
-    
-    return {"success": True}
-
-@router.get("/security/failed-logins")
-async def get_failed_logins(
-    admin: dict = Depends(get_current_admin),
-    limit: int = 100
-):
-    """Get recent failed login attempts"""
-    attempts = db_client.get("failed_login_attempts", {
-        "select": "*",
-        "order": "created_at.desc",
-        "limit": str(limit)
-    })
-    return {"data": attempts or []}
-
 @router.post("/security/failed-logins/clear")
 async def clear_failed_logins(admin: dict = Depends(get_current_admin)):
     """Clear old failed login attempts (older than 30 days)"""
@@ -1911,15 +1813,6 @@ async def clear_failed_logins(admin: dict = Depends(get_current_admin)):
         pass
     
     return {"success": True, "message": "Old failed login attempts cleared"}
-
-@router.get("/security/rate-limits")
-async def get_rate_limits(admin: dict = Depends(get_current_admin)):
-    """Get all rate limit configurations"""
-    limits = db_client.get("rate_limit_config", {
-        "select": "*",
-        "order": "created_at.desc"
-    })
-    return {"data": limits or []}
 
 @router.post("/security/rate-limits")
 async def add_rate_limit(
@@ -1999,46 +1892,6 @@ async def delete_rate_limit(
         pass
     
     return {"success": True}
-
-@router.get("/security/alerts")
-async def get_security_alerts(
-    admin: dict = Depends(get_current_admin),
-    limit: int = 50
-):
-    """Get recent security alerts"""
-    # Get recent audit logs that might be security-related
-    alerts = db_client.get("audit_logs", {
-        "select": "*",
-        "action": "in.(IP_BLOCK,FAILED_LOGIN,SECURITY_ALERT,SUSPICIOUS_ACTIVITY)",
-        "order": "created_at.desc",
-        "limit": str(limit)
-    })
-    
-    # Also get recent failed logins
-    failed_logins = db_client.get("failed_login_attempts", {
-        "select": "*",
-        "order": "created_at.desc",
-        "limit": "20"
-    })
-    
-    # Get blocked IPs that are recent
-    blocked_ips = db_client.get("blocked_ips", {
-        "select": "*",
-        "order": "created_at.desc",
-        "limit": "10"
-    })
-    
-    return {
-        "audit_alerts": alerts or [],
-        "failed_logins": failed_logins or [],
-        "recent_blocks": blocked_ips or [],
-        "summary": {
-            "total_alerts": len(alerts) if alerts else 0,
-            "failed_logins_count": len(failed_logins) if failed_logins else 0,
-            "blocked_ips_count": len(blocked_ips) if blocked_ips else 0
-        }
-    }
-
 
 # ============================================================================
 # PLATFORM SETTINGS
@@ -2248,96 +2101,4 @@ async def toggle_maintenance_mode(
         "success": True,
         "maintenance_mode": enabled,
         "message": message
-    }
-
-
-@router.get("/settings")
-async def get_settings(admin: dict = Depends(get_current_admin)):
-    settings = db_client.get("system_settings", {"select": "*"})
-    if not settings:
-        return {}
-    return {row["key"]: row["value"] for row in settings}
-
-@router.patch("/settings")
-async def update_settings(data: dict, admin: dict = Depends(get_current_admin)):
-    for key, value in data.items():
-        existing = db_client.get("system_settings", {"key": f"eq.{key}"})
-        if existing:
-            db_client.patch("system_settings", {"key": f"eq.{key}"}, {"value": value})
-        else:
-            db_client.post("system_settings", {"key": key, "value": value})
-    
-    try:
-        db_client.post("audit_logs", {
-            "admin_id": admin.get("user_id"),
-            "action": "SETTINGS_UPDATE",
-            "details": f"Platform settings updated: {', '.join(data.keys())}"
-        })
-    except:
-        pass
-        
-    return {"success": True}
-
-@router.get("/security/blocked-ips")
-async def get_blocked_ips(admin: dict = Depends(get_current_admin)):
-    return []
-
-@router.post("/security/blocked-ips")
-async def add_blocked_ip(data: dict, admin: dict = Depends(get_current_admin)):
-    return {"success": True}
-
-@router.delete("/security/blocked-ips/{ip}")
-async def remove_blocked_ip(ip: str, admin: dict = Depends(get_current_admin)):
-    return {"success": True}
-
-@router.get("/security/rate-limits")
-async def get_rate_limits(admin: dict = Depends(get_current_admin)):
-    return []
-
-@router.patch("/security/rate-limits")
-async def update_rate_limits(data: dict, admin: dict = Depends(get_current_admin)):
-    return {"success": True}
-
-@router.get("/security/blocked-keywords")
-async def get_blocked_keywords(admin: dict = Depends(get_current_admin)):
-    return []
-
-@router.post("/security/blocked-keywords")
-async def add_blocked_keyword(data: dict, admin: dict = Depends(get_current_admin)):
-    return {"success": True}
-
-@router.delete("/security/blocked-keywords/{id}")
-async def delete_blocked_keyword(id: str, admin: dict = Depends(get_current_admin)):
-    return {"success": True}
-
-@router.get("/security/failed-logins")
-async def get_failed_logins(admin: dict = Depends(get_current_admin)):
-    return []
-
-@router.post("/security/failed-logins/clear")
-async def clear_failed_logins(admin: dict = Depends(get_current_admin)):
-    return {"success": True}
-
-@router.get("/security/alerts")
-async def get_security_alerts(admin: dict = Depends(get_current_admin)):
-    return []
-
-
-@router.get("/notifications")
-async def get_admin_notifications(limit: int = 50, admin: dict = Depends(get_current_admin)):
-    return {"data": [], "channels": {"inApp": True, "push": False}}
-
-@router.get("/notifications/stats")
-async def get_admin_notification_stats(admin: dict = Depends(get_current_admin)):
-    return {"unread": 0, "recent": []}
-
-@router.post("/notifications")
-async def send_admin_notification(data: dict, admin: dict = Depends(get_current_admin)):
-    # Mocking successful notification creation
-    return {
-        "success": True, 
-        "targetedUsers": len(data.get("userIds", [])) if data.get("target") == "users" else 0,
-        "delivery": {
-            k: {"status": "sent"} for k, v in data.get("channels", {}).items() if v
-        }
     }

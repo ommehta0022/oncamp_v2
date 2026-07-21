@@ -22,7 +22,7 @@ export default function InstitutionDashboard() {
   const counts = dashboard?.counts || {};
   const kpis = [
     { label: "Members", value: counts.members || 0, icon: "people" as const, color: "#2E5C4E" },
-    { label: "Groups", value: counts.groups || 0, icon: "chatbubbles" as const, color: "#E87A5D" },
+    { label: "Groups", value: counts.groups || 0, icon: "people-circle" as const, color: "#E87A5D" },
     { label: "Posts", value: counts.posts || 0, icon: "megaphone" as const, color: "#4A788C" },
     { label: "Requests", value: counts.verificationRequests || 0, icon: "clipboard" as const, color: "#D9983A" },
   ];
@@ -58,7 +58,7 @@ export default function InstitutionDashboard() {
                 <Ionicons name={k.icon} size={16} color={k.color} />
               </View>
               <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: spacing.sm }}>{k.label}</Text>
-              <Text style={{ color: colors.onSurface, fontSize: 22, fontWeight: "500", letterSpacing: -0.5, marginTop: 2 }}>{Number(k.value).toLocaleString()}</Text>
+              <Text style={{ color: colors.onSurface, fontSize: 22, fontWeight: "500", letterSpacing: 0, marginTop: 2 }}>{Number(k.value).toLocaleString()}</Text>
             </View>
           ))}
         </View>
@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
   verifiedRow: { flexDirection: "row", gap: 6 },
   verifiedPill: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#2E5C4E", paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill },
   verifiedText: { color: "#fff", fontSize: 10, fontWeight: "500", letterSpacing: 0.3 },
-  heroTitle: { color: "#fff", fontSize: 26, fontWeight: "500", letterSpacing: -0.5, marginTop: spacing.sm },
+  heroTitle: { color: "#fff", fontSize: 26, fontWeight: "500", letterSpacing: 0, marginTop: spacing.sm },
   heroSubtitle: { color: "#ffffffcc", fontSize: font.sm, marginTop: 2 },
   kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, paddingHorizontal: spacing.lg },
   kpi: { width: "47.5%", padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },

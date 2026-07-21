@@ -197,7 +197,7 @@ function PostCard({ post, onLike }: { post: FeedPostDto | any; onLike: () => voi
           color={post.liked ? colors.brandSecondary : colors.onSurfaceTertiary}
           onPress={onLike}
         />
-        <ActionBtn icon="chatbubble-outline" label={String(post.comments)} color={colors.onSurfaceTertiary} />
+        <ActionBtn icon="reader-outline" label={String(post.comments)} color={colors.onSurfaceTertiary} />
         <ActionBtn icon="repeat-outline" label={String(post.reposts)} color={colors.onSurfaceTertiary} />
         <ActionBtn icon={post.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={colors.onSurfaceTertiary} />
       </View>
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 56,
   },
-  brand: { fontSize: 22, fontWeight: "500", letterSpacing: -0.5 },
+  brand: { fontSize: 22, fontWeight: "500", letterSpacing: 0 },
   headerActions: { flexDirection: "row", gap: spacing.sm },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 },
   composer: {

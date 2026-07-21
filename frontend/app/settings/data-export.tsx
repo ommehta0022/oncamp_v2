@@ -34,7 +34,7 @@ export default function DataExport() {
             What&apos;s included:
           </Text>
           <InfoItem icon="person" text="Profile information and settings" />
-          <InfoItem icon="chatbubbles" text="All your posts and comments" />
+          <InfoItem icon="document-text" text="All your posts and comments" />
           <InfoItem icon="mail" text="Group messages you've sent" />
           <InfoItem icon="bookmark" text="Saved posts and bookmarks" />
           <InfoItem icon="people" text="Groups you've joined" />

@@ -5,6 +5,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "./Avatar";
 import { api, GroupDto } from "@/src/lib/api";
+import { normalizeGroup } from "@/src/lib/mappers";
 
 type Props = {
   visible: boolean;
@@ -25,7 +26,7 @@ export default function ForwardModal({ visible, messageContent, onClose, onForwa
       setQuery("");
       setLoading(true);
       api.groups.listMine()
-        .then(res => setGroups(res))
+        .then(res => setGroups(res.map(normalizeGroup)))
         .catch(() => setGroups([]))
         .finally(() => setLoading(false));
     }
@@ -88,7 +89,7 @@ export default function ForwardModal({ visible, messageContent, onClose, onForwa
                   <Avatar uri={item.avatarUrl} name={item.name} size={44} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{item.name}</Text>
-                    <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{item.memberCount || 0} members</Text>
+                    <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{(item.memberCount || 0).toLocaleString()} members</Text>
                   </View>
                   {forwardingTo === item.id ? (
                     <ActivityIndicator size="small" color={colors.brandPrimary} />

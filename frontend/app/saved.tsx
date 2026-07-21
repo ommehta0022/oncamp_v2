@@ -10,14 +10,15 @@ import Avatar from "@/src/components/Avatar";
 import Header from "@/src/components/Header";
 import EmptyState from "@/src/components/EmptyState";
 import { api, FeedPostDto } from "@/src/lib/api";
+import { normalizePost } from "@/src/lib/mappers";
 
 export default function Saved() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [savedPosts, setSavedPosts] = useState<FeedPostDto[]>([]);
+  const [savedPosts, setSavedPosts] = useState<(FeedPostDto | any)[]>([]);
 
   useEffect(() => {
-    api.saved.list().then(setSavedPosts).catch(() => setSavedPosts([]));
+    api.saved.list().then((rows) => setSavedPosts(rows.map(normalizePost))).catch(() => setSavedPosts([]));
   }, []);
 
   return (
@@ -36,7 +37,7 @@ export default function Saved() {
               style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
             >
               <View style={{ flexDirection: "row", gap: spacing.md, alignItems: "center" }}>
-                <Avatar uri={item.author?.avatarUrl} name={item.author?.name || "User"} size={40} verified={item.author?.verified} />
+                <Avatar uri={item.author?.avatarUrl || item.author?.avatar} name={item.author?.name || "User"} size={40} verified={item.author?.verified} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{item.author?.name || "User"}</Text>
                   <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{item.createdAt}</Text>
@@ -46,7 +47,7 @@ export default function Saved() {
               <Text style={{ color: colors.onSurface, fontSize: font.base, lineHeight: 20, marginTop: spacing.md }} numberOfLines={3}>
                 {item.content}
               </Text>
-              {(item.imageUrl || item.mediaUrl) && <Image source={{ uri: item.imageUrl || item.mediaUrl }} style={styles.img} contentFit="cover" />}
+              {(item.image || item.imageUrl || item.mediaUrl) && <Image source={{ uri: item.image || item.imageUrl || item.mediaUrl }} style={styles.img} contentFit="cover" />}
             </Pressable>
           )}
         />

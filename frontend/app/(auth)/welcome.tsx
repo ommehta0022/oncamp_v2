@@ -9,6 +9,20 @@ import { font, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import { onboardingSlides } from "@/src/data/onboarding";
 
+function formatOnboardingTitle(title = "") {
+  return title
+    .replace("Your campus, in one feed", "Your campus,\nin one feed")
+    .replace("Discover groups worth joining", "Discover groups worth\njoining")
+    .replace("Communicate the campus way", "Communicate the\ncampus way");
+}
+
+function formatOnboardingSubtitle(subtitle = "") {
+  return subtitle
+    .replace(", all in one place.", ",\nall in one place.")
+    .replace(", find your people.", ",\nfind your people.")
+    .replace(". No spam.", ".\nNo spam.");
+}
+
 export default function Welcome() {
   const { width, height } = useWindowDimensions();
   useTheme();
@@ -16,6 +30,7 @@ export default function Welcome() {
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
+  const contentWidth = Math.max(0, width - spacing.xl * 2);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -56,9 +71,9 @@ export default function Welcome() {
           <Text style={styles.brandLabel}>OnCampus</Text>
         </View>
 
-        <View style={styles.slideTextWrap} pointerEvents="none">
-          <Text style={styles.title}>{onboardingSlides[index]?.title}</Text>
-          <Text style={styles.subtitle}>{onboardingSlides[index]?.subtitle}</Text>
+        <View style={[styles.slideTextWrap, { width: contentWidth }]} pointerEvents="none">
+          <Text style={[styles.title, { maxWidth: contentWidth }]}>{formatOnboardingTitle(onboardingSlides[index]?.title)}</Text>
+          <Text style={[styles.subtitle, { maxWidth: contentWidth }]}>{formatOnboardingSubtitle(onboardingSlides[index]?.subtitle)}</Text>
         </View>
 
         <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom + spacing.md, spacing.xl) }]}>
@@ -86,7 +101,7 @@ export default function Welcome() {
             style={{ marginTop: spacing.md, alignItems: "center", paddingVertical: 8 }}
             testID="welcome-login-btn"
           >
-            <Text style={{ color: "#fff", fontSize: font.base }}>
+            <Text style={styles.loginText}>
               Already have an account?{" "}
               <Text style={{ fontWeight: "500", color: "#fff" }}>Log in</Text>
             </Text>
@@ -96,9 +111,9 @@ export default function Welcome() {
             style={{ marginTop: 2, alignItems: "center", paddingVertical: 8 }}
             testID="welcome-register-institution-btn"
           >
-            <Text style={{ color: "#ffffffcc", fontSize: font.sm }}>
-              Represent a school or college?{" "}
-              <Text style={{ fontWeight: "500", color: "#fff" }}>Register your institution →</Text>
+            <Text style={styles.institutionText}>
+              Represent a school or college?{"\n"}
+              <Text style={{ fontWeight: "500", color: "#fff" }}>Register your institution</Text>
             </Text>
           </Pressable>
         </View>
@@ -121,19 +136,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   brand: { color: "#fff", fontWeight: "500", fontSize: font.lg },
-  brandLabel: { color: "#fff", fontSize: font.lg, fontWeight: "500", letterSpacing: -0.3 },
+  brandLabel: { color: "#fff", fontSize: font.lg, fontWeight: "500", letterSpacing: 0 },
   slideTextWrap: {
     position: "absolute",
     left: spacing.xl,
-    right: spacing.xl,
     bottom: 260,
   },
-  title: { color: "#fff", fontSize: 32, fontWeight: "500", letterSpacing: -0.6, lineHeight: 38 },
-  subtitle: { color: "#ffffffdd", fontSize: font.lg, marginTop: spacing.sm, lineHeight: 22 },
+  title: { color: "#fff", fontSize: 32, fontWeight: "500", letterSpacing: 0, lineHeight: 38, flexShrink: 1 },
+  subtitle: { color: "#ffffffdd", fontSize: font.lg, marginTop: spacing.sm, lineHeight: 22, flexShrink: 1 },
   bottom: {
     position: "absolute", left: 0, right: 0, bottom: 0,
     paddingHorizontal: spacing.xl,
   },
+  loginText: { color: "#fff", fontSize: font.base, textAlign: "center", flexShrink: 1 },
+  institutionText: { color: "#ffffffcc", fontSize: font.sm, textAlign: "center", flexShrink: 1, lineHeight: 18 },
   dots: { flexDirection: "row", gap: 6, justifyContent: "center", marginBottom: spacing.xl },
   dot: { height: 6, borderRadius: 3 },
 });

@@ -240,7 +240,7 @@ export default function PostDetail() {
               </Pressable>
               
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingRight: 16 }}>
-                <Ionicons name="chatbubble-outline" size={20} color={colors.textSecondary || colors.onSurfaceTertiary} />
+                <Ionicons name="reader-outline" size={20} color={colors.textSecondary || colors.onSurfaceTertiary} />
                 <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.base, fontWeight: "600" }}>
                   {comments.length}
                 </Text>
@@ -260,7 +260,7 @@ export default function PostDetail() {
 
           {comments.length === 0 ? (
             <View style={{ paddingTop: spacing.xl }}>
-              <EmptyState icon="chatbubble-outline" title="No comments yet" message="Be the first to share your thoughts." />
+              <EmptyState icon="reader-outline" title="No comments yet" message="Be the first to share your thoughts." />
             </View>
           ) : (
             <View style={{ paddingTop: spacing.md }}>

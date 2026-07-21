@@ -101,7 +101,7 @@ export default function Profile() {
 
         <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "500", letterSpacing: -0.5 }}>
+            <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "500", letterSpacing: 0 }}>
               {user?.name || "User"}
             </Text>
             {(user as any)?.verified && (

@@ -89,7 +89,7 @@ export default function GroupInfo() {
           <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg }}>
             {group.role ? (
               <Pressable onPress={() => router.push(`/group/${group.id}`)} style={[styles.primaryBtn, { backgroundColor: colors.brandPrimary }]} testID="open-chat-btn">
-                <Ionicons name="chatbubbles" size={18} color={colors.onBrandPrimary} />
+                <Ionicons name="people-circle" size={18} color={colors.onBrandPrimary} />
                 <Text style={{ color: colors.onBrandPrimary, fontSize: font.base, fontWeight: "500" }}>Open chat</Text>
               </Pressable>
             ) : (
@@ -142,28 +142,26 @@ export default function GroupInfo() {
         {group.role && (
           <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <SettingsRow 
-              icon={false ? "pin" : "pin-outline"} 
-              title={false ? "Unpin group" : "Pin group"} 
+              icon={group.pinned ? "pin" : "pin-outline"}
+              title={group.pinned ? "Unpin group" : "Pin group"}
               onPress={() => {
-                if (false) {
-                  api.groups.unpinGroup(group!.id).then(() => setGroup(group)).catch(() => {});
+                if (group.pinned) {
+                  api.groups.unpinGroup(group.id).then(() => setGroup({ ...group, pinned: false })).catch(() => {});
                 } else {
-                  api.groups.pinGroup(group!.id).then(() => setGroup(group)).catch(() => {});
+                  api.groups.pinGroup(group.id).then(() => setGroup({ ...group, pinned: true })).catch(() => {});
                 }
-                setGroup(group);
               }} 
             />
             <SettingsRow 
-              icon={false ? "volume-mute" : "volume-high-outline"} 
-              title={false ? "Unmute group" : "Mute group"} 
+              icon={group.muted ? "volume-mute" : "volume-high-outline"}
+              title={group.muted ? "Unmute group" : "Mute group"}
               subtitle="Stop receiving push notifications"
               onPress={() => {
-                if (false) {
-                  api.groups.unmuteGroup(group!.id).then(() => setGroup(group)).catch(() => {});
+                if (group.muted) {
+                  api.groups.unmuteGroup(group.id).then(() => setGroup({ ...group, muted: false })).catch(() => {});
                 } else {
-                  api.groups.muteGroup(group!.id).then(() => setGroup(group)).catch(() => {});
+                  api.groups.muteGroup(group.id).then(() => setGroup({ ...group, muted: true })).catch(() => {});
                 }
-                setGroup(group);
               }} 
             />
             <SettingsRow icon="exit-outline" title="Leave group" destructive onPress={() => api.groups.leave(group.id).then(() => router.back()).catch(() => {})} />
@@ -206,7 +204,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   coverContent: { position: "absolute", bottom: spacing.lg, left: spacing.lg, right: spacing.lg },
   pill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
-  groupName: { color: "#fff", fontSize: 22, fontWeight: "500", marginTop: spacing.sm, letterSpacing: -0.5 },
+  groupName: { color: "#fff", fontSize: 22, fontWeight: "500", marginTop: spacing.sm, letterSpacing: 0 },
   groupMeta: { color: "#ffffffcc", fontSize: font.sm, marginTop: 4 },
   primaryBtn: { flex: 1, height: 48, borderRadius: radius.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
   section: { marginHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, marginBottom: spacing.md, overflow: "hidden" },

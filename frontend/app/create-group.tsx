@@ -30,14 +30,18 @@ export default function CreateGroup() {
   };
 
   const handleSubmit = async () => {
-    if (!name || !desc || loading) return;
+    if (!name.trim() || !desc.trim() || loading) return;
     setLoading(true);
     try {
+      const isOfficial = vis === "official";
       const newGroup = await api.groups.create({
-        name,
-        description: desc,
+        name: name.trim(),
+        description: desc.trim(),
         category: cat,
-        visibility: vis,
+        visibility: isOfficial ? "public" : vis,
+        official: isOfficial,
+        joinPolicy: isOfficial || vis === "public" ? "auto_approve_verified" : "request_to_join",
+        postingMode: isOfficial ? "institution_only" : "members_can_request",
       });
       if (coverUri && newGroup && newGroup.id) {
         try {
@@ -102,7 +106,7 @@ export default function CreateGroup() {
               label="Create group"
               fullWidth
               size="lg"
-              disabled={!name || !desc || loading}
+              disabled={!name.trim() || !desc.trim() || loading}
               onPress={handleSubmit}
               testID="create-group-submit-btn"
             />

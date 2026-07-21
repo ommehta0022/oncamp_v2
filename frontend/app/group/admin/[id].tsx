@@ -32,6 +32,8 @@ export default function GroupAdmin() {
     { label: "Post requests", value: String(postRequests.filter((r) => r.status === "pending").length), icon: "clipboard" as const, color: "#4A788C" },
     { label: "Reports", value: "0", icon: "flag" as const, color: "#D14D4D" },
   ], [group?.memberCount, joinRequests.length, members.length, postRequests]);
+  const scheduledCount = postRequests.filter((r) => r.status === "scheduled").length;
+  const publishedCount = postRequests.filter((r) => ["approved", "published"].includes(r.status)).length;
 
   if (!group) {
     return (
@@ -64,7 +66,7 @@ export default function GroupAdmin() {
                 <Ionicons name={k.icon} size={16} color={k.color} />
               </View>
               <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: spacing.sm }}>{k.label}</Text>
-              <Text style={{ color: colors.onSurface, fontSize: 22, fontWeight: "500", letterSpacing: -0.5, marginTop: 2 }}>{k.value}</Text>
+              <Text style={{ color: colors.onSurface, fontSize: 22, fontWeight: "500", letterSpacing: 0, marginTop: 2 }}>{k.value}</Text>
             </View>
           ))}
         </View>
@@ -79,11 +81,11 @@ export default function GroupAdmin() {
           <Divider />
           <Row icon="clipboard" title="Post / poster requests" subtitle={`${postRequests.filter((r) => r.status === "pending").length} pending review`} color="#4A788C" onPress={() => router.push(`/group/admin/post-requests/${id}`)} badge={postRequests.filter((r) => r.status === "pending").length ? String(postRequests.filter((r) => r.status === "pending").length) : undefined} />
           <Divider />
-          <Row icon="calendar" title="Scheduled posts" subtitle="Coming soon" color="#D9983A" onPress={() => {}} />
+          <Row icon="calendar" title="Scheduled posts" subtitle={`${scheduledCount} scheduled`} color="#D9983A" onPress={() => router.push(`/group/admin/post-requests/${id}`)} />
           <Divider />
-          <Row icon="megaphone" title="Published posts" subtitle="All group posts" color="#347D5B" onPress={() => {}} />
+          <Row icon="megaphone" title="Published posts" subtitle={`${publishedCount} from requests`} color="#347D5B" onPress={() => router.push(`/group/${id}`)} />
           <Divider />
-          <Row icon="pin" title="Pinned messages" subtitle="View pinned" color="#8A8D8B" onPress={() => {}} />
+          <Row icon="pin" title="Pinned messages" subtitle="Review in group chat" color="#8A8D8B" onPress={() => router.push(`/group/${id}`)} />
         </View>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Content & safety</Text>
@@ -137,7 +139,7 @@ function Divider() {
 const styles = StyleSheet.create({
   heroWrap: { height: 140, margin: spacing.lg, borderRadius: radius.md, overflow: "hidden", justifyContent: "flex-end" },
   pill: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill },
-  heroTitle: { color: "#fff", fontSize: 20, fontWeight: "500", letterSpacing: -0.5, marginTop: spacing.sm },
+  heroTitle: { color: "#fff", fontSize: 20, fontWeight: "500", letterSpacing: 0, marginTop: spacing.sm },
   heroSub: { color: "#ffffffcc", fontSize: font.sm, marginTop: 2 },
   kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, paddingHorizontal: spacing.lg },
   kpi: { width: "47.5%", padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },

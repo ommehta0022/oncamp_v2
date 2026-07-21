@@ -68,7 +68,7 @@ export default function Notifs() {
         <Section title="Group activity">
           <SettingsRow icon="at" title="Mentions" subtitle="When someone @mentions you" right={Sw("mentions")} />
           <Divider />
-          <SettingsRow icon="chatbubble-ellipses" title="Replies to you" subtitle="When someone replies to your post" right={Sw("postActivity")} />
+          <SettingsRow icon="arrow-undo-circle" title="Replies to you" subtitle="When someone replies to your post" right={Sw("postActivity")} />
           <Divider />
           <SettingsRow icon="megaphone" title="Announcements" subtitle="Important group updates" right={Sw("announcements")} />
           <Divider />

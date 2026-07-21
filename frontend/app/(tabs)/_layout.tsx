@@ -49,7 +49,7 @@ export default function TabsLayout() {
         options={{
           title: "Groups",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "chatbubbles" : "chatbubbles-outline"} size={24} color={color} />
+            <Ionicons name={focused ? "people-circle" : "people-circle-outline"} size={25} color={color} />
           ),
           tabBarBadge: groupsUnread > 0 ? groupsUnread : undefined,
           tabBarBadgeStyle: {

@@ -55,7 +55,7 @@ export default function Privacy() {
           <SettingsRow icon="search" title="Discoverable in search" subtitle="Allow others to find you" right={Sw("discoverable")} />
         </Section>
         <Section title="Messaging">
-          <SettingsRow icon="checkmark-done" title="Read receipts" right={Sw("readReceipts")} />
+          <SettingsRow icon="eye-outline" title="Read receipts" right={Sw("readReceipts")} />
           <Divider />
           <SettingsRow icon="time" title="Last seen" right={Sw("lastSeen")} />
         </Section>

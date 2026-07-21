@@ -23,7 +23,7 @@ const ICONS: Record<Notification["type"], keyof typeof import("@expo/vector-icon
   announcement: "megaphone",
   reply: "arrow-undo",
   approved: "checkmark-circle",
-  post: "chatbubble-ellipses",
+  post: "newspaper",
 };
 
 export default function Notifications() {
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  title: { fontSize: 26, fontWeight: "500", letterSpacing: -0.5 },
+  title: { fontSize: 26, fontWeight: "500", letterSpacing: 0 },
   tab: {
     height: 36, paddingHorizontal: spacing.lg, borderRadius: radius.pill,
     alignItems: "center", justifyContent: "center",

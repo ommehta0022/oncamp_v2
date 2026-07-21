@@ -53,7 +53,7 @@ export default function Settings() {
           ]}>
             <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={64} verified={user?.verified} />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 18, fontWeight: "700", letterSpacing: -0.3 }}>
+              <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 18, fontWeight: "700", letterSpacing: 0 }}>
                 {user?.name || "Complete your profile"}
               </Text>
               <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4, fontWeight: "500" }}>

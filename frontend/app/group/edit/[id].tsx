@@ -38,8 +38,10 @@ export default function EditGroup() {
         setDesc(g.description || "");
         setCity(g.city || "");
         setCat(g.category || "Clubs");
-        if (g.visibility === "secret" || g.visibility === "private") {
-          setVis(g.official ? "official" : "private");
+        if (g.official) {
+          setVis("official");
+        } else if (g.visibility === "secret" || g.visibility === "private") {
+          setVis("private");
         } else {
           setVis("public");
         }
@@ -59,13 +61,16 @@ export default function EditGroup() {
     if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
     try {
+      const isOfficial = vis === "official";
       await api.groups.update(id, {
         name: name.trim(),
         description: desc.trim(),
         city: city.trim(),
         category: cat,
-        visibility: vis === "official" ? "private" : vis,
-        joinPolicy: vis === "public" ? "auto_approve_verified" : "request_to_join",
+        visibility: isOfficial ? "public" : vis,
+        official: isOfficial,
+        joinPolicy: isOfficial || vis === "public" ? "auto_approve_verified" : "request_to_join",
+        postingMode: isOfficial ? "institution_only" : "members_can_request",
       });
       
       if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

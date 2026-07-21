@@ -166,7 +166,7 @@ export default function UserProfile() {
 
         <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "500", letterSpacing: -0.5 }}>
+            <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "500", letterSpacing: 0 }}>
               {displayName}
             </Text>
             {user.verified && (

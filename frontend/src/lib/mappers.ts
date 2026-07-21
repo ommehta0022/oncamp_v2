@@ -22,6 +22,7 @@ export function formatWhen(value?: string) {
 }
 
 export function normalizeUser(user: SessionUser | any) {
+  const institution = typeof user?.institution === "string" ? user.institution : user?.institution?.name;
   return {
     ...user,
     id: user?.id || user?.userId || "",
@@ -29,6 +30,8 @@ export function normalizeUser(user: SessionUser | any) {
     avatar: user?.avatar || user?.avatarUrl || user?.avatar_url || null,
     avatarUrl: user?.avatarUrl || user?.avatar || user?.avatar_url || null,
     verified: Boolean(user?.verified),
+    institution: institution || user?.city || "",
+    badge: user?.badge || (user?.accountType === "institution_admin" || user?.account_type === "institution_admin" ? "official" : undefined),
   };
 }
 
@@ -53,6 +56,8 @@ export function normalizePost(post: FeedPostDto | any) {
 
 export function normalizeGroup(group: GroupDto | any) {
   const institution = typeof group?.institution === "string" ? group.institution : group?.institution?.name;
+  const memberCount = Number(group?.memberCount ?? group?.members ?? group?.member_count ?? 0);
+  const official = Boolean(group?.official ?? group?.verified ?? group?.isOfficial);
   return {
     ...group,
     id: String(group?.id || ""),
@@ -60,11 +65,20 @@ export function normalizeGroup(group: GroupDto | any) {
     title: group?.title || group?.name || "Group",
     image: group?.image || group?.avatarUrl || group?.avatar_url || null,
     avatarUrl: group?.avatarUrl || group?.image || group?.avatar_url || null,
-    members: Number(group?.members ?? group?.memberCount ?? group?.member_count ?? 0),
-    memberCount: Number(group?.memberCount ?? group?.members ?? group?.member_count ?? 0),
+    members: memberCount,
+    memberCount,
+    membersText: `${memberCount.toLocaleString()} members`,
     category: group?.category || "Community",
     city: group?.city || institution || "",
-    institution,
+    institution: institution || group?.institutionName || "",
+    verified: official,
+    official,
+    visibility: group?.visibility || "public",
+    unread: Number(group?.unread || 0),
+    pinned: Boolean(group?.pinned),
+    muted: Boolean(group?.muted || group?.mutedAt || group?.muted_at),
+    lastMessage: group?.lastMessage || group?.last_message || group?.description || "",
+    lastMessageAt: formatWhen(group?.lastMessageAt || group?.last_message_at),
   };
 }
 

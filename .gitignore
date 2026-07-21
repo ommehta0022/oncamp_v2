@@ -92,7 +92,11 @@ credentials.json
 .credentials
 
 # Sensitive files and folders
-important/
+important/*
+!important/
+!important/TEMPLATE_MIGRATION_TASKS.md
+!important/TEMPLATE_MIGRATION_COMPLETED_TASKS.md
+!important/TEMPLATE_MIGRATION_REMAINING_TASKS.md
 project_information/CREDENTIALS_AND_CONFIGURATION.md
 **/all_token
 github_token.txt
@@ -114,6 +118,12 @@ admin-panel/.next/
 # /*.txt  # removed - requirements.txt must be tracked
 !requirements.txt
 *.sql
+!database/mobile_api_support.sql
+!database/runtime_api_support.sql
+!database/demo_oncampus_institution_seed.sql
+!database/remove_demo_oncampus_institution_seed.sql
+!need_to_add/
+!need_to_add/*.sql
 *.ps1
 *.sh
 !package.json

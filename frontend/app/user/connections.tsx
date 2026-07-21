@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: "600",
-    letterSpacing: -0.2,
+    letterSpacing: 0,
   },
   userRow: {
     flexDirection: "row",

@@ -9,6 +9,7 @@ import Avatar from "@/src/components/Avatar";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
 import { useRole } from "@/src/context/RoleProvider";
+import { normalizeGroup } from "@/src/lib/mappers";
 type Group = any;
 
 const FILTERS = ["All", "Unread", "Announcements", "Muted"];
@@ -30,10 +31,11 @@ export default function Groups() {
   const fetchGroups = useCallback(async () => {
     try {
       const cached = await cache.get("my_groups");
-      if (cached) setGroups(cached as any);
+      if (cached) setGroups((cached as any[]).map(normalizeGroup));
       const response = await api.groups.listMine();
-      setGroups((response as any).groups || response || []);
-      await cache.set("my_groups", (response as any).groups || response || []);
+      const next = ((response as any).groups || response || []).map(normalizeGroup);
+      setGroups(next);
+      await cache.set("my_groups", next);
     } catch {}
   }, []);
 
@@ -52,7 +54,7 @@ export default function Groups() {
     if (filter === "Unread") list = list.filter((g) => (g.unread || 0) > 0);
     else if (filter === "Announcements") list = list.filter((g) => g.category === "Official");
     else if (filter === "Muted") list = list.filter((g) => g.muted);
-    if (query) list = list.filter((g) => g.name.toLowerCase().includes(query.toLowerCase()) || g.institution.toLowerCase().includes(query.toLowerCase()));
+    if (query) list = list.filter((g) => g.name.toLowerCase().includes(query.toLowerCase()) || String(g.institution || "").toLowerCase().includes(query.toLowerCase()));
     return list;
   }, [filter, groups, query]);
 
@@ -239,7 +241,7 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
               fontSize: font.lg,
               fontWeight: hasUnread ? "500" : "400",
               flex: 1,
-              letterSpacing: -0.2,
+              letterSpacing: 0,
             }}
             numberOfLines={1}
           >
@@ -252,7 +254,7 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
               fontWeight: hasUnread ? "500" : "400",
             }}
           >
-            {group.lastMessageAt}
+            {group.lastMessageAt || ""}
           </Text>
         </View>
 
@@ -309,7 +311,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm,
   },
-  title: { fontSize: 30, fontWeight: "500", letterSpacing: -0.5 },
+  title: { fontSize: 30, fontWeight: "500", letterSpacing: 0 },
   livedot: { width: 8, height: 8, borderRadius: 4 },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   searchBox: {

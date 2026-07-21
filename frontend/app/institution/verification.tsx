@@ -70,7 +70,7 @@ export default function Verification() {
             <Text style={{ color: verified ? colors.success : colors.warning, fontSize: font.sm, fontWeight: "500", letterSpacing: 0.3 }}>
               {verified ? "VERIFIED" : String(institution?.status || "PENDING").toUpperCase()}
             </Text>
-            <Text style={{ color: colors.onSurface, fontSize: font.xl, fontWeight: "500", marginTop: 2, letterSpacing: -0.3 }}>
+            <Text style={{ color: colors.onSurface, fontSize: font.xl, fontWeight: "500", marginTop: 2, letterSpacing: 0 }}>
               {institution?.name || "Institution verification"}
             </Text>
             <Text style={{ color: colors.onSurfaceSecondary, fontSize: font.sm, marginTop: 4, lineHeight: 18 }}>

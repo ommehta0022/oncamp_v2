@@ -48,7 +48,7 @@ export default function Analytics() {
               <View style={[styles.kpiIcon, { backgroundColor: k.color + "22" }]}>
                 <Ionicons name={k.icon} size={16} color={k.color} />
               </View>
-              <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "500", letterSpacing: -0.5, marginTop: spacing.sm }}>
+              <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "500", letterSpacing: 0, marginTop: spacing.sm }}>
                 {typeof k.value === "number" ? k.value.toLocaleString() : k.value}
               </Text>
               <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{k.label}</Text>

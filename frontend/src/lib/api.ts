@@ -3,11 +3,10 @@ import { supabase } from "./supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
+import { useEffect } from "react";
 import { DeviceEventEmitter, Platform } from "react-native";
 
-// Real-time hook stubs
-import { useEffect } from "react";
-// I18n Stub
+// Lightweight translation helper until a full localization catalog is added.
 export const i18n = {
   t: (key: string) => key,
   locale: "en",
@@ -452,6 +451,8 @@ export type GroupDto = {
   official?: boolean;
   memberCount?: number;
   unread?: number;
+  pinned?: boolean;
+  muted?: boolean;
   lastMessage?: string;
   lastMessageAt?: string;
   role?: AccountRole | "owner" | "admin" | "member";
@@ -730,29 +731,33 @@ export const api = {
 
 export function useRealtimeMessages(groupId: string, onNewMessage: (msg: any) => void) {
   useEffect(() => {
-    if (!groupId) return;
-    const channel = supabase.channel(`public:messages:${groupId}`)
+    const client = supabase;
+    if (!groupId || !client) return;
+    const channel = client.channel(`public:messages:${groupId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `group_id=eq.${groupId}` }, (payload: any) => onNewMessage(payload.new))
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { client.removeChannel(channel); };
   }, [groupId, onNewMessage]);
 }
 
 export function useRealtimeNotifications(userId: string, onNewNotification: (notif: any) => void) {
   useEffect(() => {
-    if (!userId) return;
-    const channel = supabase.channel(`public:notifications:${userId}`)
+    const client = supabase;
+    if (!userId || !client) return;
+    const channel = client.channel(`public:notifications:${userId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` }, (payload: any) => onNewNotification(payload.new))
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { client.removeChannel(channel); };
   }, [userId, onNewNotification]);
 }
 
 export function useRealtimeFeed(onNewPost: (post: any) => void) {
   useEffect(() => {
-    const channel = supabase.channel('public:posts')
+    const client = supabase;
+    if (!client) return;
+    const channel = client.channel('public:posts')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload: any) => onNewPost(payload.new))
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { client.removeChannel(channel); };
   }, [onNewPost]);
 }

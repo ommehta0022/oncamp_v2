@@ -242,7 +242,7 @@ export default function GroupChat() {
         >
           <Avatar uri={group.avatarUrl} name={group.name} size={42} verified={group.official} />
           <View style={{ flex: 1, justifyContent: "center" }}>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, fontWeight: "700", letterSpacing: -0.3 }} numberOfLines={1}>
+            <Text style={{ color: colors.textPrimary || colors.onSurface, fontWeight: "700", letterSpacing: 0 }} numberOfLines={1}>
               {group.name}
             </Text>
             <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontWeight: "500", marginTop: 1 }} numberOfLines={1}>
@@ -325,7 +325,7 @@ export default function GroupChat() {
           contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, gap: 4 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           ListEmptyComponent={
-            <EmptyState icon="chatbubble-outline" title="Say Hello 👋" message="Start the conversation in this group." />
+            <EmptyState icon="people-circle-outline" title="Say Hello 👋" message="Start the conversation in this group." />
           }
         />
 
@@ -475,7 +475,7 @@ function Bubble({ msg, showAvatar, showName, isLastInGroup, onReply, onLongPress
           ]}
         >
           {showName && !own && (
-            <Text style={{ color: colors.brandPrimary, fontWeight: "700", marginBottom: 4, letterSpacing: -0.2 }}>
+            <Text style={{ color: colors.brandPrimary, fontWeight: "700", marginBottom: 4, letterSpacing: 0 }}>
               {msg.senderName}
             </Text>
           )}
@@ -515,8 +515,8 @@ function Bubble({ msg, showAvatar, showName, isLastInGroup, onReply, onLongPress
             <Text style={{ color: own ? "rgba(255,255,255,0.7)" : colors.muted, fontWeight: "500" }}>{msg.createdAt}</Text>
             {own && (
               <Ionicons
-                name={msg.status === "read" ? "checkmark-done" : "checkmark"}
-                size={14}
+                name={msg.status === "read" ? "radio-button-on" : "ellipse"}
+                size={msg.status === "read" ? 13 : 8}
                 color={msg.status === "read" ? "#6ee7b7" : "rgba(255,255,255,0.7)"}
               />
             )}

@@ -86,7 +86,7 @@ export default function PostRequestsInbox() {
       </View>
 
       {list.length === 0 ? (
-        <EmptyState icon="checkmark-done-outline" title="All caught up" message="No post requests to review right now." />
+        <EmptyState icon="shield-checkmark-outline" title="All caught up" message="No post requests to review right now." />
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60, gap: spacing.md }}>
           {list.map((r) => (

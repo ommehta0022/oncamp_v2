@@ -1,0 +1,74 @@
+# Completed Template Migration Tasks
+
+- Read the user prompt in `important\prompt`.
+- Inspected `oncamp_v2`, `oncampuses-v1`, `important`, and `project_information`.
+- Confirmed v2 is an Expo/React Native app with a FastAPI/Supabase backend.
+- Preserved login, signup, and institution-registration UI; verified those files still have no diff.
+- Kept existing v2 API features rather than copying v1 mock data.
+- Normalized real group API responses before rendering v1-style Groups UI.
+- Normalized real discover group responses before rendering v1-style Discover cards.
+- Restored v1 reference Discover category chips and `TRENDING IN MUMBAI` section label while keeping real API data.
+- Added real Discover join-request action through `api.groups.join`.
+- Replaced static dummy Search recents/trending content with persisted real recent searches.
+- Added real Search rendering for groups, people, and posts.
+- Added real FastAPI group create/update routes backed by `groups` and `group_members`.
+- Mapped Official group UI to real `official`, `join_policy`, and `posting_mode` fields.
+- Added real group join/leave, members, join requests, member role, mute, messages, unread/read, message search, and message delete routes.
+- Added real pinned-group persistence through `user_pinned_groups` plus `POST/DELETE /v1/groups/{group_id}/pin`.
+- Added real user profile/settings, follow/block, notifications, post comments, post view/share/repost, saved posts, and mobile admin API routes used by the frontend wrapper.
+- Added target-specific report routes for post, comment, group, user, and message reporting.
+- Aligned mobile report writes to the existing `reports.reporter_id` and `reports.description` schema columns.
+- Aligned user blocking routes and cleanup SQL to the existing production-extension `user_blocks.blocked_user_id` column.
+- Fixed a backend import blocker by defining `RejectRequestDto` before use and scoping institution-admin checks correctly.
+- Pruned unreachable duplicate admin route registrations so generated OpenAPI docs no longer collide on admin security/settings/notification routes.
+- Normalized Forward modal group rows before rendering.
+- Normalized Saved post rows before rendering.
+- Removed fake Supabase fallback credentials from frontend runtime setup.
+- Guarded Supabase realtime hooks when realtime config is not present.
+- Replaced obvious WhatsApp-like group/read-receipt icons with community/read-state alternatives.
+- Confirmed frontend icon scan has no remaining `whatsapp`, `chatbubble`, `chatbubbles`, or `checkmark-done` icon names.
+- Removed non-auth negative letter spacing from main app screens and shared typography tokens.
+- Added reversible demo seed SQL and cleanup SQL.
+- Added `database\mobile_api_support.sql` for support tables/columns required by newly real mobile API routes, including a forward-compatible rename from the earlier `blocked_id` draft column to `blocked_user_id` and an upgrade path for existing `user_settings.storage`.
+- Added `database\runtime_api_support.sql` for idempotent runtime/admin support tables, columns, and the `content_reports` compatibility view used by existing API routes.
+- Added `need_to_add` bundle with SQL copies, README, small guide, and demo account/institution login reference.
+- Validated demo seed and cleanup insert/delete column references against the combined schema/extension/support SQL set: `tables=39 issues=0`.
+- Validated literal backend/admin table and column references against tracked schema/support SQL: `schema_files=18 tables=51 issues=0`, with optional `content_reports` fallback intentionally excluded.
+- Fixed mobile clipping on the welcome onboarding screen without changing login/signup/register screens; screenshot evidence is in `important\visual_smoke_2026-07-21\welcome-mobile-fixed-2.png`.
+- Passed frontend TypeScript check with `npx tsc --noEmit`.
+- Passed Expo lint with `npm run lint`.
+- Passed backend syntax check with `python -m py_compile server.py admin_routes_simple.py`.
+- Confirmed FastAPI OpenAPI generation with warnings escalated to errors: `openapi ok 116`.
+- Confirmed every `frontend\src\lib\api.ts` request maps to an imported FastAPI route: `routes=115 missing=0`.
+- Confirmed static scan has no runtime imports from `src\data\mock`, no `dummy`/`mock` content references, and no `Coming soon` placeholders in frontend app/source, backend, or database code.
+- Confirmed `git diff --check` has no whitespace errors; remaining output is Git CRLF conversion warnings only.
+- Confirmed Expo web responds with HTTP 200 on `http://localhost:8082`.
+- Confirmed no diff under protected auth entry screens: `frontend\app\(auth)\login.tsx`, `frontend\app\(auth)\signup.tsx`, and `frontend\app\(auth)\register-institution.tsx`.
+- Added narrow `.gitignore` exceptions so migration docs and demo SQL files are visible to Git without exposing other `important` files.
+
+## Files Changed
+
+- `frontend\src\lib\mappers.ts`
+- `frontend\src\lib\supabase.ts`
+- `frontend\src\lib\api.ts`
+- `frontend\app\(tabs)\groups.tsx`
+- `frontend\app\(tabs)\discover.tsx`
+- `frontend\app\(auth)\welcome.tsx`
+- `frontend\app\create-group.tsx`
+- `frontend\app\group\edit\[id].tsx`
+- `frontend\app\search.tsx`
+- `frontend\app\saved.tsx`
+- `frontend\app\(tabs)\_layout.tsx`
+- `frontend\src\components\ForwardModal.tsx`
+- Selected icon-only updates under `frontend\app`
+- `server.py`
+- `admin_routes_simple.py`
+- `.gitignore`
+- `database\mobile_api_support.sql`
+- `database\runtime_api_support.sql`
+- `database\demo_oncampus_institution_seed.sql`
+- `database\remove_demo_oncampus_institution_seed.sql`
+- `need_to_add\README.md`
+- `need_to_add\SMALL_GUIDE.md`
+- `need_to_add\DEMO_ACCOUNTS_AND_INSTITUTIONS.md`
+- SQL copies under `need_to_add`

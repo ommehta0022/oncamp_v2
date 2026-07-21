@@ -69,7 +69,7 @@ export default function InstitutionSettings() {
         <Section title="Community controls">
           <SettingsRow icon="globe-outline" title="Public institution page" subtitle="Visible in Discover" right={Sw("publicPage")} />
           <Divider />
-          <SettingsRow icon="checkmark-done-outline" title="Auto-approve verified students" subtitle="Using approved verification policy" right={Sw("autoApproveStudents")} />
+          <SettingsRow icon="shield-checkmark-outline" title="Auto-approve verified students" subtitle="Using approved verification policy" right={Sw("autoApproveStudents")} />
           <Divider />
           <SettingsRow icon="clipboard-outline" title="Allow external post requests" right={Sw("allowExternalRequests")} />
           <Divider />
@@ -81,7 +81,7 @@ export default function InstitutionSettings() {
         <Section title="Data">
           <SettingsRow icon="people-outline" title="Members" subtitle={`${counts.members || 0} real members`} />
           <Divider />
-          <SettingsRow icon="chatbubbles-outline" title="Groups" subtitle={`${counts.groups || 0} real groups`} onPress={() => router.push("/(tabs)/groups")} />
+          <SettingsRow icon="people-circle-outline" title="Groups" subtitle={`${counts.groups || 0} real groups`} onPress={() => router.push("/(tabs)/groups")} />
           <Divider />
           <SettingsRow icon="document-text-outline" title="Posts" subtitle={`${counts.posts || 0} real posts`} onPress={() => router.push("/(tabs)/feed")} />
           <Divider />

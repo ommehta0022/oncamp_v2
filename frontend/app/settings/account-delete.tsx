@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md, height: 60, borderBottomWidth: StyleSheet.hairlineWidth,
   },
   backBtn: { width: 40, height: 40, justifyContent: "center", alignItems: "flex-start" },
-  title: { fontSize: 18, fontWeight: "600", letterSpacing: -0.2 },
+  title: { fontSize: 18, fontWeight: "600", letterSpacing: 0 },
   warningIcon: {
     width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center",
   },

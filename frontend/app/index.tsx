@@ -46,6 +46,6 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     borderWidth: 1,
   },
-  brand: { color: "#fff", fontSize: 32, fontWeight: "500", marginTop: spacing.lg, letterSpacing: -0.5 },
+  brand: { color: "#fff", fontSize: 32, fontWeight: "500", marginTop: spacing.lg, letterSpacing: 0 },
   tagline: { color: "#ffffffcc", fontSize: font.base, marginTop: spacing.xs },
 });
