@@ -38,6 +38,22 @@ export default function InstitutionsPage() {
           <p className="text-gray-600 mt-1">Manage platform institutions</p>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <p className="text-sm text-gray-500 font-medium">Total Institutions</p>
+          <p className="text-2xl font-bold text-gray-900 mt-2">{items.length}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <p className="text-sm text-gray-500 font-medium">Active</p>
+          <p className="text-2xl font-bold text-green-600 mt-2">{items.filter(i => i.status === 'active').length}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <p className="text-sm text-gray-500 font-medium">Suspended</p>
+          <p className="text-2xl font-bold text-red-600 mt-2">{items.filter(i => i.status === 'suspended').length}</p>
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex flex-wrap gap-4 justify-between items-center">
           <div className="flex gap-4 flex-1">
@@ -72,13 +88,16 @@ export default function InstitutionsPage() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{item.city}</td>
                   <td className="px-6 py-4">
-                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-700">
+                    <span className={\px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      item.status === 'active' ? 'bg-green-100 text-green-800' : 
+                      item.status === 'suspended' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+                    }\}>
                       {item.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end gap-2">
-                      <button onClick={() => router.push(`/dashboard/institutions/${item.id}`)} className="text-gray-400 hover:text-blue-600" title="View details"><Eye className="h-5 w-5" /></button>
+                      <button onClick={() => router.push(\/dashboard/institutions/${item.id}\)} className="text-gray-400 hover:text-blue-600" title="View details"><Eye className="h-5 w-5" /></button>
                     </div>
                   </td>
                 </tr>

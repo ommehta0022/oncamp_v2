@@ -208,6 +208,30 @@ export default function Branding() {
               <Text style={{ color: "#fff", fontSize: font.sm, fontWeight: "500" }}>Follow</Text>
             </View>
           </View>
+          {/* Mock Post Preview */}
+          <View style={{ padding: spacing.md, borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.md }}>
+              <View style={[styles.logoSmall, { width: 32, height: 32, backgroundColor: selectedPalette.primary }]}>
+                {form.logoUrl ? <Image source={{ uri: form.logoUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="school" size={14} color="#fff" />}
+              </View>
+              <View>
+                <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>{getInstitutionName(institution)}</Text>
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: 10 }}>2 hours ago</Text>
+              </View>
+            </View>
+            <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500", marginBottom: 4 }}>Welcome to our new official page!</Text>
+            <Text style={{ color: colors.onSurfaceSecondary, fontSize: font.sm, lineHeight: 20 }}>We are excited to share updates, events, and news with our community. Stay tuned for more announcements.</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.lg, marginTop: spacing.md }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Ionicons name="heart-outline" size={18} color={colors.onSurfaceTertiary} />
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>124</Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Ionicons name="chatbubble-outline" size={18} color={colors.onSurfaceTertiary} />
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>12</Text>
+              </View>
+            </View>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>

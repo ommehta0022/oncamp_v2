@@ -162,36 +162,51 @@ export default function EditPost() {
               />
 
               {/* Image Preview */}
-              {imageUri && (
+              {imageUri ? (
                 <View style={styles.imagePreview}>
                   <Image source={{ uri: imageUri }} style={styles.previewImage} contentFit="cover" />
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity 
+                      onPress={handleImagePick} 
+                      disabled={uploadingImage || submitting}
+                      style={[styles.overlayBtn, { backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 16 }]}
+                    >
+                      {uploadingImage ? (
+                        <ActivityIndicator size="small" color="#FFF" />
+                      ) : (
+                        <>
+                          <Ionicons name="image" size={20} color="#FFF" />
+                          <Text style={{ color: "#FFF", fontWeight: "600", fontSize: 14 }}>Change</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.overlayBtn, { backgroundColor: "rgba(220,50,50,0.8)" }]}
+                      onPress={() => setImageUri(null)}
+                      disabled={uploadingImage || submitting}
+                    >
+                      <Ionicons name="trash" size={20} color="#FFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={[styles.toolbar, { borderTopColor: colors.border || "rgba(0,0,0,0.1)", marginTop: 20 }]}>
                   <TouchableOpacity 
-                    style={styles.removeImage} 
-                    onPress={() => setImageUri(null)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={handleImagePick} 
+                    disabled={uploadingImage || submitting}
+                    style={[styles.toolbarButton, { opacity: uploadingImage || submitting ? 0.5 : 1 }]}
                   >
-                    <Ionicons name="close-circle" size={28} color="#FFFFFF" />
+                    {uploadingImage ? (
+                      <ActivityIndicator size="small" color={colors.brandPrimary} />
+                    ) : (
+                      <Ionicons name="image-outline" size={24} color={colors.brandPrimary} />
+                    )}
+                    <Text style={[styles.toolbarText, { color: colors.brandPrimary }]}>
+                      {uploadingImage ? "Uploading..." : "Add Photo"}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               )}
-
-              {/* Image Attachment Button */}
-              <View style={[styles.toolbar, { borderTopColor: colors.border || "rgba(0,0,0,0.1)" }]}>
-                <TouchableOpacity 
-                  onPress={handleImagePick} 
-                  disabled={uploadingImage || submitting}
-                  style={[styles.toolbarButton, { opacity: uploadingImage || submitting ? 0.5 : 1 }]}
-                >
-                  {uploadingImage ? (
-                    <ActivityIndicator size="small" color={colors.brandPrimary} />
-                  ) : (
-                    <Ionicons name="image-outline" size={24} color={colors.brandPrimary} />
-                  )}
-                  <Text style={[styles.toolbarText, { color: colors.brandPrimary }]}>
-                    {uploadingImage ? "Uploading..." : (imageUri ? "Change Photo" : "Add Photo")}
-                  </Text>
-                </TouchableOpacity>
-              </View>
 
               {!!error && <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.md }}>{error}</Text>}
             </>
@@ -205,38 +220,11 @@ export default function EditPost() {
 const styles = StyleSheet.create({
   postBtn: { paddingHorizontal: spacing.lg, height: 34, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
   groupPicker: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
-  imagePreview: {
-    marginTop: spacing.lg,
-    borderRadius: radius.lg,
-    overflow: "hidden",
-    position: "relative",
-  },
-  previewImage: {
-    width: "100%",
-    height: 250,
-  },
-  removeImage: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 14,
-  },
-  toolbar: {
-    flexDirection: "row",
-    marginTop: spacing.lg,
-    paddingTop: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  toolbarButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: spacing.sm,
-    paddingRight: spacing.md,
-  },
-  toolbarText: {
-    fontSize: 14,
-    marginLeft: spacing.sm,
-    fontWeight: "600",
-  },
+  imagePreview: { marginTop: spacing.xl, borderRadius: radius.md, overflow: "hidden", position: "relative" },
+  previewImage: { width: "100%", height: 300 },
+  overlayControls: { position: "absolute", bottom: spacing.md, right: spacing.md, flexDirection: "row", gap: spacing.sm },
+  overlayBtn: { flexDirection: "row", alignItems: "center", gap: 6, height: 40, width: 40, borderRadius: 20, justifyContent: "center" },
+  toolbar: { flexDirection: "row", alignItems: "center", paddingTop: spacing.md, marginTop: spacing.xl, borderTopWidth: StyleSheet.hairlineWidth },
+  toolbarButton: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: "rgba(0,0,0,0.03)", borderRadius: radius.pill },
+  toolbarText: { fontSize: font.sm, fontWeight: "600" },
 });

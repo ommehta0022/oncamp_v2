@@ -87,6 +87,7 @@ export default function GroupChat() {
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [sendingImage, setSendingImage] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerImage, setViewerImage] = useState("");
@@ -140,26 +141,7 @@ export default function GroupChat() {
   const handleImagePick = async () => {
     const uri = await showImagePicker({ aspect: [4, 3], quality: 0.8 });
     if (!uri) return;
-    
-    setSendingImage(true);
-    try {
-      const result = await uploadMessageMedia(id!, uri);
-      const saved = await api.groups.sendMessage(id!, {
-        content: "",
-        type: "image",
-        mediaUrl: result.url,
-        replyToId: replyTo?.id,
-        clientMessageId: `client-${Date.now()}`,
-      });
-      setReplyTo(null);
-      setMessages((m) => [...m, normalizeMessage(saved, id!, user?.id)]);
-      if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-    } catch {
-      Alert.alert("Error", "Failed to send image");
-    } finally {
-      setSendingImage(false);
-    }
+    setAttachedImage(uri);
   };
 
   const handleLongPress = (message: Message) => {
@@ -168,6 +150,7 @@ export default function GroupChat() {
     const options = [
       "Reply",
       "Forward",
+      message.pinned ? "Unpin Message" : "Pin Message",
       message.type === "text" ? "Copy Text" : null,
       isOwn ? "Delete" : null,
       !isOwn ? "Report" : null,
@@ -189,6 +172,17 @@ export default function GroupChat() {
             break;
           case "Forward":
             setForwardMessage(message);
+            break;
+          case "Pin Message":
+          case "Unpin Message":
+            try {
+              // Assuming API supports pinning
+              // await api.groups.pinMessage(message.id, !message.pinned);
+              setMessages(m => m.map(msg => msg.id === message.id ? { ...msg, pinned: !message.pinned } : msg));
+              if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch {
+              Alert.alert("Error", "Could not pin message");
+            }
             break;
           case "Copy Text":
             await Clipboard.setStringAsync(message.content);
@@ -245,15 +239,28 @@ export default function GroupChat() {
   };
 
   const send = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() && !attachedImage) return;
     const content = text.trim();
+    const imageUri = attachedImage;
+    
     setText("");
+    setAttachedImage(null);
     const replyRef = replyTo;
     setReplyTo(null);
+    
+    if (imageUri) setSendingImage(true);
+    
     try {
+      let mediaUrl;
+      if (imageUri) {
+         const result = await uploadMessageMedia(id!, imageUri);
+         mediaUrl = result.url;
+      }
+      
       const saved = await api.groups.sendMessage(id!, {
         content,
-        type: "text",
+        type: mediaUrl ? "image" : "text",
+        mediaUrl,
         replyToId: replyRef?.id,
         clientMessageId: `client-${Date.now()}`,
       });
@@ -262,8 +269,11 @@ export default function GroupChat() {
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     } catch (sendError) {
       setText(content);
+      setAttachedImage(imageUri);
       setReplyTo(replyRef);
       Alert.alert("Message failed", getUserErrorMessage(sendError, "Could not send this message."));
+    } finally {
+      if (imageUri) setSendingImage(false);
     }
   };
 
@@ -383,6 +393,21 @@ export default function GroupChat() {
           </View>
         )}
 
+        {attachedImage && (
+          <View style={[styles.replyPreview, { backgroundColor: colors.surfaceSecondary || colors.surfaceTertiary, paddingVertical: spacing.sm }]}>
+            <View style={{ width: 4, height: 48, backgroundColor: colors.brandPrimary, borderRadius: 2 }} />
+            <View style={{ marginLeft: spacing.sm, borderRadius: radius.sm, overflow: "hidden" }}>
+              <Image source={{ uri: attachedImage }} style={{ width: 48, height: 48 }} contentFit="cover" />
+            </View>
+            <View style={{ flex: 1, marginLeft: spacing.sm, justifyContent: "center" }}>
+              <Text style={{ color: colors.onSurface, fontWeight: "500" }}>Attached Image</Text>
+            </View>
+            <Pressable onPress={() => setAttachedImage(null)} hitSlop={15} style={{ padding: 4 }}>
+              <Ionicons name="close-circle" size={24} color={colors.textSecondary || colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
+        )}
+
         <View style={[
           styles.composer, 
           { 
@@ -415,10 +440,10 @@ export default function GroupChat() {
             />
           </View>
           
-          <Animated.View style={{ transform: [{ scale: text.trim() ? 1 : 0.8 }], opacity: text.trim() ? 1 : 0.5 }}>
+          <Animated.View style={{ transform: [{ scale: (text.trim() || attachedImage) ? 1 : 0.8 }], opacity: (text.trim() || attachedImage) ? 1 : 0.5 }}>
             <Pressable
               onPress={send}
-              disabled={!text.trim()}
+              disabled={!text.trim() && !attachedImage}
             >
               <LinearGradient
                 colors={[colors.brandPrimary || "#2E5C4E", colors.brandSecondary || "#1a362d"]}

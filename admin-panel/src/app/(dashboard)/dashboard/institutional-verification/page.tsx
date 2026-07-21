@@ -33,6 +33,7 @@ export default function InstitutionalVerificationPage() {
   const [selectedStatus, setSelectedStatus] = useState<'all' | VerificationStatus>('pending');
   const [selectedRequest, setSelectedRequest] = useState<InstitutionVerificationRequest | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
+  const [previewDoc, setPreviewDoc] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Fetch verification requests
@@ -298,14 +299,12 @@ export default function InstitutionalVerificationPage() {
                 {selectedRequest.document_url && (
                   <div>
                     <h3 className="font-semibold text-gray-700">Verification Document</h3>
-                    <a
-                      href={selectedRequest.document_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => setPreviewDoc(selectedRequest!.document_url)}
                       className="mt-2 inline-block text-blue-600 hover:text-blue-800"
                     >
-                      View Document →
-                    </a>
+                      Preview Document →
+                    </button>
                   </div>
                 )}
 
@@ -353,6 +352,40 @@ export default function InstitutionalVerificationPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Preview Modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-lg w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+              <h3 className="text-lg font-semibold text-gray-900">Document Preview</h3>
+              <div className="flex gap-2">
+                <a
+                  href={previewDoc}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 text-sm text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100"
+                >
+                  Open in New Tab
+                </a>
+                <button
+                  onClick={() => setPreviewDoc(null)}
+                  className="px-4 py-2 text-sm text-gray-600 bg-gray-200 rounded-lg hover:bg-gray-300"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-gray-100 flex items-center justify-center relative">
+              {previewDoc.match(/\.(jpeg|jpg|gif|png)$/) != null ? (
+                <img src={previewDoc} alt="Document Preview" className="max-w-full max-h-full object-contain" />
+              ) : (
+                <iframe src={previewDoc} title="Document Preview" className="w-full h-full border-0" />
+              )}
             </div>
           </div>
         </div>

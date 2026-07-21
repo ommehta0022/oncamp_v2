@@ -70,7 +70,14 @@ export default function Notifications() {
       setItems((current) => current.map((item) => item.id === notification.id ? { ...item, read: true } : item));
       try { await api.notifications.markRead(notification.id); } catch { /* Detail remains available; retry happens on next load. */ }
     }
-    router.push(`/notifications/${notification.id}`);
+    
+    if (notification.data?.postId) {
+      router.push(`/post/${notification.data.postId}`);
+    } else if (notification.data?.groupId) {
+      router.push(`/group/${notification.data.groupId}`);
+    } else {
+      router.push(`/notifications/${notification.id}`);
+    }
   };
 
   let data = items;

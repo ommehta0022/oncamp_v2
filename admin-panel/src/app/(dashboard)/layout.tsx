@@ -21,6 +21,7 @@ import {
   Bell,
   Send,
   School,
+  Activity,
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
 import { usePlatformSettings } from "@/contexts/PlatformSettingsContext";
@@ -45,6 +46,7 @@ const navigation = [
 const superAdminNav = [
   { name: "Database", href: "/dashboard/database", icon: Database },
   { name: "Admins", href: "/dashboard/admins", icon: UserCog },
+  { name: "Smoke Test", href: "/dashboard/smoke-test", icon: Activity },
 ];
 
 export default function DashboardLayout({

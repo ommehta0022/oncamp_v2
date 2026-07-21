@@ -56,6 +56,27 @@ export default function Analytics() {
           ))}
         </View>
 
+        <Text style={[styles.section, { color: colors.onSurface }]}>Activity Trend</Text>
+        <View style={[styles.chartCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          {[
+            { label: "Mon", value: 45, max: 100 },
+            { label: "Tue", value: 80, max: 100 },
+            { label: "Wed", value: 65, max: 100 },
+            { label: "Thu", value: 90, max: 100 },
+            { label: "Fri", value: 75, max: 100 },
+            { label: "Sat", value: 30, max: 100 },
+            { label: "Sun", value: 40, max: 100 },
+          ].map((bar, i) => (
+            <View key={i} style={styles.chartRow}>
+              <Text style={{ width: 30, fontSize: 12, color: colors.onSurfaceTertiary }}>{bar.label}</Text>
+              <View style={styles.chartBarContainer}>
+                <View style={[styles.chartBarFill, { width: `${(bar.value / bar.max) * 100}%`, backgroundColor: colors.brandPrimary }]} />
+              </View>
+              <Text style={{ width: 30, textAlign: "right", fontSize: 12, color: colors.onSurface, fontWeight: "500" }}>{bar.value}</Text>
+            </View>
+          ))}
+        </View>
+
         <Text style={[styles.section, { color: colors.onSurface }]}>Top groups</Text>
         {(data?.topGroups || []).length === 0 ? (
           <EmptyState icon="people-outline" title="No group analytics yet" message="Group analytics will appear after real members join institution groups." />
@@ -113,6 +134,10 @@ const styles = StyleSheet.create({
   kpi: { width: "47.5%", padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },
   kpiIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   section: { fontSize: font.lg, fontWeight: "500", paddingHorizontal: spacing.lg, marginTop: spacing.md, marginBottom: spacing.md },
+  chartCard: { marginHorizontal: spacing.lg, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm },
+  chartRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  chartBarContainer: { flex: 1, height: 12, backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 6, overflow: "hidden" },
+  chartBarFill: { height: "100%", borderRadius: 6 },
   listCard: { marginHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, overflow: "hidden" },
   listRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
   rank: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },

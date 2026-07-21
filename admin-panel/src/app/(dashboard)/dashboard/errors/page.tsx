@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
@@ -17,6 +17,7 @@ export default function ErrorsPage() {
   const [page, setPage] = useState(1);
   const [level, setLevel] = useState("");
   const [selectedError, setSelectedError] = useState<any>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-errors", page, level],
@@ -26,6 +27,7 @@ export default function ErrorsPage() {
         limit: 50,
         level: level || undefined,
       }),
+    refetchInterval: autoRefresh ? 10000 : false,
   });
 
   const resolveMutation = useMutation({
@@ -146,6 +148,22 @@ export default function ErrorsPage() {
           >
             Clear Filters
           </button>
+          
+          <div className="flex items-center justify-end space-x-2">
+            <span className="text-sm text-gray-600">Auto Refresh</span>
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                autoRefresh ? 'bg-blue-600' : 'bg-gray-200'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  autoRefresh ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
         </div>
       </div>
 

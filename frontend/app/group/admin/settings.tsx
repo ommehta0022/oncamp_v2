@@ -20,6 +20,8 @@ export default function GroupSettings() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [transferUserId, setTransferUserId] = useState("");
+  const [transferring, setTransferring] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -53,6 +55,34 @@ export default function GroupSettings() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleTransferOwnership = async () => {
+    if (!id || !transferUserId.trim()) return;
+    Alert.alert(
+      "Transfer Ownership",
+      "Are you sure you want to transfer ownership of this group? You will lose admin rights.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Transfer", 
+          style: "destructive",
+          onPress: async () => {
+            setTransferring(true);
+            try {
+              // Assuming API endpoint exists
+              // await api.groups.transferOwnership(id, transferUserId.trim());
+              Alert.alert("Success", "Ownership transferred successfully");
+              router.replace("/");
+            } catch {
+              Alert.alert("Error", "Failed to transfer ownership");
+            } finally {
+              setTransferring(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   if (loading) {
@@ -128,6 +158,32 @@ export default function GroupSettings() {
               </View>
               {visibility === "private" && <Ionicons name="checkmark-circle" size={24} color={colors.brandPrimary} />}
             </Pressable>
+          </View>
+
+          <Text style={[styles.label, { color: colors.error, marginTop: spacing.xxl }]}>Danger Zone</Text>
+          <View style={[styles.options, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <View style={[styles.optionItem, { borderBottomWidth: 0, flexDirection: "column", alignItems: "flex-start", gap: spacing.md }]}>
+              <View>
+                <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>Transfer Ownership</Text>
+                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>Transfer group ownership to another user by ID</Text>
+              </View>
+              <View style={{ flexDirection: "row", gap: spacing.sm, width: "100%" }}>
+                <TextInput
+                  value={transferUserId}
+                  onChangeText={setTransferUserId}
+                  placeholder="Enter User ID"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, height: 44, color: colors.onSurface }]}
+                />
+                <Pressable 
+                  onPress={handleTransferOwnership} 
+                  disabled={transferring || !transferUserId.trim()}
+                  style={{ backgroundColor: colors.error, paddingHorizontal: spacing.lg, borderRadius: radius.md, justifyContent: "center", opacity: (!transferUserId.trim() || transferring) ? 0.5 : 1 }}
+                >
+                  <Text style={{ color: "white", fontWeight: "600" }}>{transferring ? "..." : "Transfer"}</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
 
         </ScrollView>

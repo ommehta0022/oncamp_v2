@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, TextInput, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -41,6 +41,9 @@ export default function InstitutionPostRequests() {
   const [dashboard, setDashboard] = useState<InstitutionDashboardData | null>(null);
   const [items, setItems] = useState<PostRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [requestToReject, setRequestToReject] = useState<PostRequest | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const groupsById = useMemo(() => {
     const map: Record<string, any> = {};
@@ -98,17 +101,29 @@ export default function InstitutionPostRequests() {
     }
   };
 
-  const reject = async (request: PostRequest) => {
+  const reject = async () => {
+    if (!requestToReject) return;
+    const request = requestToReject;
     const institutionId = dashboard?.institution?.id;
     if (!institutionId) return;
+    
+    setRejectModalVisible(false);
+    setRequestToReject(null);
+    setRejectReason("");
+    
     setItems((current) => current.map((item) => item.id === request.id ? { ...item, status: "rejected" } : item));
     try {
-      await api.institutions.rejectPostRequest(institutionId, request.id);
+      await api.institutions.rejectPostRequest(institutionId, request.id, rejectReason);
       loadRequests();
     } catch (error) {
       Alert.alert("Reject failed", getUserErrorMessage(error, "Could not reject this request."));
       loadRequests();
     }
+  };
+  
+  const confirmReject = (request: PostRequest) => {
+    setRequestToReject(request);
+    setRejectModalVisible(true);
   };
 
   return (
@@ -152,7 +167,7 @@ export default function InstitutionPostRequests() {
 
               {(r.status === "pending" || r.status === "needs_changes") && (
                 <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
-                  <Pressable onPress={() => reject(r)} style={[styles.actionBtn, { borderColor: colors.borderStrong }]} testID={`reject-post-${r.id}`}>
+                  <Pressable onPress={() => confirmReject(r)} style={[styles.actionBtn, { borderColor: colors.borderStrong }]} testID={`reject-post-${r.id}`}>
                     <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>Reject</Text>
                   </Pressable>
                   <Pressable onPress={() => approve(r)} style={[styles.approve, { backgroundColor: colors.brandPrimary }]} testID={`approve-post-${r.id}`}>
@@ -165,6 +180,43 @@ export default function InstitutionPostRequests() {
           ))}
         </ScrollView>
       )}
+
+      {/* Reject Reason Modal */}
+      <Modal visible={rejectModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Reject Request</Text>
+            <Text style={{ color: colors.onSurfaceSecondary, fontSize: font.sm, marginBottom: spacing.md }}>
+              Please provide a reason for rejecting this post.
+            </Text>
+            <TextInput
+              style={[styles.input, { borderColor: colors.border, color: colors.onSurface }]}
+              placeholder="Reason for rejection (optional)"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              multiline
+              numberOfLines={3}
+            />
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => {
+                  setRejectModalVisible(false);
+                  setRequestToReject(null);
+                  setRejectReason("");
+                }}
+                style={[styles.modalBtn, { backgroundColor: colors.surfaceSecondary }]}
+              >
+                <Text style={{ color: colors.onSurface, fontWeight: "500" }}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={reject} style={[styles.modalBtn, { backgroundColor: colors.error }]}>
+                <Text style={{ color: "white", fontWeight: "500" }}>Reject</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -230,4 +282,10 @@ const styles = StyleSheet.create({
   meta: { flexDirection: "row", alignItems: "center", gap: 6, width: "46%" },
   actionBtn: { flex: 1, height: 40, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   approve: { flex: 1.2, height: 40, borderRadius: radius.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: spacing.lg },
+  modalContent: { width: "100%", borderRadius: radius.lg, padding: spacing.lg },
+  modalTitle: { fontSize: font.lg, fontWeight: "bold", marginBottom: spacing.xs },
+  input: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, minHeight: 80, textAlignVertical: "top" },
+  modalActions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.lg },
+  modalBtn: { flex: 1, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
 });
