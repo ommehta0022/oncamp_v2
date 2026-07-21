@@ -230,13 +230,12 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
         <View style={[styles.actions, { borderTopColor: colors.border }]}>
           <ActionBtn
             icon={item.liked ? "heart" : "heart-outline"}
-            label={String(item.likes || 0)}
+            label={String(item.counts?.reactions || item.likes || 0)}
             color={item.liked ? colors.brandSecondary : colors.onSurfaceTertiary}
             onPress={toggleLike}
           />
-          <ActionBtn icon="reader-outline" label={String(item.comments || 0)} color={colors.onSurfaceTertiary} onPress={() => router.push(`/post/${item.id}`)} />
-          <ActionBtn icon="repeat-outline" label={String(item.reposts || 0)} color={colors.onSurfaceTertiary} onPress={repost} />
-          <ActionBtn icon="share-outline" label="" color={colors.onSurfaceTertiary} onPress={sharePost} />
+          <ActionBtn icon="reader-outline" label={String(item.counts?.comments || item.comments || 0)} color={colors.onSurfaceTertiary} onPress={() => router.push(`/post/${item.id}`)} />
+          <ActionBtn icon="repeat-outline" label={String(item.counts?.reposts || item.reposts || 0)} color={colors.onSurfaceTertiary} onPress={repost} />
           <ActionBtn icon={item.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={item.bookmarked ? colors.brandSecondary : colors.onSurfaceTertiary} onPress={toggleBookmark} />
         </View>
       </Pressable>

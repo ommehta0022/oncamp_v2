@@ -85,6 +85,8 @@ export default function Profile() {
               name={user?.name || "User"} 
               size={100} 
               verified={(user as any)?.verified} 
+              withBorder={true}
+              onPress={() => router.push("/settings/edit-profile")}
             />
           </View>
           <View style={{ flex: 1, marginTop: spacing.md, flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm }}>
