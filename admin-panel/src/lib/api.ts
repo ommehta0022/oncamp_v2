@@ -510,6 +510,16 @@ class ApiClient {
     return response.data;
   }
 
+  async wipeEntity(entity: string) {
+    const response = await this.client.post(/v1/admin/wipe/);
+    return response.data;
+  }
+
+  async wipeAll() {
+    const response = await this.client.post("/v1/admin/wipe-all");
+    return response.data;
+  }
+
   async getTables() {
     const response = await this.client.get("/admin/database/tables");
     return response.data;

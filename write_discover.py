@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿content = r'''import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -433,3 +433,8 @@ const styles = StyleSheet.create({
     borderRadius: 10, borderWidth: 1, marginBottom: spacing.sm,
   },
 });
+'''
+
+with open('frontend/app/(tabs)/discover.tsx', 'w', encoding='utf-8') as f:
+    f.write(content)
+print("Written discover.tsx!")

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿content = r'''import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -51,7 +51,7 @@ export default function Profile() {
         api.groups.listMine().catch(() => ({ groups: [] })),
         api.users.stats().catch(() => ({ groups: 0, posts: 0, followers: 0, following: 0, streak: 0, daysSinceJoin: 0 })),
         api.users.achievements().catch(() => []),
-        (user?.id ? api.users.posts(user.id).catch(() => []) : Promise.resolve([])),
+        (user?.id ? api.users.posts(user.id, 1, 3).catch(() => []) : Promise.resolve([])),
       ]);
 
       setMyGroups(((groupsRes as any).groups || groupsRes || []).map(normalizeGroup).slice(0, 4));
@@ -357,3 +357,8 @@ const styles = StyleSheet.create({
   },
   achIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
 });
+'''
+
+with open('frontend/app/(tabs)/profile.tsx', 'w', encoding='utf-8') as f:
+    f.write(content)
+print("Written profile.tsx!")

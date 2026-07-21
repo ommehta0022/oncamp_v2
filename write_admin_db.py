@@ -1,4 +1,4 @@
-"use client";
+﻿content = r'''"use client";
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -409,3 +409,8 @@ export default function DatabasePage() {
     </div>
   );
 }
+'''
+
+with open('admin-panel/src/app/(dashboard)/dashboard/database/page.tsx', 'w', encoding='utf-8') as f:
+    f.write(content)
+print("Written admin database page!")

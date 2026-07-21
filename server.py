@@ -1510,17 +1510,130 @@ def delete_user_me(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
 
 
 @app.get("/v1/users/me/stats")
-def me_stats(user: CurrentUser = Depends(current_user)) -> dict[str, int]:
+def me_stats(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     groups = safe_get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id"})
-    posts = safe_get("posts", {"author_id": f"eq.{user.id}", "select": "id"})
+    posts_rows = safe_get("posts", {"author_id": f"eq.{user.id}", "select": "id,created_at", "order": "created_at.desc"})
     followers = safe_get("user_follows", {"following_id": f"eq.{user.id}", "select": "follower_id"})
     following = safe_get("user_follows", {"follower_id": f"eq.{user.id}", "select": "following_id"})
+    
+    # Compute streak: consecutive days with at least one post
+    from datetime import timezone, timedelta
+    today_date = datetime.now(timezone.utc).date()
+    posted_dates = set()
+    for p in posts_rows:
+        raw = p.get("created_at") or ""
+        try:
+            d = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+            posted_dates.add(d)
+        except Exception:
+            pass
+    streak = 0
+    check = today_date
+    while check in posted_dates:
+        streak += 1
+        check = check - timedelta(days=1)
+    
+    # Days since account created
+    user_row = safe_get("users", {"id": f"eq.{user.id}", "select": "created_at"})
+    days_since_join = 0
+    if user_row:
+        try:
+            joined = datetime.fromisoformat((user_row[0].get("created_at") or "").replace("Z", "+00:00"))
+            days_since_join = (datetime.now(timezone.utc) - joined).days
+        except Exception:
+            pass
+    
     return {
         "groups": len(groups),
-        "posts": len(posts),
+        "posts": len(posts_rows),
         "followers": len(followers),
         "following": len(following),
+        "streak": streak,
+        "daysSinceJoin": days_since_join,
     }
+
+
+@app.get("/v1/users/me/achievements")
+def me_achievements(user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    """Return dynamically-earned achievement badges for the current user."""
+    from datetime import timezone, timedelta
+    
+    posts_rows = safe_get("posts", {"author_id": f"eq.{user.id}", "select": "id,created_at", "order": "created_at.desc"})
+    groups_rows = safe_get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id,role"})
+    user_row = safe_get("users", {"id": f"eq.{user.id}", "select": "created_at,verified"})
+    
+    today_date = datetime.now(timezone.utc).date()
+    posted_dates = set()
+    for p in posts_rows:
+        raw = p.get("created_at") or ""
+        try:
+            d = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+            posted_dates.add(d)
+        except Exception:
+            pass
+    streak = 0
+    check = today_date
+    while check in posted_dates:
+        streak += 1
+        check = check - timedelta(days=1)
+    
+    days_since_join = 0
+    is_verified = False
+    if user_row:
+        try:
+            joined = datetime.fromisoformat((user_row[0].get("created_at") or "").replace("Z", "+00:00"))
+            days_since_join = (datetime.now(timezone.utc) - joined).days
+        except Exception:
+            pass
+        is_verified = bool(user_row[0].get("verified"))
+    
+    post_count = len(posts_rows)
+    group_count = len(groups_rows)
+    is_group_leader = any(m.get("role") in ("owner", "admin") for m in groups_rows)
+    
+    achievements = []
+    
+    # Streak badges
+    if streak >= 30:
+        achievements.append({"id": "streak_30", "label": "30 Day Streak", "icon": "flame", "color": "#FF6B35", "earned": True, "description": "Posted every day for 30 days"})
+    elif streak >= 7:
+        achievements.append({"id": "streak_7", "label": "7 Day Streak", "icon": "flame", "color": "#FF8C42", "earned": True, "description": "Posted 7 days in a row"})
+    elif streak >= 3:
+        achievements.append({"id": "streak_3", "label": "On a Roll", "icon": "flame-outline", "color": "#FFA500", "earned": True, "description": "3 day posting streak"})
+    
+    # Days since join
+    if days_since_join >= 365:
+        achievements.append({"id": "veteran", "label": "Veteran", "icon": "star", "color": "#FFD700", "earned": True, "description": "Been on OnCampus for over a year"})
+    elif days_since_join >= 30:
+        achievements.append({"id": "pioneer", "label": "Pioneer", "icon": "rocket", "color": "#7B61FF", "earned": True, "description": "Member for 30+ days"})
+    elif days_since_join >= 1:
+        achievements.append({"id": "early_adopter", "label": "Early Adopter", "icon": "rocket-outline", "color": "#9F6EFF", "earned": True, "description": "Joined the OnCampus journey"})
+    
+    # Post count
+    if post_count >= 50:
+        achievements.append({"id": "prolific", "label": "Prolific Writer", "icon": "trophy", "color": "#4CAF50", "earned": True, "description": "Published 50+ posts"})
+    elif post_count >= 10:
+        achievements.append({"id": "contributor", "label": "Top Contributor", "icon": "trophy-outline", "color": "#66BB6A", "earned": True, "description": "Published 10+ posts"})
+    elif post_count >= 1:
+        achievements.append({"id": "first_post", "label": "First Post", "icon": "newspaper-outline", "color": "#42A5F5", "earned": True, "description": "Published your first post"})
+    
+    # Groups
+    if group_count >= 5:
+        achievements.append({"id": "community_pillar", "label": "Community Pillar", "icon": "people", "color": "#26C6DA", "earned": True, "description": "Active in 5+ groups"})
+    
+    # Group leadership
+    if is_group_leader:
+        achievements.append({"id": "group_leader", "label": "Group Leader", "icon": "medal", "color": "#FFC107", "earned": True, "description": "Admin or Owner of a group"})
+    
+    # Verified
+    if is_verified:
+        achievements.append({"id": "verified", "label": "Verified Member", "icon": "checkmark-circle", "color": "#00BCD4", "earned": True, "description": "Verified student account"})
+    
+    # Always give "welcome" if no other achievement
+    if not achievements:
+        achievements.append({"id": "welcome", "label": "Welcome!", "icon": "heart", "color": "#E91E63", "earned": True, "description": "You joined OnCampus - welcome to campus life!"})
+    
+    return achievements
 
 
 def serialize_user_settings(row: Optional[dict[str, Any]], user_id: str) -> dict[str, Any]:
@@ -4229,6 +4342,105 @@ def reject_institution_post_request(
     })
     
     return req
+
+
+
+# ── ADMIN WIPE ENDPOINTS ──────────────────────────────────────────────────────
+
+def require_platform_admin(user: CurrentUser) -> None:
+    """Raise 403 if the caller is not a platform_admin."""
+    user_row = safe_get("users", {"id": f"eq.{user.id}", "select": "account_type"})
+    if not user_row or user_row[0].get("account_type") != "platform_admin":
+        raise HTTPException(status_code=403, detail="Platform admin access required")
+
+
+WIPE_TARGETS: dict[str, list[str]] = {
+    "users": ["saved_posts", "user_follows", "group_members", "notifications", "posts", "users"],
+    "posts": ["saved_posts", "posts"],
+    "groups": ["group_members", "group_messages", "groups"],
+    "institutions": ["group_post_requests", "institutions"],
+    "requests": ["group_post_requests", "group_join_requests", "reports"],
+    "notifications": ["notifications"],
+}
+
+WIPE_ORDER_ALL = [
+    "saved_posts", "group_messages", "group_post_requests", "group_join_requests",
+    "reports", "notifications", "posts", "group_members", "groups",
+    "user_follows", "institutions", "users",
+]
+
+DEMO_USERS_PRESERVED: list[str] = []  # Preserve no users; full wipe
+
+
+@app.post("/v1/admin/wipe/{entity}")
+def admin_wipe_entity(
+    entity: str,
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, Any]:
+    """Wipe a specific entity from the database. Requires platform_admin."""
+    require_platform_admin(user)
+    if entity not in WIPE_TARGETS:
+        raise HTTPException(status_code=400, detail=f"Unknown entity: {entity}. Valid: {list(WIPE_TARGETS.keys())}")
+    
+    results: dict[str, int] = {}
+    tables = WIPE_TARGETS[entity]
+    for table in tables:
+        try:
+            # For users table, skip the calling admin
+            if table == "users":
+                rows = safe_get(table, {"id": f"neq.{user.id}", "select": "id"})
+            else:
+                rows = safe_get(table, {"select": "id"}) if table != "notifications" else safe_get(table, {"select": "id"})
+            
+            deleted = 0
+            for row in rows:
+                try:
+                    if table == "users":
+                        db.delete(table, {"id": f"eq.{row['id']}"})
+                    elif table == "notifications":
+                        db.delete(table, {"id": f"eq.{row['id']}"})
+                    else:
+                        db.delete(table, {"id": f"eq.{row['id']}"})
+                    deleted += 1
+                except Exception:
+                    pass
+            results[table] = deleted
+        except Exception as e:
+            results[table] = -1
+            logger.error(f"Wipe failed for {table}: {e}")
+    
+    logger.warning(f"ADMIN WIPE by {user.id}: entity={entity}, results={results}")
+    return {"wiped": entity, "results": results}
+
+
+@app.post("/v1/admin/wipe-all")
+def admin_wipe_all(
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, Any]:
+    """Wipe ALL data from the database except the calling admin. Requires platform_admin."""
+    require_platform_admin(user)
+    
+    results: dict[str, int] = {}
+    for table in WIPE_ORDER_ALL:
+        try:
+            if table == "users":
+                rows = safe_get(table, {"id": f"neq.{user.id}", "select": "id"})
+            else:
+                rows = safe_get(table, {"select": "id"})
+            deleted = 0
+            for row in rows:
+                try:
+                    db.delete(table, {"id": f"eq.{row['id']}"})
+                    deleted += 1
+                except Exception:
+                    pass
+            results[table] = deleted
+        except Exception as e:
+            results[table] = -1
+            logger.error(f"Full wipe failed for {table}: {e}")
+    
+    logger.warning(f"FULL DB WIPE by {user.id}: results={results}")
+    return {"wiped": "all", "results": results}
 
 if __name__ == "__main__":
     import uvicorn

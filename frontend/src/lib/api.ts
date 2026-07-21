@@ -571,7 +571,8 @@ export const api = {
   users: {
     me: () => request<SessionUser>("/users/me"),
     deleteMe: () => request("/users/me", { method: "DELETE" }),
-    stats: () => request<{ groups: number; posts: number; followers: number; following: number }>("/users/me/stats"),
+    stats: () => request<{ groups: number; posts: number; followers: number; following: number; streak: number; daysSinceJoin: number }>("/users/me/stats"),
+    achievements: () => request<Array<{ id: string; label: string; icon: string; color: string; earned: boolean; description: string }>>("/users/me/achievements"),
     updateMe: (body: Partial<SessionUser>) => request<SessionUser>("/users/me", { method: "PATCH", body }),
     settings: () => request("/users/me/settings"),
     updateSettings: (body: unknown) => request("/users/me/settings", { method: "PATCH", body }),
