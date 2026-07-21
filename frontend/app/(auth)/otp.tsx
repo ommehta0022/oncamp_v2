@@ -78,7 +78,12 @@ export default function Otp() {
       const validation = validateOtp(code);
       if (!validation.valid) throw new Error(validation.error);
 
-      const session = await api.auth.verifyOtpDev(phone, code);
+      let session;
+      if (from === "login_institution") {
+        session = await api.auth.verifyInstitutionOtpDev(phone, code);
+      } else {
+        session = await api.auth.verifyOtpDev(phone, code);
+      }
       await saveSession(session.accessToken, session.refreshToken);
       let sessionUser = session.user;
       if (from === "signup" && name.trim()) {
@@ -111,7 +116,11 @@ export default function Otp() {
     
     try {
       // Send new OTP
-      await api.auth.startOtp(phone, from === "login" ? "login" : "register");
+      if (from === "login_institution") {
+        await api.auth.startInstitutionOtp(phone);
+      } else {
+        await api.auth.startOtp(phone, from === "login" ? "login" : "register");
+      }
       
       // Reset state
       setSeconds(30);

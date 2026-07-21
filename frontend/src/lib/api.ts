@@ -501,6 +501,12 @@ export const api = {
         auth: false,
         body: { phone, action },
       }),
+    startInstitutionOtp: (identifier: string) =>
+      request<StartOtpResponse>("/auth/institution/otp/start", {
+        method: "POST",
+        auth: false,
+        body: { identifier },
+      }),
     verifyOtp: async (challengeId: string, firebaseIdToken: string) =>
       normalizeAuthSession(
         await request<{
@@ -527,6 +533,20 @@ export const api = {
           method: "POST",
           auth: false,
           body: { phone, code, platform: Platform.OS },
+        })
+      ),
+    verifyInstitutionOtpDev: async (identifier: string, code: string) =>
+      normalizeAuthSession(
+        await request<{
+          accessToken: string;
+          refreshToken: string;
+          userId?: string;
+          isNewUser?: boolean;
+          user?: SessionUser;
+        }>("/auth/institution/otp/verify", {
+          method: "POST",
+          auth: false,
+          body: { identifier, code, platform: Platform.OS },
         })
       ),
 

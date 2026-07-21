@@ -640,6 +640,11 @@ class ApiClient {
     return response.data;
   }
 
+  async resetInstitutionLogin(id: string, identifier: string) {
+    const response = await this.client.post(`/admin/institutions/${id}/reset-login`, { identifier });
+    return response.data;
+  }
+
   // Posts
   async getPosts(params?: any) {
     const response = await this.client.get("/admin/posts", { params });

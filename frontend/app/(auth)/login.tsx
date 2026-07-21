@@ -3,16 +3,29 @@ import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Pres
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
-import { api, getUserErrorMessage } from "@/src/lib/api";
+import { AccountRole, api, getUserErrorMessage, saveSession } from "@/src/lib/api";
 import { digitsOnly, validateIndianPhone } from "@/src/utils/validation";
+import { useRole } from "@/src/context/RoleProvider";
+
+function resolveRole(accountType?: AccountRole, roles: AccountRole[] = []) {
+  if (roles.includes("platform_admin")) return "platform_admin";
+  if (roles.includes("institution_admin") || accountType === "institution_admin") return "institution_admin";
+  if (roles.includes("group_owner")) return "group_owner";
+  if (roles.includes("group_admin")) return "group_admin";
+  if (roles.includes("moderator")) return "moderator";
+  return "normal_user";
+}
 
 export default function Login() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { refreshUser } = useRole();
+  const [loginType, setLoginType] = useState<"student" | "institution">("student");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -40,13 +53,18 @@ export default function Login() {
     const fullPhone = `+91${phone}`;
     
     try {
-      const otp = await api.auth.startOtp(fullPhone, 'login');
+      let otp;
+      if (loginType === "institution") {
+        otp = await api.auth.startInstitutionOtp(fullPhone);
+      } else {
+        otp = await api.auth.startOtp(fullPhone, 'login');
+      }
       router.push({
         pathname: "/(auth)/otp",
         params: {
           phone: fullPhone,
           challengeId: otp.challengeId || "",
-          from: "login",
+          from: loginType === "institution" ? "login_institution" : "login",
         },
       });
     } catch (err) {
@@ -69,11 +87,26 @@ export default function Login() {
           </View>
           <Text style={[styles.h1, { color: colors.onSurface }]}>Welcome back</Text>
           <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
-            Log in to your campus network. We&apos;ll send you a code.
+            {loginType === "student" ? "Log in to your campus network. We'll send you a code." : "Log in to your institution admin panel."}
           </Text>
 
+          <View style={[styles.tabContainer, { borderBottomColor: colors.border }]}>
+            <Pressable
+              style={[styles.tab, loginType === "student" && { borderBottomColor: colors.brandPrimary, borderBottomWidth: 2 }]}
+              onPress={() => { setLoginType("student"); setError(""); }}
+            >
+              <Text style={[styles.tabText, { color: loginType === "student" ? colors.brandPrimary : colors.muted }]}>Student</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.tab, loginType === "institution" && { borderBottomColor: colors.brandPrimary, borderBottomWidth: 2 }]}
+              onPress={() => { setLoginType("institution"); setError(""); }}
+            >
+              <Text style={[styles.tabText, { color: loginType === "institution" ? colors.brandPrimary : colors.muted }]}>Institution</Text>
+            </Pressable>
+          </View>
+
           <View style={{ marginTop: spacing["2xl"] }}>
-            <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Phone number</Text>
+            <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>{loginType === "institution" ? "Admin Phone number" : "Phone number"}</Text>
             <View style={[styles.phoneRow, { borderColor: colors.borderStrong, backgroundColor: colors.surfaceSecondary }]}>
               <View style={styles.cc}>
                 <Text style={{ color: colors.muted, fontSize: font.lg, fontWeight: "500" }}>+91</Text>
@@ -99,29 +132,30 @@ export default function Login() {
                 {phoneValidation.error}
               </Text>
             )}
+
+            <View style={{ marginTop: spacing["2xl"] }}>
+              <Button
+                label="Send OTP"
+                fullWidth
+                size="lg"
+                disabled={!phoneValidation.valid || submitting}
+                loading={submitting}
+                onPress={sendOtp}
+                testID="send-otp-btn"
+              />
+            </View>
           </View>
 
-          <View style={{ marginTop: spacing["2xl"] }}>
-            <Button
-              label="Send OTP"
-              fullWidth
-              size="lg"
-              disabled={!phoneValidation.valid || submitting}
-              loading={submitting}
-              onPress={sendOtp}
-              testID="send-otp-btn"
-            />
-          </View>
           {!!error && (
             <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.sm }}>
               {error}
             </Text>
           )}
 
-          <Pressable onPress={() => router.push("/(auth)/signup")} style={{ marginTop: spacing.xl, alignItems: "center" }}>
+          <Pressable onPress={() => router.push(loginType === "student" ? "/(auth)/signup" : "/(auth)/register-institution")} style={{ marginTop: spacing.xl, alignItems: "center", marginBottom: spacing["2xl"] }}>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>
               New here?{" "}
-              <Text style={{ color: colors.brandPrimary, fontWeight: "500" }}>Create an account</Text>
+              <Text style={{ color: colors.brandPrimary, fontWeight: "500" }}>{loginType === "student" ? "Create an account" : "Register your institution"}</Text>
             </Text>
           </Pressable>
         </ScrollView>
@@ -142,4 +176,8 @@ const styles = StyleSheet.create({
   },
   cc: { flexDirection: "row", alignItems: "center", gap: 4 },
   divider: { width: 1, height: 24, marginHorizontal: spacing.md },
+  tabContainer: { flexDirection: "row", marginTop: spacing.xl, borderBottomWidth: 1 },
+  tab: { flex: 1, paddingVertical: spacing.md, alignItems: "center" },
+  tabText: { fontSize: font.base, fontWeight: "500" },
+  input: { height: 56, borderRadius: radius.md, borderWidth: 1, paddingHorizontal: spacing.md, fontSize: font.lg },
 });

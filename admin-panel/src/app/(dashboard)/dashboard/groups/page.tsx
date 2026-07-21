@@ -12,6 +12,7 @@ import {
   Globe,
   Lock,
   AlertTriangle,
+  Download,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -92,6 +93,23 @@ export default function GroupsPage() {
     }
     setDeleteModal((prev) => ({ ...prev, deleting: true, error: null }));
     deleteGroupMutation.mutate({ id: deleteModal.group.id, reason: "Admin deletion" });
+  };
+
+  const exportGroups = () => {
+    if (!data?.data) return;
+    const headers = ["id", "name", "category", "visibility", "member_count", "city", "status"];
+    const rows = data.data.map((group: any) =>
+      headers.map((header) => JSON.stringify(group[header] ?? "")).join(",")
+    );
+    const blob = new Blob([[headers.join(","), ...rows].join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `groups-all-${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -180,11 +198,21 @@ export default function GroupsPage() {
       )}
 
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Groups Management</h1>
-        <p className="text-gray-600 mt-1">
-          Manage all groups, verify official groups, and moderate content
-        </p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Groups Management</h1>
+          <p className="text-gray-600 mt-1">
+            Manage all groups, verify official groups, and moderate content
+          </p>
+        </div>
+        <button
+          onClick={exportGroups}
+          disabled={!data?.data || data.data.length === 0}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          <Download className="w-4 h-4" />
+          <span>Export CSV</span>
+        </button>
       </div>
 
       {/* Filters */}

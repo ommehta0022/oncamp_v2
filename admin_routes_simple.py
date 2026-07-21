@@ -2102,3 +2102,120 @@ async def toggle_maintenance_mode(
         "maintenance_mode": enabled,
         "message": message
     }
+
+# ============================================================================
+# INSTITUTIONS MANAGEMENT
+# ============================================================================
+
+@router.get("/institutions")
+async def get_institutions(
+    admin: dict = Depends(get_current_admin),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=1000),
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    params: dict[str, Any] = {"order": "created_at.desc"}
+    if status:
+        params["status"] = f"eq.{status}"
+    if search:
+        params["name"] = f"ilike.*{search}*"
+
+    response = table_rows("institutions", params, page, limit)
+    return response
+
+
+@router.get("/institutions/{institution_id}")
+async def get_institution(institution_id: str, admin: dict = Depends(get_current_admin)):
+    rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "*", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Institution not found")
+    institution = rows[0]
+    return institution
+
+
+@router.patch("/institutions/{institution_id}")
+async def update_institution(institution_id: str, data: dict[str, Any] = Body(...), admin: dict = Depends(get_current_admin)):
+    result = safe_patch("institutions", {"id": f"eq.{institution_id}"}, {**data, "updated_at": now_iso()})
+    log_admin_action(admin, "INSTITUTION_UPDATE", {"fields": list(data.keys())}, "institution", institution_id)
+    return result[0] if result else {"success": True}
+
+
+@router.delete("/institutions/{institution_id}")
+async def delete_institution(institution_id: str, admin: dict = Depends(get_current_admin)):
+    db_client.delete("institutions", {"id": f"eq.{institution_id}"})
+    log_admin_action(admin, "INSTITUTION_DELETE", "Institution deleted", "institution", institution_id)
+    return {"success": True}
+
+
+@router.post("/institutions/{institution_id}/reset-login")
+async def reset_institution_login(institution_id: str, data: dict[str, str] = Body(...), admin: dict = Depends(get_current_admin)):
+    new_identifier = data.get("identifier")
+    if not new_identifier:
+         raise HTTPException(status_code=400, detail="Identifier is required")
+         
+    admin_rows = safe_get("institution_admins", {"institution_id": f"eq.{institution_id}", "select": "user_id", "limit": "1"})
+    if not admin_rows:
+         raise HTTPException(status_code=404, detail="No admin found for this institution")
+    user_id = admin_rows[0]["user_id"]
+    
+    update_data = {}
+    if "@" in new_identifier:
+        update_data["email"] = new_identifier.lower()
+    else:
+        import hashlib
+        phone = new_identifier.strip()
+        if not phone.startswith("+"):
+             phone = "+91" + phone
+        update_data["phone_hash"] = hashlib.sha256(phone.encode("utf-8")).hexdigest()
+        
+    safe_patch("users", {"id": f"eq.{user_id}"}, update_data)
+    log_admin_action(admin, "INSTITUTION_LOGIN_RESET", f"Reset login to {new_identifier}", "institution", institution_id)
+    return {"success": True}
+
+
+# ============================================================================
+# POSTS MANAGEMENT
+# ============================================================================
+
+@router.get("/posts")
+async def get_posts(
+    admin: dict = Depends(get_current_admin),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=1000),
+    type: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    params: dict[str, Any] = {"order": "created_at.desc", "select": "*,users(name,avatar_url)"}
+    if type:
+        params["type"] = f"eq.{type}"
+    if status:
+        params["status"] = f"eq.{status}"
+    if search:
+        params["title"] = f"ilike.*{search}*"
+
+    response = table_rows("posts", params, page, limit)
+    return response
+
+
+@router.get("/posts/{post_id}")
+async def get_post(post_id: str, admin: dict = Depends(get_current_admin)):
+    rows = safe_get("posts", {"id": f"eq.{post_id}", "select": "*,users(name,avatar_url),groups(name)", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return rows[0]
+
+
+@router.patch("/posts/{post_id}")
+async def update_post(post_id: str, data: dict[str, Any] = Body(...), admin: dict = Depends(get_current_admin)):
+    result = safe_patch("posts", {"id": f"eq.{post_id}"}, data)
+    log_admin_action(admin, "POST_UPDATE", {"fields": list(data.keys())}, "post", post_id)
+    return result[0] if result else {"success": True}
+
+
+@router.delete("/posts/{post_id}")
+async def delete_post(post_id: str, admin: dict = Depends(get_current_admin)):
+    db_client.delete("posts", {"id": f"eq.{post_id}"})
+    log_admin_action(admin, "POST_DELETE", "Post deleted", "post", post_id)
+    return {"success": True}
