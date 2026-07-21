@@ -621,6 +621,7 @@ def serialize_user(row: dict[str, Any]) -> dict[str, Any]:
         "bio": row.get("bio"),
         "handle": row.get("handle"),
         "avatarUrl": row.get("avatar_url"),
+        "coverUrl": row.get("cover_url"),
         "verified": row.get("verified", False),
         "accountType": account_type,
         "roles": [account_type],
@@ -1559,7 +1560,7 @@ def update_user_settings(payload: dict[str, Any], user: CurrentUser = Depends(cu
 def get_public_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     rows = db.get(
         "users",
-        {"id": f"eq.{user_id}", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key", "limit": "1"},
+        {"id": f"eq.{user_id}", "select": "id,email,name,city,course,bio,handle,avatar_url,cover_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key", "limit": "1"},
     )
     if not rows:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1589,7 +1590,7 @@ def users_for_follow_rows(rows: list[dict[str, Any]], key: str) -> list[dict[str
         return []
     users = safe_get(
         "users",
-        {"id": f"in.({','.join(ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key"},
+        {"id": f"in.({','.join(ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,cover_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key"},
     )
     user_by_id = {row["id"]: serialize_user(row) for row in users}
     return [user_by_id[user_id] for user_id in ids if user_id in user_by_id]
@@ -1656,7 +1657,7 @@ def list_blocked_users(user: CurrentUser = Depends(current_user)) -> list[dict[s
         return []
     users = safe_get(
         "users",
-        {"id": f"in.({','.join(ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key"},
+        {"id": f"in.({','.join(ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,cover_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key"},
     )
     user_by_id = {row["id"]: serialize_user(row) for row in users}
     return [user_by_id[user_id] for user_id in ids if user_id in user_by_id]
@@ -1689,7 +1690,7 @@ def feed(
     authors = {}
     groups_by_id = {}
     if author_ids:
-        rows = safe_get("users", {"id": f"in.({','.join(author_ids)})", "select": "id,name,avatar_url,verified,account_type"})
+        rows = safe_get("users", {"id": f"in.({','.join(author_ids)})", "select": "id,name,avatar_url,cover_url,verified,account_type"})
         authors = {row["id"]: row for row in rows}
     if group_ids:
         rows = safe_get("groups", {"id": f"in.({','.join(group_ids)})", "select": "id,name"})
@@ -1771,7 +1772,7 @@ def get_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
     comment_user_ids = sorted({row.get("user_id") for row in comments if row.get("user_id")})
     comment_users = {}
     if comment_user_ids:
-        users_rows = safe_get("users", {"id": f"in.({','.join(comment_user_ids)})", "select": "id,name,avatar_url,verified"})
+        users_rows = safe_get("users", {"id": f"in.({','.join(comment_user_ids)})", "select": "id,name,avatar_url,cover_url,verified"})
         comment_users = {row["id"]: row for row in users_rows}
     return {
         "id": post["id"],
@@ -1831,7 +1832,7 @@ def list_post_comments(post_id: str, limit: int = Query(default=50, ge=1, le=200
     user_ids = sorted({row.get("user_id") for row in comments if row.get("user_id")})
     users_by_id = {}
     if user_ids:
-        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,name,avatar_url,verified"})
+        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,name,avatar_url,cover_url,verified"})
         users_by_id = {row["id"]: row for row in users}
     return [serialize_comment(row, users_by_id) for row in comments]
 
@@ -2368,7 +2369,7 @@ def list_group_members(group_id: str, user: CurrentUser = Depends(current_user))
     user_ids = [row["user_id"] for row in rows if row.get("user_id")]
     users_by_id = {}
     if user_ids:
-        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type"})
+        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,cover_url,verified,account_type"})
         users_by_id = {row["id"]: serialize_user(row) for row in users}
     return [
         {
@@ -2459,7 +2460,7 @@ def list_join_requests(group_id: str, user: CurrentUser = Depends(current_user))
     user_ids = [row.get("user_id") for row in rows if row.get("user_id")]
     users_by_id = {}
     if user_ids:
-        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type"})
+        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,cover_url,verified,account_type"})
         users_by_id = {row["id"]: serialize_user(row) for row in users}
     return [{**row, "user": users_by_id.get(row.get("user_id")), "users": users_by_id.get(row.get("user_id"))} for row in rows]
 
@@ -2523,7 +2524,7 @@ def list_group_messages(group_id: str, limit: int = Query(default=50, ge=1, le=1
     sender_ids = sorted({row.get("sender_id") for row in rows if row.get("sender_id")})
     users_by_id = {}
     if sender_ids:
-        users = safe_get("users", {"id": f"in.({','.join(sender_ids)})", "select": "id,name,avatar_url,verified"})
+        users = safe_get("users", {"id": f"in.({','.join(sender_ids)})", "select": "id,name,avatar_url,cover_url,verified"})
         users_by_id = {row["id"]: serialize_user(row) for row in users}
     return [serialize_message(row, users_by_id) for row in rows]
 
@@ -2547,7 +2548,7 @@ def send_group_message(group_id: str, payload: SendMessageDto, user: CurrentUser
             "created_at": now_iso(),
         },
     )[0]
-    users = safe_get("users", {"id": f"eq.{user.id}", "select": "id,name,avatar_url,verified", "limit": "1"})
+    users = safe_get("users", {"id": f"eq.{user.id}", "select": "id,name,avatar_url,cover_url,verified", "limit": "1"})
     return serialize_message(row, {user.id: serialize_user(users[0])} if users else {})
 
 
@@ -3085,7 +3086,7 @@ def invite_institution_admin(payload: InstitutionAdminInviteDto, user: CurrentUs
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Valid email is required")
 
-    users = safe_get("users", {"email": f"eq.{email}", "select": "id,email,name,avatar_url,verified,account_type", "limit": "1"})
+    users = safe_get("users", {"email": f"eq.{email}", "select": "id,email,name,avatar_url,cover_url,verified,account_type", "limit": "1"})
     if not users:
         log_institution_activity(user, institution_id, "admin_invite_pending", {"email": email, "role": role})
         return {"success": True, "pending": True, "email": email, "role": role, "message": "Invite recorded. The user can be activated after they join OnCampus."}
@@ -3730,7 +3731,7 @@ def search(q: str = Query(default="", max_length=80), user: CurrentUser = Depend
             "limit": "20",
         },
     )
-    users_rows = safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,verified,account_type", "limit": "20"})
+    users_rows = safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,cover_url,verified,account_type", "limit": "20"})
     posts = safe_get(
         "posts",
         {
@@ -3836,7 +3837,7 @@ def search_groups(q: str = Query(default="", max_length=80), user: CurrentUser =
 def search_users(q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> list[dict]:
     query = q.strip()
     if len(query) < 2: return []
-    users_rows = safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,verified,account_type", "limit": "20"})
+    users_rows = safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,cover_url,verified,account_type", "limit": "20"})
     return [serialize_user(row) for row in users_rows]
 
 
