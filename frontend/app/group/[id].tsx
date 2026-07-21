@@ -176,8 +176,7 @@ export default function GroupChat() {
           case "Pin Message":
           case "Unpin Message":
             try {
-              // Assuming API supports pinning
-              // await api.groups.pinMessage(message.id, !message.pinned);
+              await api.groups.pinMessage(message.id, !message.pinned);
               setMessages(m => m.map(msg => msg.id === message.id ? { ...msg, pinned: !message.pinned } : msg));
               if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch {

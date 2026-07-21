@@ -611,6 +611,7 @@ export const api = {
     unreadCount: (groupId: string) => request<{ unread: number }>(`/groups/${groupId}/messages/unread`),
     markRead: (groupId: string) => request(`/groups/${groupId}/messages/read`, { method: "POST" }),
     deleteMessage: (messageId: string) => request(`/messages/${messageId}`, { method: "DELETE" }),
+    pinMessage: (messageId: string, pinned: boolean) => request(`/messages/${messageId}/pin`, { method: "POST", body: { pinned } }),
     sendMessage: (groupId: string, body: unknown) =>
       request(`/groups/${groupId}/messages`, { method: "POST", body }),
     members: (groupId: string) => request(`/groups/${groupId}/members`),
@@ -625,6 +626,7 @@ export const api = {
     unmuteGroup: (groupId: string) => request(`/groups/${groupId}/mute`, { method: "DELETE" }),
     pinGroup: (groupId: string) => request(`/groups/${groupId}/pin`, { method: "POST" }),
     unpinGroup: (groupId: string) => request(`/groups/${groupId}/pin`, { method: "DELETE" }),
+    transferOwnership: (groupId: string, userId: string) => request(`/groups/${groupId}/transfer`, { method: "POST", body: { userId } }),
     searchMessages: (groupId: string, query: string) => request<MessageDto[]>(`/groups/${groupId}/messages/search?q=${encodeURIComponent(query)}`),
   },
   institutions: {

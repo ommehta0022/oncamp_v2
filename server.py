@@ -2388,6 +2388,32 @@ def update_group_member_role(group_id: str, member_user_id: str, payload: dict[s
     return {"groupId": group_id, "userId": member_user_id, "role": updated.get("role") or new_role}
 
 
+
+class TransferOwnershipRequest(BaseModel):
+    userId: str
+
+@app.post("/v1/groups/{group_id}/transfer")
+def transfer_group_ownership(group_id: str, req: TransferOwnershipRequest, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    rold = group_role(group_id, user.id)
+    if role != "owner" and user.rold != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only the group owner can transfer ownership")
+        
+    target_rows = db.get(
+        "group_members",
+        {"group_id": f"eq.{group_id}", "user_id": f"eq.{req.userId}", "status": "eq.active", "limit": "1"}
+    )
+    if not target_rows:
+        raise HTTPException(status_code=400, detail="Target user must be an active member of the group")
+        
+    # Update target to owner
+    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{req.userId}"}, {"role": "owner"})
+    
+    # Downgrade current user to admin if they are the owner
+    if role == "owner":
+        db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"role": "admin"})
+        
+    return {"groupId": group_id, "newOwnerId": req.userId}
+
 @app.delete("/v1/groups/{group_id}/members/{member_user_id}")
 def remove_group_member(group_id: str, member_user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     role = require_group_admin(group_id, user)
@@ -2508,6 +2534,20 @@ def send_group_message(group_id: str, payload: SendMessageDto, user: CurrentUser
     users = safe_get("users", {"id": f"eq.{user.id}", "select": "id,name,avatar_url,verified", "limit": "1"})
     return serialize_message(row, {user.id: serialize_user(users[0])} if users else {})
 
+
+
+class PinMessageRequest(BaseModel):
+    pinned: bool
+
+@app.post("/v1/messages/{message_id}/pin")
+def pin_group_message(message_id: str, req: PinMessageRequest, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    rows = db.get("messages", {"id": f"eq.{message_id}", "deleted_at": "is.null", "select": "*", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Message not found")
+    group_id = rows[0].get("group_id")
+    require_group_admin(group_id, user)
+    db.patch("messages", {"id": f"eq.{message_id}"}, {"pinned": req.pinned})
+    return {"id": message_id, "pinned": req.pinned}
 
 @app.delete("/v1/messages/{message_id}")
 def delete_group_message(message_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:

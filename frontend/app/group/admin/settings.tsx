@@ -70,9 +70,9 @@ export default function GroupSettings() {
           onPress: async () => {
             setTransferring(true);
             try {
-              // Assuming API endpoint exists
-              // await api.groups.transferOwnership(id, transferUserId.trim());
+              await api.groups.transferOwnership(id!, transferUserId.trim());
               Alert.alert("Success", "Ownership transferred successfully");
+              setTransferUserId("");
               router.replace("/");
             } catch {
               Alert.alert("Error", "Failed to transfer ownership");
