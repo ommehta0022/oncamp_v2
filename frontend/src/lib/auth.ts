@@ -27,7 +27,7 @@ export async function secureLogout(): Promise<void> {
 
   try {
     // Step 2: Clear secure storage (tokens)
-    await clearSession();
+    await clearSession(false);
 
     // Step 3: Clear all app data from AsyncStorage
     const allKeys = await AsyncStorage.getAllKeys();
@@ -76,5 +76,5 @@ export async function forceLogout(): Promise<void> {
   if (oncampusKeys.length > 0) {
     await AsyncStorage.multiRemove(oncampusKeys);
   }
-  router.replace('/(auth)/welcome');
+  router.replace('/(auth)/login');
 }

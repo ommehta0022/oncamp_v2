@@ -9,16 +9,19 @@ import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import { AccountRole, api, getUserErrorMessage, saveSession } from "@/src/lib/api";
 import { digitsOnly, validateOtp } from "@/src/utils/validation";
+import { useRole } from "@/src/context/RoleProvider";
 
 export default function Otp() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { refreshUser } = useRole();
 
   // Get params - challengeId may come as string or array
   const params = useLocalSearchParams();
   const phone = Array.isArray(params.phone) ? params.phone[0] : (params.phone as string) ?? "";
   const from = Array.isArray(params.from) ? params.from[0] : (params.from as string) ?? "login";
   const name = Array.isArray(params.name) ? params.name[0] : (params.name as string) ?? "";
+  const email = Array.isArray(params.email) ? params.email[0] : (params.email as string) ?? "";
   
   const { width } = useWindowDimensions();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
@@ -79,16 +82,17 @@ export default function Otp() {
       await saveSession(session.accessToken, session.refreshToken);
       let sessionUser = session.user;
       if (from === "signup" && name.trim()) {
-        sessionUser = await api.users.updateMe({ name: name.trim() });
+        sessionUser = await api.users.updateMe({ name: name.trim(), email: email.trim() || undefined });
       }
       if (sessionUser) {
         await AsyncStorage.setItem("oncampus.user", JSON.stringify(sessionUser));
         await AsyncStorage.setItem("oncampus.role", resolveRole(sessionUser.accountType, sessionUser.roles));
       }
       await AsyncStorage.setItem("oncampus.authed", "true");
+      await refreshUser().catch(() => {});
       
-      if (sessionUser?.accountType === "institution_admin") {
-        router.replace("/institution/dashboard");
+      if (sessionUser?.accountType === "institution_admin" || sessionUser?.roles?.includes("institution_admin")) {
+        router.replace("/(tabs)/profile");
       } else {
         router.replace(session.isNewUser || !sessionUser?.profileCompleted ? "/(auth)/profile-setup" : "/(tabs)/feed");
       }

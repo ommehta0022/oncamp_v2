@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { api, SessionUser } from "@/src/lib/api";
+import { DeviceEventEmitter, Platform } from "react-native";
+import { api, SESSION_EXPIRED_EVENT, SessionUser } from "@/src/lib/api";
 
 export type Role =
   | "normal_user"
@@ -43,6 +44,28 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  useEffect(() => {
+    const clearCachedIdentity = () => {
+      setUser(null);
+      setRoleState("normal_user");
+    };
+
+    let subscription: { remove: () => void } | null = null;
+    if (Platform.OS === "web") {
+      window.addEventListener(SESSION_EXPIRED_EVENT, clearCachedIdentity);
+    } else {
+      subscription = DeviceEventEmitter.addListener(SESSION_EXPIRED_EVENT, clearCachedIdentity);
+    }
+
+    return () => {
+      if (Platform.OS === "web") {
+        window.removeEventListener(SESSION_EXPIRED_EVENT, clearCachedIdentity);
+      } else {
+        subscription?.remove();
+      }
+    };
+  }, []);
+
   const refreshUser = useCallback(async () => {
     try {
       const nextUser = await api.auth.me();
@@ -52,9 +75,11 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
       setRoleState(nextRole);
       await AsyncStorage.setItem(STORAGE_KEY, nextRole);
     } catch (e: any) {
-      if (e.message === "Authentication failed") {
+      if (e?.code === "UNAUTHENTICATED" || e?.status === 401 || e?.message === "Authentication failed") {
         setUser(null);
+        setRoleState("normal_user");
         await AsyncStorage.removeItem(USER_CACHE_KEY);
+        await AsyncStorage.removeItem(STORAGE_KEY);
       }
       throw e;
     }

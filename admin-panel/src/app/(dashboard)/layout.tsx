@@ -30,6 +30,8 @@ const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Users", href: "/dashboard/users", icon: Users },
   { name: "Groups", href: "/dashboard/groups", icon: UsersRound },
+  { name: "Institutions", href: "/dashboard/institutions", icon: School },
+  { name: "Posts", href: "/dashboard/posts", icon: FileText },
   { name: "Institutions", href: "/dashboard/institutional-verification", icon: School, badge: true },
   { name: "Moderation", href: "/dashboard/moderation", icon: ShieldAlert, badge: true },
   { name: "Audit Logs", href: "/dashboard/audit-logs", icon: FileText },

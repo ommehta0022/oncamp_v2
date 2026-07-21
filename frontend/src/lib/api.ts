@@ -16,6 +16,11 @@ export const i18n = {
 const ACCESS_TOKEN_KEY = "oncampus.access_token";
 const REFRESH_TOKEN_KEY = "oncampus.refresh_token";
 const DEVICE_ID_KEY = "oncampus.device_id";
+const USER_CACHE_KEY = "oncampus.user";
+const ROLE_CACHE_KEY = "oncampus.role";
+export const SESSION_EXPIRED_EVENT = "onSessionExpired";
+
+let sessionExpiredNoticeShown = false;
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -25,6 +30,7 @@ type ApiOptions = {
   auth?: boolean;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  suppressSessionExpiredModal?: boolean;
 };
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -187,10 +193,22 @@ async function deleteSecureItem(key: string) {
 }
 
 export async function saveSession(accessToken: string, refreshToken: string) {
+  sessionExpiredNoticeShown = false;
   await Promise.all([
     setSecureItem(ACCESS_TOKEN_KEY, accessToken),
     setSecureItem(REFRESH_TOKEN_KEY, refreshToken),
   ]);
+}
+
+function emitSessionExpiredOnce() {
+  if (sessionExpiredNoticeShown) return;
+  sessionExpiredNoticeShown = true;
+
+  if (Platform.OS !== "web") {
+    DeviceEventEmitter.emit(SESSION_EXPIRED_EVENT);
+  } else if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
 }
 
 export async function clearSession(forceShowModal = true) {
@@ -198,12 +216,10 @@ export async function clearSession(forceShowModal = true) {
     deleteSecureItem(ACCESS_TOKEN_KEY),
     deleteSecureItem(REFRESH_TOKEN_KEY),
     AsyncStorage.removeItem("oncampus.authed"),
+    AsyncStorage.removeItem(USER_CACHE_KEY),
+    AsyncStorage.removeItem(ROLE_CACHE_KEY),
   ]);
-  if (forceShowModal && Platform.OS !== "web") {
-    DeviceEventEmitter.emit("onSessionExpired");
-  } else if (forceShowModal && Platform.OS === "web") {
-    window.dispatchEvent(new Event("onSessionExpired"));
-  }
+  if (forceShowModal) emitSessionExpiredOnce();
 }
 
 export async function getAccessToken() {
@@ -342,7 +358,7 @@ async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
       headers.Authorization = `Bearer ${nextToken}`;
       return parseResponse<T>(await execute());
     }
-    await clearSession();
+    await clearSession(!options.suppressSessionExpiredModal);
     throw new ApiError("Your session has expired. Please log in again.", "UNAUTHENTICATED", 401);
   }
 
@@ -364,6 +380,7 @@ export type SessionUser = {
   avatarUrl?: string;
   city?: string;
   course?: string;
+  email?: string;
   bio?: string;
   handle?: string;
   accountType?: AccountRole;
@@ -527,7 +544,7 @@ export const api = {
         })
       ),
     me: () => request<SessionUser>("/auth/me"),
-    logout: () => request<void>("/auth/logout", { method: "POST" }),
+    logout: () => request<void>("/auth/logout", { method: "POST", suppressSessionExpiredModal: true }),
   },
   users: {
     me: () => request<SessionUser>("/users/me"),
@@ -593,8 +610,14 @@ export const api = {
     register: (body: unknown) => request("/institutions/register", { method: "POST", body }),  // FIXED: Now requires auth
     dashboard: () => request("/institutions/me/dashboard"),
     analytics: () => request("/institutions/me/analytics"),
+    settings: () => request("/institutions/me/settings"),
+    updateSettings: (body: unknown) => request("/institutions/me/settings", { method: "PATCH", body }),
+    exportData: () => request("/institutions/me/export"),
     updateMe: (body: unknown) => request("/institutions/me", { method: "PATCH", body }),
     admins: () => request("/institutions/me/admins"),
+    inviteAdmin: (body: unknown) => request("/institutions/me/admins", { method: "POST", body }),
+    updateAdmin: (adminId: string, body: unknown) => request(`/institutions/me/admins/${adminId}`, { method: "PATCH", body }),
+    removeAdmin: (adminId: string) => request(`/institutions/me/admins/${adminId}`, { method: "DELETE" }),
     postRequest: (institutionId: string, body: unknown) => request(`/institutions/${institutionId}/post-requests`, { method: "POST", body }),
     postRequests: (institutionId: string) => request<PostRequestDto[]>(`/institutions/${institutionId}/post-requests`),
     approvePostRequest: (institutionId: string, requestId: string, targetGroupId: string) => request(`/institutions/${institutionId}/post-requests/${requestId}/approve`, { method: "POST", body: { target_group_id: targetGroupId } }),
@@ -692,12 +715,29 @@ export const api = {
   uploadInstitutionLogo: async (formData: FormData) => {
     const token = await getAccessToken();
     const deviceId = await getDeviceId();
+    const headers: Record<string, string> = { "x-device-id": deviceId };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const response = await fetch(`${API_BASE_URL}/upload/institution-logo`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "x-device-id": deviceId,
-      },
+      headers,
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "Upload failed");
+    }
+    
+    return response.json() as Promise<{ url: string; type: string }>;
+  },
+  uploadInstitutionCover: async (formData: FormData) => {
+    const token = await getAccessToken();
+    const deviceId = await getDeviceId();
+    const headers: Record<string, string> = { "x-device-id": deviceId };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch(`${API_BASE_URL}/upload/institution-cover`, {
+      method: "POST",
+      headers,
       body: formData,
     });
     
@@ -711,12 +751,11 @@ export const api = {
   uploadInstitutionDoc: async (formData: FormData) => {
     const token = await getAccessToken();
     const deviceId = await getDeviceId();
+    const headers: Record<string, string> = { "x-device-id": deviceId };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const response = await fetch(`${API_BASE_URL}/upload/institution-doc`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "x-device-id": deviceId,
-      },
+      headers,
       body: formData,
     });
     

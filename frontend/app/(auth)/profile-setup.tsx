@@ -146,12 +146,6 @@ export default function ProfileSetup() {
               onPress={() => finish(false)}
               testID="finish-setup-btn"
             />
-            <Pressable
-              onPress={() => finish(true)}
-              style={{ marginTop: spacing.md, alignItems: "center" }}
-            >
-              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Skip for now</Text>
-            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

@@ -1,53 +1,58 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Modal, TouchableOpacity, Platform, DeviceEventEmitter } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { spacing, radius } from "@/src/theme/colors";
-import { useRole } from "@/src/context/RoleProvider";
+import { SESSION_EXPIRED_EVENT } from "@/src/lib/api";
 
 export function SessionExpiredModal() {
   const [visible, setVisible] = useState(false);
   const { colors } = useTheme();
   const router = useRouter();
-  const { refreshUser } = useRole();
+  const handledRef = useRef(false);
+
+  const redirectToLogin = useCallback(() => {
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace("/(auth)/login");
+  }, [router]);
 
   useEffect(() => {
     const handleExpired = () => {
+      if (handledRef.current) return;
+      handledRef.current = true;
       setVisible(true);
+      redirectToLogin();
     };
 
     let subscription: any = null;
     if (Platform.OS !== "web") {
-      subscription = DeviceEventEmitter.addListener("onSessionExpired", handleExpired);
+      subscription = DeviceEventEmitter.addListener(SESSION_EXPIRED_EVENT, handleExpired);
     } else {
-      window.addEventListener("onSessionExpired", handleExpired);
+      window.addEventListener(SESSION_EXPIRED_EVENT, handleExpired);
     }
 
     return () => {
       if (Platform.OS !== "web" && subscription) {
         subscription.remove();
       } else if (Platform.OS === "web") {
-        window.removeEventListener("onSessionExpired", handleExpired);
+        window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpired);
       }
     };
-  }, []);
+  }, [redirectToLogin]);
 
-  const handleLogin = async () => {
+  const handleLogin = () => {
     setVisible(false);
-    try {
-      // Force user refresh to clear state and redirect correctly if needed
-      await refreshUser();
-    } catch {
-      // It will throw Auth failed and RoleProvider will clear state
-    }
-    router.replace("/(auth)/login");
+    handledRef.current = false;
+    redirectToLogin();
   };
 
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleLogin}>
       <View style={[styles.overlay, { backgroundColor: colors.overlay }]}>
         <View style={[styles.dialog, { backgroundColor: colors.surface }]}>
           <View style={[styles.iconContainer, { backgroundColor: colors.warning + "22" }]}>

@@ -1,17 +1,20 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import Avatar from "@/src/components/Avatar";
 import EmptyState from "@/src/components/EmptyState";
-import { api } from "@/src/lib/api";
+import { api, getUserErrorMessage } from "@/src/lib/api";
+import { formatAgo, formatShortDate, type InstitutionDashboardData } from "@/src/lib/institution";
 
 const FILTERS = ["Pending", "Approved", "Rejected", "All"] as const;
+
+type RequestStatus = "pending" | "approved" | "rejected" | "needs_changes" | "scheduled" | "published" | "expired";
 
 type PostRequest = {
   id: string;
@@ -20,32 +23,51 @@ type PostRequest = {
   posterUrl?: string;
   requesterName: string;
   requesterAvatar?: string;
-  targetGroupId: string;
+  targetGroupId?: string;
   targetGroupName: string;
   category: string;
   publishDate: string;
   expiryDate: string;
   contactPhone: string;
   contactEmail: string;
-  status: "pending" | "approved" | "rejected" | "needs_changes" | "scheduled" | "published" | "expired";
+  status: RequestStatus;
   createdAt: string;
 };
 
-export default function PostRequestsInbox() {
+export default function InstitutionPostRequests() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
   const [filter, setFilter] = useState<typeof FILTERS[number]>("Pending");
+  const [dashboard, setDashboard] = useState<InstitutionDashboardData | null>(null);
   const [items, setItems] = useState<PostRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const groupsById = useMemo(() => {
+    const map: Record<string, any> = {};
+    (dashboard?.groups || []).forEach((group) => {
+      if (group.id) map[group.id] = group;
+    });
+    return map;
+  }, [dashboard?.groups]);
 
   const loadRequests = useCallback(async () => {
+    setLoading(true);
     try {
-      const response = await api.groups.postRequests(id!);
-      if (Array.isArray(response)) setItems(response.map(toPostRequest));
+      const data = (await api.institutions.dashboard()) as InstitutionDashboardData;
+      setDashboard(data);
+      if (!data.institution?.id) {
+        setItems([]);
+        return;
+      }
+      const response = await api.institutions.postRequests(data.institution.id);
+      setItems(Array.isArray(response) ? response.map((row) => toPostRequest(row, data.groups || [])) : []);
     } catch {
+      setDashboard(null);
       setItems([]);
+    } finally {
+      setLoading(false);
     }
-  }, [id]);
+  }, []);
 
   useEffect(() => {
     loadRequests();
@@ -59,34 +81,50 @@ export default function PostRequestsInbox() {
     return true;
   });
 
-  const setStatus = async (rid: string, status: PostRequest["status"]) => {
-    setItems((x) => x.map((r) => (r.id === rid ? { ...r, status } : r)));
+  const approve = async (request: PostRequest) => {
+    const institutionId = dashboard?.institution?.id;
+    const targetGroupId = request.targetGroupId || dashboard?.groups?.[0]?.id;
+    if (!institutionId || !targetGroupId) {
+      Alert.alert("No target group", "Create or connect an official group before approving this request.");
+      return;
+    }
+    setItems((current) => current.map((item) => item.id === request.id ? { ...item, status: "approved" } : item));
     try {
-      if (status === "approved") await api.groups.approvePostRequest(id!, rid);
-      if (status === "rejected") await api.groups.rejectPostRequest(id!, rid);
-    } catch {
+      await api.institutions.approvePostRequest(institutionId, request.id, targetGroupId);
+      loadRequests();
+    } catch (error) {
+      Alert.alert("Approve failed", getUserErrorMessage(error, "Could not approve this request."));
+      loadRequests();
+    }
+  };
+
+  const reject = async (request: PostRequest) => {
+    const institutionId = dashboard?.institution?.id;
+    if (!institutionId) return;
+    setItems((current) => current.map((item) => item.id === request.id ? { ...item, status: "rejected" } : item));
+    try {
+      await api.institutions.rejectPostRequest(institutionId, request.id);
+      loadRequests();
+    } catch (error) {
+      Alert.alert("Reject failed", getUserErrorMessage(error, "Could not reject this request."));
       loadRequests();
     }
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="post-requests-inbox">
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="institution-post-requests-inbox">
       <Header title="Post requests" subtitle={`${items.filter((i) => i.status === "pending").length} pending`} onBack={() => router.back()} />
 
       <View style={{ flexDirection: "row", paddingHorizontal: spacing.lg, gap: spacing.sm, paddingVertical: spacing.md }}>
         {FILTERS.map((f) => (
-          <Pressable
-            key={f}
-            onPress={() => setFilter(f)}
-            style={[styles.tab, { backgroundColor: filter === f ? colors.brandPrimary : colors.surfaceTertiary }]}
-          >
+          <Pressable key={f} onPress={() => setFilter(f)} style={[styles.tab, { backgroundColor: filter === f ? colors.brandPrimary : colors.surfaceTertiary }]}>
             <Text style={{ color: filter === f ? colors.onBrandPrimary : colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>{f}</Text>
           </Pressable>
         ))}
       </View>
 
       {list.length === 0 ? (
-        <EmptyState icon="shield-checkmark-outline" title="All caught up" message="No post requests to review right now." />
+        <EmptyState icon="checkmark-done-outline" title={loading ? "Loading requests" : "All caught up"} message="No post requests to review right now." />
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60, gap: spacing.md }}>
           {list.map((r) => (
@@ -95,14 +133,12 @@ export default function PostRequestsInbox() {
                 <Avatar uri={r.requesterAvatar} name={r.requesterName} size={40} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{r.requesterName}</Text>
-                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>Requested {r.createdAt} - to {r.targetGroupName}</Text>
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>Requested {r.createdAt} - to {groupsById[r.targetGroupId || ""]?.name || r.targetGroupName}</Text>
                 </View>
                 <StatusBadge status={r.status} />
               </View>
 
-              {r.posterUrl && (
-                <Image source={{ uri: r.posterUrl }} style={styles.poster} contentFit="cover" />
-              )}
+              {r.posterUrl ? <Image source={{ uri: r.posterUrl }} style={styles.poster} contentFit="cover" /> : null}
 
               <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500", marginTop: spacing.md }}>{r.title}</Text>
               <Text style={{ color: colors.onSurfaceSecondary, fontSize: font.base, marginTop: 4, lineHeight: 20 }}>{r.description}</Text>
@@ -111,42 +147,22 @@ export default function PostRequestsInbox() {
                 <Meta icon="calendar-outline" label="Publish" value={r.publishDate} />
                 <Meta icon="time-outline" label="Expires" value={r.expiryDate} />
                 <Meta icon="pricetag-outline" label="Category" value={r.category} />
-                <Meta icon="call-outline" label="Contact" value={r.contactPhone} />
+                <Meta icon="call-outline" label="Contact" value={r.contactPhone || r.contactEmail || "Not provided"} />
               </View>
 
               {(r.status === "pending" || r.status === "needs_changes") && (
                 <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
-                  <Pressable
-                    onPress={() => setStatus(r.id, "rejected")}
-                    style={[styles.actionBtn, { borderColor: colors.borderStrong }]}
-                    testID={`reject-post-${r.id}`}
-                  >
+                  <Pressable onPress={() => reject(r)} style={[styles.actionBtn, { borderColor: colors.borderStrong }]} testID={`reject-post-${r.id}`}>
                     <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>Reject</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={() => Alert.alert("Ask changes", "The backend does not expose a change-request endpoint for group post requests yet.")}
-                    style={[styles.actionBtn, { borderColor: colors.borderStrong }]}
-                  >
+                  <Pressable onPress={() => Alert.alert("Ask changes", "The backend does not expose a change-request endpoint for institution post requests yet.")} style={[styles.actionBtn, { borderColor: colors.borderStrong }]}>
                     <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>Ask changes</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={() => setStatus(r.id, "approved")}
-                    style={[styles.approve, { backgroundColor: colors.brandPrimary }]}
-                    testID={`approve-post-${r.id}`}
-                  >
+                  <Pressable onPress={() => approve(r)} style={[styles.approve, { backgroundColor: colors.brandPrimary }]} testID={`approve-post-${r.id}`}>
                     <Ionicons name="checkmark" size={16} color={colors.onBrandPrimary} />
                     <Text style={{ color: colors.onBrandPrimary, fontSize: font.sm, fontWeight: "500" }}>Approve</Text>
                   </Pressable>
                 </View>
-              )}
-              {r.status === "approved" && (
-                <Pressable
-                  onPress={() => setStatus(r.id, "published")}
-                  style={[styles.approve, { backgroundColor: colors.brandPrimary, marginTop: spacing.md, alignSelf: "stretch" }]}
-                >
-                  <Ionicons name="paper-plane" size={16} color={colors.onBrandPrimary} />
-                  <Text style={{ color: colors.onBrandPrimary, fontSize: font.sm, fontWeight: "500" }}>Publish now</Text>
-                </Pressable>
               )}
             </View>
           ))}
@@ -156,29 +172,30 @@ export default function PostRequestsInbox() {
   );
 }
 
-function toPostRequest(row: any): PostRequest {
+function toPostRequest(row: any, groups: any[]): PostRequest {
+  const group = groups.find((item) => item.id === row.group_id);
   return {
     id: row.id,
     requesterName: row.contact_name || row.requester?.name || "Member",
     requesterAvatar: row.requesterAvatar || row.requester?.avatarUrl || null,
-    targetGroupName: row.group_name || row.group?.name || "Group",
-    title: row.title,
-    description: row.description,
-    category: row.category,
-    posterUrl: row.poster_url,
+    targetGroupName: row.group_name || row.group?.name || group?.name || "Institution group",
+    title: row.title || "Post request",
+    description: row.description || "",
+    category: row.category || "Post",
+    posterUrl: row.poster_url || row.posterUrl,
     targetGroupId: row.group_id,
-    publishDate: row.requested_publish_at || "Requested",
-    expiryDate: row.expires_at || "Not set",
+    publishDate: formatShortDate(row.requested_publish_at || row.requestedPublishAt),
+    expiryDate: formatShortDate(row.expires_at || row.expiresAt),
     contactPhone: row.contact_phone || "",
     contactEmail: row.contact_email || "",
-    status: row.status,
-    createdAt: row.created_at || "",
+    status: row.status || "pending",
+    createdAt: formatAgo(row.created_at || row.createdAt),
   };
 }
 
-function StatusBadge({ status }: { status: PostRequest["status"] }) {
+function StatusBadge({ status }: { status: RequestStatus }) {
   const { colors } = useTheme();
-  const map: Record<PostRequest["status"], { c: string; label: string }> = {
+  const map: Record<RequestStatus, { c: string; label: string }> = {
     pending: { c: colors.warning, label: "PENDING" },
     approved: { c: colors.success, label: "APPROVED" },
     rejected: { c: colors.error, label: "REJECTED" },
@@ -187,7 +204,7 @@ function StatusBadge({ status }: { status: PostRequest["status"] }) {
     published: { c: colors.success, label: "LIVE" },
     expired: { c: colors.muted, label: "EXPIRED" },
   };
-  const m = map[status];
+  const m = map[status] || map.pending;
   return (
     <View style={{ backgroundColor: m.c + "22", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
       <Text style={{ color: m.c, fontSize: 10, fontWeight: "500", letterSpacing: 0.3 }}>{m.label}</Text>
@@ -200,7 +217,7 @@ function Meta({ icon, label, value }: { icon: any; label: string; value: string 
   return (
     <View style={styles.meta}>
       <Ionicons name={icon} size={14} color={colors.onSurfaceTertiary} />
-      <View>
+      <View style={{ flex: 1 }}>
         <Text style={{ color: colors.muted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</Text>
         <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }} numberOfLines={1}>{value}</Text>
       </View>
