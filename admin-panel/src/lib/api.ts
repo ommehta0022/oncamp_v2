@@ -511,7 +511,7 @@ class ApiClient {
   }
 
   async wipeEntity(entity: string) {
-    const response = await this.client.post(/v1/admin/wipe/);
+    const response = await this.client.post(`/v1/admin/wipe/${entity}`);
     return response.data;
   }
 

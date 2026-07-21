@@ -51,7 +51,7 @@ export default function DatabasePage() {
       setQueryResult(data);
     },
     onError: (error: any) => {
-      alert(Query failed: );
+      alert(`Query failed: ${error.message || "Unknown error"}`);
     },
   });
 
@@ -65,7 +65,7 @@ export default function DatabasePage() {
       queryClient.invalidateQueries();
     },
     onError: (error: any) => {
-      alert(Wipe failed: );
+      alert(`Wipe failed: ${error.response?.data?.detail || error.message || "Unknown error"}`);
       setConfirmTarget(null);
       setConfirmInput("");
     },
