@@ -668,6 +668,7 @@ export const api = {
     edit: (postId: string, body: unknown) => request<FeedPostDto>(`/posts/${postId}`, { method: "PATCH", body }),
     delete: (postId: string) => request(`/posts/${postId}`, { method: "DELETE" }),
     pin: (postId: string) => request(`/posts/${postId}/pin`, { method: "POST" }),
+    unpin: (postId: string) => request(`/posts/${postId}/pin`, { method: "DELETE" }),
     comments: (postId: string, limit = 50) => request(`/posts/${postId}/comments?limit=${limit}`),
     comment: (postId: string, content: string) =>
       request(`/posts/${postId}/comments`, { method: "POST", body: { content } }),

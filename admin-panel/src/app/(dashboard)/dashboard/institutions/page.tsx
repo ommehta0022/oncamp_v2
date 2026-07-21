@@ -6,7 +6,7 @@ import { Search, Eye, Trash2, AlertTriangle, CheckCircle, Clock } from "lucide-r
 
 export default function InstitutionsPage() {
   const router = useRouter();
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<any>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ status: "all" });

@@ -5,7 +5,7 @@ import { Activity, CheckCircle, XCircle, Loader2 } from "lucide-react";
 
 export default function SmokeTestPage() {
   const [isRunning, setIsRunning] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<any>([]);
 
   const tests = [
     { name: "System Health (/v1/health)", run: () => api.getSystemStatus() },

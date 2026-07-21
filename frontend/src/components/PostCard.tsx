@@ -144,10 +144,21 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     }
   };
 
+  const unpinPost = async () => {
+    try {
+      await api.posts.unpin(item.id);
+      updatePost({ pinned: false });
+      showToast({ message: "Post unpinned", variant: "success" });
+    } catch (error) {
+      showToast({ message: getUserErrorMessage(error, "Could not unpin this post."), variant: "error" });
+    }
+  };
+
   const options = [
     ...(isMine ? [{ label: "Edit", icon: "create-outline", onPress: () => router.push(`/post/edit/${item.id}`) }] : []),
     ...(isMine || isModerator ? [{ label: "Delete", icon: "trash-outline", color: colors.error, onPress: deletePost }] : []),
     ...(isModerator && !item.pinned ? [{ label: "Pin post", icon: "pin-outline", onPress: pinPost }] : []),
+    ...(isModerator && item.pinned ? [{ label: "Unpin post", icon: "pin-outline", onPress: unpinPost }] : []),
     ...(!isMine ? [{ label: "Report", icon: "flag-outline", color: colors.warning, onPress: () => setReportVisible(true) }] : []),
   ];
 

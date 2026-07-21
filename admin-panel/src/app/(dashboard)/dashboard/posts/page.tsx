@@ -6,7 +6,7 @@ import { Search, Eye, Filter } from "lucide-react";
 
 export default function PostsPage() {
   const router = useRouter();
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<any>([]);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ type: "all", status: "all" });
 
