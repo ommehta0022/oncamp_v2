@@ -65,6 +65,7 @@ export function normalizeGroup(group: GroupDto | any) {
     title: group?.title || group?.name || "Group",
     image: group?.image || group?.avatarUrl || group?.avatar_url || null,
     avatarUrl: group?.avatarUrl || group?.image || group?.avatar_url || null,
+    institutionId: group?.institutionId || group?.institution_id || group?.institution?.id || null,
     members: memberCount,
     memberCount,
     membersText: `${memberCount.toLocaleString()} members`,

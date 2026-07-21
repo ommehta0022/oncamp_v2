@@ -152,6 +152,10 @@ export default function Discover() {
               joining={joiningId === card.id}
               onJoin={() => joinGroup(card.id)}
               onPress={() => router.push(`/group/info/${card.id}`)}
+              onInstitutionRequest={card.institutionId ? () => router.push({
+                pathname: "/institution/post-request/[id]",
+                params: { id: card.institutionId, name: card.institution || card.city || card.name },
+              }) : undefined}
             />
           ))}
         </View>
@@ -175,12 +179,14 @@ function DiscoverCardTile({
   joining,
   onJoin,
   onPress,
+  onInstitutionRequest,
 }: {
   card: DiscoverCard;
   width: number;
   joining: boolean;
   onJoin: () => void;
   onPress: () => void;
+  onInstitutionRequest?: () => void;
 }) {
   const { colors } = useTheme();
   const title = card.title || card.name || "Group";
@@ -231,6 +237,18 @@ function DiscoverCardTile({
         >
           {joining ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.joinBtnText}>Request to join</Text>}
         </Pressable>
+        {onInstitutionRequest ? (
+          <Pressable
+            style={styles.institutionRequestBtn}
+            onPress={(event) => {
+              event.stopPropagation();
+              onInstitutionRequest();
+            }}
+            testID={`institution-request-${card.id}`}
+          >
+            <Text style={styles.institutionRequestText}>Send post request</Text>
+          </Pressable>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -309,5 +327,14 @@ const styles = StyleSheet.create({
   },
   joinBtnText: {
     color: "#fff", fontSize: font.sm, fontWeight: "500",
+  },
+  institutionRequestBtn: {
+    backgroundColor: "#ffffffee",
+    height: 32, borderRadius: 8,
+    alignItems: "center", justifyContent: "center",
+    marginTop: 6,
+  },
+  institutionRequestText: {
+    color: "#111414", fontSize: 12, fontWeight: "600",
   },
 });

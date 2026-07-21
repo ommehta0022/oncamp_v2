@@ -30,7 +30,6 @@ export default function GroupAdmin() {
     { label: "Members", value: String(members.length || group?.memberCount || 0), icon: "people" as const, color: "#2E5C4E" },
     { label: "Join requests", value: String(joinRequests.length), icon: "person-add" as const, color: "#E87A5D" },
     { label: "Post requests", value: String(postRequests.filter((r) => r.status === "pending").length), icon: "clipboard" as const, color: "#4A788C" },
-    { label: "Reports", value: "0", icon: "flag" as const, color: "#D14D4D" },
   ], [group?.memberCount, joinRequests.length, members.length, postRequests]);
   const scheduledCount = postRequests.filter((r) => r.status === "scheduled").length;
   const publishedCount = postRequests.filter((r) => ["approved", "published"].includes(r.status)).length;
@@ -88,22 +87,9 @@ export default function GroupAdmin() {
           <Row icon="pin" title="Pinned messages" subtitle="Review in group chat" color="#8A8D8B" onPress={() => router.push(`/group/${id}`)} />
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Content & safety</Text>
+        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Controls</Text>
         <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <Row icon="images" title="Media & docs" subtitle="Shared files" color="#4A788C" onPress={() => {}} />
-          <Divider />
-          <Row icon="flag" title="Reports" subtitle="No open reports" color="#D14D4D" onPress={() => {}} />
-          <Divider />
           <Row icon="options" title="Permissions" subtitle={`Posting: ${group.postingMode || 'members can request'}`} color="#8A8D8B" onPress={() => router.push(`/group/admin/settings?id=${id}`)} />
-          <Divider />
-          <Row icon="time" title="Admin activity log" subtitle="Every decision, audited" color="#8A8D8B" onPress={() => {}} />
-        </View>
-
-        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Danger zone</Text>
-        <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginBottom: spacing.lg }]}>
-          <Row icon="swap-horizontal" title="Transfer ownership" subtitle="Only for owners" color="#D9983A" onPress={() => {}} />
-          <Divider />
-          <Row icon="trash" title="Delete group" subtitle="Permanent. This cannot be undone." color="#D14D4D" onPress={() => {}} />
         </View>
       </ScrollView>
     </SafeAreaView>

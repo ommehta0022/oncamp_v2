@@ -21,16 +21,6 @@ type FirebaseExtra = {
   };
 };
 
-// Hardcoded fallback config from important/all_set/web app
-const HARDCODED_CONFIG = {
-  apiKey: "AIzaSyC8FSf4Oj9anPx0LGrFyTfn5QUVRPgnlS8",
-  authDomain: "oncampus-prod.firebaseapp.com",
-  projectId: "oncampus-prod",
-  storageBucket: "oncampus-prod.firebasestorage.app",
-  messagingSenderId: "210135059290",
-  appId: "1:210135059290:web:8c581941bdbae33e93c163",
-};
-
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let verifier: RecaptchaVerifier | null = null;
@@ -39,7 +29,10 @@ let confirmation: ConfirmationResult | null = null;
 function getFirebaseAuth(): Auth {
   if (auth) return auth;
   const extra = Constants.expoConfig?.extra as FirebaseExtra | undefined;
-  const config = extra?.firebase?.apiKey ? extra.firebase : HARDCODED_CONFIG;
+  const config = extra?.firebase;
+  if (!config?.apiKey) {
+    throw new Error("Firebase configuration is missing. Set Expo firebase extra config before starting phone auth.");
+  }
   app = getApps().length ? getApp() : initializeApp(config as any);
   auth = getAuth(app);
   return auth;

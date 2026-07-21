@@ -9,7 +9,11 @@ import Header from "@/src/components/Header";
 import EmptyState from "@/src/components/EmptyState";
 import { api } from "@/src/lib/api";
 
-export default function InstitutionDashboard() {
+type InstitutionDashboardProps = {
+  embedded?: boolean;
+};
+
+export default function InstitutionDashboard({ embedded = false }: InstitutionDashboardProps) {
   const { colors } = useTheme();
   const router = useRouter();
   const [dashboard, setDashboard] = useState<any>(null);
@@ -27,9 +31,7 @@ export default function InstitutionDashboard() {
     { label: "Requests", value: counts.verificationRequests || 0, icon: "clipboard" as const, color: "#D9983A" },
   ];
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="institution-dashboard-screen">
-      <Header title="Institution dashboard" onBack={() => router.back()} />
+  const content = (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
         <View style={[styles.heroWrap, { backgroundColor: colors.brandPrimary }]}>
           <View style={{ padding: spacing.lg }}>
@@ -99,6 +101,20 @@ export default function InstitutionDashboard() {
         )}
 
       </ScrollView>
+  );
+
+  if (embedded) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.surface }} testID="institution-dashboard-screen">
+        {content}
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="institution-dashboard-screen">
+      <Header title="Institution dashboard" onBack={() => router.back()} />
+      {content}
     </SafeAreaView>
   );
 }

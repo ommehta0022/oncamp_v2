@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { Alert, View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -29,16 +29,20 @@ export default function Storage() {
 
   useEffect(() => {
     api.users.settings()
-      .then((row: any) => setPrefs({ ...defaults, ...(row.preferences?.storage || {}) }))
+      .then((row: any) => setPrefs({ ...defaults, ...(row.storage || row.preferences?.storage || {}) }))
       .catch(() => setPrefs(defaults));
   }, []);
 
   const cycle = (key: keyof typeof defaults) => {
     const list = options[key];
     const current = list.indexOf(prefs[key]);
+    const previous = prefs;
     const next = { ...prefs, [key]: list[(current + 1) % list.length] };
     setPrefs(next);
-    api.users.updateSettings({ preferences: { storage: next } }).catch(() => {});
+    api.users.updateSettings({ storage: next }).catch((error) => {
+      setPrefs(previous);
+      Alert.alert("Save failed", error instanceof Error ? error.message : "Could not save storage settings.");
+    });
   };
 
   return (

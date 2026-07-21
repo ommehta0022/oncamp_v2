@@ -11,7 +11,7 @@ import EmptyState from "@/src/components/EmptyState";
 import ReportModal from "@/src/components/ReportModal";
 import PostCard from "@/src/components/PostCard";
 import { useRole } from "@/src/context/RoleProvider";
-import { api, SessionUser, FeedPostDto } from "@/src/lib/api";
+import { api, getUserErrorMessage, SessionUser, FeedPostDto } from "@/src/lib/api";
 
 export default function UserProfile() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -27,28 +27,44 @@ export default function UserProfile() {
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [partialError, setPartialError] = useState("");
 
   const loadUser = useCallback(async () => {
     if (!id) return;
     try {
       setLoading(true);
-      const [u, fers, fing, userPosts] = await Promise.all([
+      setPartialError("");
+      const [u, followersResult, followingResult, postsResult] = await Promise.allSettled([
         api.users.get(id),
-        api.users.followers(id).catch(() => []),
-        api.users.following(id).catch(() => []),
-        api.users.posts(id).catch(() => []),
+        api.users.followers(id),
+        api.users.following(id),
+        api.users.posts(id),
       ]);
-      setUser(u);
-      setFollowers(fers || []);
-      setFollowing(fing || []);
-      setPosts(userPosts || []);
-      
+      if (u.status === "rejected") throw u.reason;
+
+      const fers = followersResult.status === "fulfilled" ? followersResult.value || [] : [];
+      const fing = followingResult.status === "fulfilled" ? followingResult.value || [] : [];
+      const userPosts = postsResult.status === "fulfilled" ? postsResult.value || [] : [];
+      const failedSections = [
+        followersResult.status === "rejected" ? "followers" : "",
+        followingResult.status === "rejected" ? "following" : "",
+        postsResult.status === "rejected" ? "posts" : "",
+      ].filter(Boolean);
+
+      setUser(u.value);
+      setFollowers(fers);
+      setFollowing(fing);
+      setPosts(userPosts);
+      if (failedSections.length) {
+        setPartialError(`Could not load ${failedSections.join(", ")}. Pull back and reopen to retry.`);
+      }
+
       if (me?.id) {
-        setIsFollowing((fers || []).some(f => f.id === me.id));
+        setIsFollowing(fers.some(f => f.id === me.id));
       }
     } catch (err) {
       console.error(err);
-      Alert.alert("Error", "Could not load profile.");
+      Alert.alert("Error", getUserErrorMessage(err, "Could not load profile."));
     } finally {
       setLoading(false);
     }
@@ -202,6 +218,12 @@ export default function UserProfile() {
           <View style={styles.sectionHeader}>
             <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>Recent Activity</Text>
           </View>
+          {!!partialError && (
+            <View style={[styles.warning, { backgroundColor: colors.warning + "22", borderColor: colors.warning }]}>
+              <Ionicons name="cloud-offline-outline" size={18} color={colors.warning} />
+              <Text style={{ color: colors.onSurface, fontSize: font.sm, flex: 1 }}>{partialError}</Text>
+            </View>
+          )}
           {posts.length > 0 ? (
             <View style={{ gap: spacing.md }}>
               {posts.map(post => (
@@ -279,6 +301,15 @@ const styles = StyleSheet.create({
   statDiv: { width: 1, height: 30 },
   sectionHeader: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    marginBottom: spacing.md,
+  },
+  warning: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
     marginBottom: spacing.md,
   },
 });

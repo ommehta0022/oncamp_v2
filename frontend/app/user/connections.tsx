@@ -6,8 +6,9 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
-import { api, SessionUser } from "@/src/lib/api";
+import { api, getUserErrorMessage, SessionUser } from "@/src/lib/api";
 import EmptyState from "@/src/components/EmptyState";
+import { NetworkError } from "@/src/components/NetworkError";
 
 export default function UserConnections() {
   const { id, type } = useLocalSearchParams<{ id: string; type: "followers" | "following" }>();
@@ -16,17 +17,20 @@ export default function UserConnections() {
   
   const [users, setUsers] = useState<SessionUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const loadData = useCallback(async () => {
     if (!id || !type) return;
     try {
       setLoading(true);
+      setError("");
       const data = type === "followers" 
         ? await api.users.followers(id)
         : await api.users.following(id);
       setUsers(data || []);
     } catch (err) {
       console.error(err);
+      setError(getUserErrorMessage(err, "Could not load this connection list."));
     } finally {
       setLoading(false);
     }
@@ -70,6 +74,8 @@ export default function UserConnections() {
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
           <ActivityIndicator size="large" color={colors.brandPrimary} />
         </View>
+      ) : error ? (
+        <NetworkError message={error} onRetry={() => void loadData()} />
       ) : users.length === 0 ? (
         <View style={{ flex: 1, marginTop: 40 }}>
           <EmptyState 

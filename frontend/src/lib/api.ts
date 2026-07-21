@@ -462,6 +462,7 @@ export type GroupDto = {
   avatarUrl?: string;
   image?: string;
   city?: string;
+  institutionId?: string;
   institution?: { id?: string; name?: string } | string;
   category: string;
   visibility: "public" | "private";
@@ -563,7 +564,7 @@ export const api = {
     following: (userId: string) => request<SessionUser[]>(`/users/${userId}/following`),
     block: (userId: string) => request(`/users/${userId}/block`, { method: "POST" }),
     unblock: (userId: string) => request(`/users/${userId}/block`, { method: "DELETE" }),
-    search: (query: string) => request<SessionUser[]>(`/users/search?q=${encodeURIComponent(query)}`),
+    search: (query: string) => request<SessionUser[]>(`/search/users?q=${encodeURIComponent(query)}`),
     posts: (userId: string) => request<FeedPostDto[]>(`/users/${userId}/posts`),
     myPostRequests: () => request<PostRequestDto[]>("/users/me/post-requests"),
   },
@@ -635,7 +636,7 @@ export const api = {
   },
   admin: {
     dashboard: () => request("/admin/dashboard"),
-    clearCache: () => request("/admin/cache/clear", { method: "POST" }),
+    clearCache: () => request("/admin/system/cache/clear", { method: "POST" }),
     resolveReport: (reportId: string, action: string) => request(`/admin/reports/${reportId}/resolve`, { method: "POST", body: { action } }),
     banUser: (userId: string, reason: string) => request(`/admin/users/${userId}/ban`, { method: "POST", body: { reason } }),
     unbanUser: (userId: string) => request(`/admin/users/${userId}/unban`, { method: "POST" }),

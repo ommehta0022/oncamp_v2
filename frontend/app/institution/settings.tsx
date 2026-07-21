@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Switch } from "react-native";
+import { Alert, View, Text, StyleSheet, ScrollView, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
-import { api } from "@/src/lib/api";
+import { api, getUserErrorMessage } from "@/src/lib/api";
 
 const defaults = {
   publicPage: true,
@@ -31,17 +31,25 @@ export default function InstitutionSettings() {
         setCounts(data.counts || {});
         setState({ ...defaults, ...(data.institution?.verification_policy || {}) });
       })
-      .catch(() => {});
+      .catch((error) => {
+        Alert.alert("Settings unavailable", getUserErrorMessage(error, "Could not load institution settings."));
+      });
   }, []);
 
-  const toggle = (key: keyof typeof state) => {
+  const toggle = async (key: keyof typeof state) => {
+    const previous = state;
     const next = { ...state, [key]: !state[key] };
     setState(next);
-    api.institutions.updateMe({ verificationPolicy: next }).catch(() => {});
+    try {
+      await api.institutions.updateMe({ verificationPolicy: next });
+    } catch (error) {
+      setState(previous);
+      Alert.alert("Save failed", getUserErrorMessage(error, "Could not update institution policy."));
+    }
   };
 
   const Sw = (key: keyof typeof state) => (
-    <Switch value={state[key]} onValueChange={() => toggle(key)} trackColor={{ true: colors.brandPrimary, false: colors.borderStrong }} thumbColor="#fff" />
+    <Switch value={state[key]} onValueChange={() => void toggle(key)} trackColor={{ true: colors.brandPrimary, false: colors.borderStrong }} thumbColor="#fff" />
   );
 
   return (

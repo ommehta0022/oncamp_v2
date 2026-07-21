@@ -19,10 +19,11 @@ import ImageViewer from "@/src/components/ImageViewer";
 import ReportModal from "@/src/components/ReportModal";
 import ForwardModal from "@/src/components/ForwardModal";
 import { useRole } from "@/src/context/RoleProvider";
-import { api, GroupDto } from "@/src/lib/api";
+import { api, getUserErrorMessage, GroupDto } from "@/src/lib/api";
 import { showImagePicker, uploadMessageMedia } from "@/src/lib/imageUpload";
 import { typography } from "@/src/theme/typography";
 import { LinearGradient } from "expo-linear-gradient";
+import { NetworkError } from "@/src/components/NetworkError";
 
 type Message = {
   id: string;
@@ -80,6 +81,9 @@ export default function GroupChat() {
   const insets = useSafeAreaInsets();
   const [group, setGroup] = useState<GroupDto | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retryTick, setRetryTick] = useState(0);
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
@@ -92,16 +96,44 @@ export default function GroupChat() {
 
   useEffect(() => {
     if (!id) return;
-    api.groups.get(id).then(setGroup).catch(() => setGroup(null));
-    api.groups.messages(id)
-      .then((rows: any) => {
-        if (Array.isArray(rows)) setMessages(rows.reverse().map((row) => normalizeMessage(row, id, user?.id)));
+    let alive = true;
+    setLoading(true);
+    setError("");
+    Promise.all([api.groups.get(id), api.groups.messages(id)])
+      .then(([nextGroup, rows]: [GroupDto, any]) => {
+        if (!alive) return;
+        setGroup(nextGroup);
+        setMessages(Array.isArray(rows) ? rows.reverse().map((row) => normalizeMessage(row, id, user?.id)) : []);
       })
-      .catch(() => {});
-      
-  }, [id, user?.id]);
+      .catch((loadError) => {
+        if (!alive) return;
+        setGroup(null);
+        setMessages([]);
+        setError(getUserErrorMessage(loadError, "Could not load this group chat."));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id, retryTick, user?.id]);
 
-  if (!group) return null;
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.surface, justifyContent: "center", alignItems: "center" }} edges={["top"]}>
+        <ActivityIndicator size="large" color={colors.brandPrimary} />
+      </SafeAreaView>
+    );
+  }
+
+  if (!group) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.surface }} edges={["top"]}>
+        <NetworkError message={error || "This group is not available."} onRetry={() => setRetryTick((value) => value + 1)} />
+      </SafeAreaView>
+    );
+  }
 
   const pinned = messages.find((m) => m.pinned);
 
@@ -199,9 +231,12 @@ export default function GroupChat() {
       type: forwardMessage.type,
       mediaUrl: forwardMessage.mediaUrl,
       clientMessageId: `client-fwd-${Date.now()}`,
+    }).then(() => {
+      if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Sent", "Message forwarded successfully.");
+    }).catch((forwardError) => {
+      Alert.alert("Forward failed", getUserErrorMessage(forwardError, "Could not forward this message."));
     });
-    if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("Sent", "Message forwarded successfully.");
   };
 
   const openImage = (url: string) => {
@@ -225,8 +260,10 @@ export default function GroupChat() {
       setMessages((m) => [...m, normalizeMessage(saved, id!, user?.id)]);
       if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-    } catch {
+    } catch (sendError) {
       setText(content);
+      setReplyTo(replyRef);
+      Alert.alert("Message failed", getUserErrorMessage(sendError, "Could not send this message."));
     }
   };
 

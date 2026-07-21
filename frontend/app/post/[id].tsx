@@ -10,7 +10,7 @@ import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
 import Header from "@/src/components/Header";
 import EmptyState from "@/src/components/EmptyState";
-import { api } from "@/src/lib/api";
+import { api, getUserErrorMessage } from "@/src/lib/api";
 import OptionsMenu from "@/src/components/OptionsMenu";
 import ReportModal from "@/src/components/ReportModal";
 import SkeletonLoader from "@/src/components/SkeletonLoader";
@@ -33,30 +33,43 @@ export default function PostDetail() {
   const [activeMenu, setActiveMenu] = useState<{ type: 'post' } | { type: 'comment', id: string, content: string, userId: string } | null>(null);
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'comment', id: string } | null>(null);
   const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
+  const [submittingComment, setSubmittingComment] = useState(false);
 
   const handleDeletePost = () => {
     if (!id) return;
     Alert.alert("Delete Post", "Are you sure you want to delete this post?", [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
-        await api.posts.delete(id);
-        router.back();
+        try {
+          await api.posts.delete(id);
+          router.back();
+        } catch (error) {
+          Alert.alert("Delete failed", getUserErrorMessage(error, "Could not delete this post."));
+        }
       }},
     ]);
   };
 
   const handlePinPost = async () => {
     if (!id) return;
-    await api.posts.pin(id);
-    load();
+    try {
+      await api.posts.pin(id);
+      await load();
+    } catch (error) {
+      Alert.alert("Pin failed", getUserErrorMessage(error, "Could not pin this post."));
+    }
   };
 
   const handleDeleteComment = (commentId: string) => {
     Alert.alert("Delete Comment", "Are you sure you want to delete this comment?", [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
-        await api.posts.deleteComment(commentId);
-        load();
+        try {
+          await api.posts.deleteComment(commentId);
+          await load();
+        } catch (error) {
+          Alert.alert("Delete failed", getUserErrorMessage(error, "Could not delete this comment."));
+        }
       }},
     ]);
   };
@@ -98,7 +111,7 @@ export default function PostDetail() {
     if (reportTarget.type === 'post') {
       await api.reports.reportPost(reportTarget.id, { reason, details });
     } else if (reportTarget.type === 'comment') {
-      await api.reports.reportMessage(reportTarget.id, { reason, details });
+      await api.posts.reportComment(reportTarget.id, { reason, details });
     }
   };
 
@@ -119,12 +132,20 @@ export default function PostDetail() {
   }, [load]);
 
   const submit = async () => {
-    if (!id || !text.trim()) return;
+    if (!id || !text.trim() || submittingComment) return;
     const content = text.trim();
     setText("");
+    setSubmittingComment(true);
     if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await api.posts.comment(id, content).catch(() => {});
-    load();
+    try {
+      await api.posts.comment(id, content);
+      await load();
+    } catch (error) {
+      setText(content);
+      Alert.alert("Comment failed", getUserErrorMessage(error, "Could not add this comment."));
+    } finally {
+      setSubmittingComment(false);
+    }
   };
 
   if (loading) {
@@ -153,7 +174,7 @@ export default function PostDetail() {
 
   const comments = post.comments || [];
 
-    const handleShare = async () => {
+  const handleShare = async () => {
     try {
       if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const contentPreview = post.content.length > 50 ? post.content.substring(0, 50) + "..." : post.content;
@@ -168,6 +189,19 @@ export default function PostDetail() {
       await api.posts.share(post.id).catch(() => {});
     } catch (error) {
       console.error("Error sharing post", error);
+    }
+  };
+
+  const toggleLike = async () => {
+    const previous = post;
+    const liked = !post.liked;
+    setPost({ ...post, liked, userReaction: liked ? "like" : null, counts: { ...post.counts, reactions: Math.max(0, (post.counts?.reactions || 0) + (liked ? 1 : -1)) } });
+    try {
+      const result = liked ? await api.posts.like(post.id) : await api.posts.unlike(post.id);
+      setPost((current: any) => ({ ...current, liked: result.liked, userReaction: result.liked ? "like" : null, counts: { ...current.counts, reactions: result.reactions } }));
+    } catch (error) {
+      setPost(previous);
+      Alert.alert("Reaction failed", getUserErrorMessage(error, "Could not update your reaction."));
     }
   };
 
@@ -213,15 +247,7 @@ export default function PostDetail() {
             <View style={[styles.actions, { borderTopColor: colors.border || colors.divider }]}>
               <Pressable 
                 style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingRight: 16 }}
-                onPress={() => {
-                  if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  if (post.liked) {
-                    api.posts.unlike(post.id).then(r => setPost({ ...post, liked: r.liked, userReaction: null, counts: { ...post.counts, reactions: r.reactions } })).catch(() => {});
-                  } else {
-                    api.posts.like(post.id).then(r => setPost({ ...post, liked: r.liked, userReaction: "like", counts: { ...post.counts, reactions: r.reactions } })).catch(() => {});
-                  }
-                  setPost({ ...post, liked: !post.liked, userReaction: !post.liked ? "like" : null, counts: { ...post.counts, reactions: (post.counts?.reactions || 0) + (post.liked ? -1 : 1) } });
-                }}
+                onPress={toggleLike}
                 onLongPress={() => {
                   if (Platform.OS === 'ios') Haptics.selectionAsync();
                   setReactionMenuVisible(true);
@@ -270,7 +296,7 @@ export default function PostDetail() {
                   comment={comment} 
                   onLongPress={() => {
                     if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    setActiveMenu({ type: 'comment', id: comment.id, content: comment.content, userId: comment.user?.id });
+                    setActiveMenu({ type: 'comment', id: comment.id, content: comment.content, userId: comment.user?.id || comment.authorId || comment.userId });
                   }} 
                 />
               ))}
@@ -300,7 +326,7 @@ export default function PostDetail() {
           </View>
           
           <Animated.View style={{ transform: [{ scale: text.trim() ? 1 : 0.8 }], opacity: text.trim() ? 1 : 0.5 }}>
-            <Pressable onPress={submit} disabled={!text.trim()}>
+            <Pressable onPress={submit} disabled={!text.trim() || submittingComment}>
               <LinearGradient
                 colors={[colors.brandPrimary || "#2E5C4E", colors.brandSecondary || "#1a362d"]}
                 style={styles.send}

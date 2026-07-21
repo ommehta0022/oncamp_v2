@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Switch, Platform } from "react-native";
+import { Alert, View, Text, StyleSheet, ScrollView, Switch, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -39,13 +39,24 @@ export default function Notifs() {
   
   const toggle = (k: keyof typeof state) => {
     if (Platform.OS === 'ios') Haptics.selectionAsync();
+    const previous = state;
     const next = { ...state, [k]: !state[k] };
     setState(next);
     const body: Record<string, boolean> = {};
     if (k === "push") body.pushEnabled = next[k];
     else if (k === "postActivity" || k === "mentions" || k === "announcements" || k === "joinRequests") body[k] = next[k];
-    else api.users.updateSettings({ preferences: { [k]: next[k] } }).catch(() => {});
-    if (Object.keys(body).length > 0) api.users.updateNotificationPreferences(body).catch(() => {});
+    else {
+      api.users.updateSettings({ preferences: { [k]: next[k] } }).catch((error) => {
+        setState(previous);
+        Alert.alert("Save failed", error instanceof Error ? error.message : "Could not save notification settings.");
+      });
+    }
+    if (Object.keys(body).length > 0) {
+      api.users.updateNotificationPreferences(body).catch((error) => {
+        setState(previous);
+        Alert.alert("Save failed", error instanceof Error ? error.message : "Could not save notification settings.");
+      });
+    }
   };
 
   const Sw = (k: keyof typeof state) => (

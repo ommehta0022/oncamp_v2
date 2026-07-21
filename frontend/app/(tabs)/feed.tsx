@@ -1,20 +1,22 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
+import PostCard from "@/src/components/PostCard";
 import { useRole } from "@/src/context/RoleProvider";
-import { api, FeedPostDto } from "@/src/lib/api";
+import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
 import { normalizePost } from "@/src/lib/mappers";
 import SkeletonLoader from "@/src/components/SkeletonLoader";
 import EmptyState from "@/src/components/EmptyState";
 import { NetworkError } from "@/src/components/NetworkError";
 import { useToast } from "@/src/components/Toast";
+
+const PAGE_SIZE = 20;
 
 export default function Feed() {
   const { colors } = useTheme();
@@ -23,49 +25,62 @@ export default function Feed() {
   const { showToast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [posts, setPosts] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadPosts = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
+  const loadPosts = useCallback(async (pageToLoad = 1, isRefresh = false) => {
+    if (pageToLoad > 1) setLoadingMore(true);
+    else if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
+
     try {
-      if (!isRefresh) {
+      if (pageToLoad === 1 && !isRefresh) {
         const cached = await cache.get<any[]>("feed_posts");
         if (cached?.length) setPosts(cached.map(normalizePost));
       }
-      const response = await api.feed.list(1);
-      const next = (response.posts || response.feed || []).map(normalizePost);
-      setPosts(next);
-      await cache.set("feed_posts", next, 5 * 60 * 1000);
+
+      const response = await api.feed.list(pageToLoad, PAGE_SIZE);
+      const rows = (response.posts || response.feed || []).map(normalizePost);
+      setPosts((current) => {
+        if (pageToLoad === 1) return rows;
+        const seen = new Set(current.map((post) => post.id));
+        return [...current, ...rows.filter((post) => !seen.has(post.id))];
+      });
+      setPage(pageToLoad);
+      setHasMore(Boolean(response.hasMore ?? rows.length === PAGE_SIZE));
+      if (pageToLoad === 1) await cache.set("feed_posts", rows, 5 * 60 * 1000);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not load your feed.";
       setError(message);
-      if (isRefresh || posts.length > 0) showToast({ message, variant: "error" });
+      if (isRefresh || pageToLoad > 1) showToast({ message, variant: "error" });
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
-  }, [posts.length, showToast]);
+  }, [showToast]);
 
   useEffect(() => {
     void loadPosts();
   }, [loadPosts]);
 
-  const onRefresh = () => void loadPosts(true);
+  const onRefresh = () => void loadPosts(1, true);
 
-  const toggleLike = async (id: string) => {
-    const current = posts.find(p => p.id === id);
-    if (!current) return;
-    setPosts((p) => p.map((post) => post.id === id ? { ...post, liked: !post.liked, likes: post.likes + (post.liked ? -1 : 1) } : post));
-    try {
-      const result = current.liked ? await api.posts.unlike(id) : await api.posts.like(id);
-      setPosts((p) => p.map((post) => post.id === id ? { ...post, liked: result.liked, likes: result.reactions } : post));
-    } catch (err) {
-      setPosts((currentPosts) => currentPosts.map((post) => post.id === id ? current : post));
-      showToast({ message: err instanceof Error ? err.message : "Could not update this post.", variant: "error" });
-    }
+  const loadMore = () => {
+    if (!hasMore || loading || loadingMore || refreshing || posts.length === 0) return;
+    void loadPosts(page + 1);
+  };
+
+  const updatePost = (updated: any) => {
+    setPosts((current) => current.map((post) => post.id === updated.id ? updated : post));
+  };
+
+  const removePost = (postId: string) => {
+    setPosts((current) => current.filter((post) => post.id !== postId));
   };
 
   return (
@@ -87,7 +102,8 @@ export default function Feed() {
       ) : error && posts.length === 0 ? (
         <NetworkError onRetry={() => void loadPosts()} message={error} />
       ) : (
-        <FlatList showsVerticalScrollIndicator={false}
+        <FlatList
+          showsVerticalScrollIndicator={false}
           data={posts}
           keyExtractor={(p) => p.id}
           contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
@@ -99,11 +115,21 @@ export default function Feed() {
               title="No posts available"
               message="There are no posts in your feed yet. Pull to refresh or create the first post."
               actionLabel={canCreatePosts ? "Create post" : "Refresh"}
-              onAction={() => canCreatePosts ? router.push("/create-post") : loadPosts(true)}
+              onAction={() => canCreatePosts ? router.push("/create-post") : loadPosts(1, true)}
             />
           }
-          renderItem={({ item }) => <PostCard post={item} onLike={() => toggleLike(item.id)} />}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.brandPrimary} style={{ paddingVertical: spacing.lg }} /> : null}
+          renderItem={({ item }) => (
+            <PostCard
+              post={item}
+              onChange={updatePost}
+              onDeleted={removePost}
+              style={{ marginHorizontal: spacing.lg }}
+            />
+          )}
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
         />
       )}
     </SafeAreaView>
@@ -120,96 +146,11 @@ function Composer() {
       style={[styles.composer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
       testID="composer-btn"
     >
-      <Avatar uri={(user as any)?.avatar} name={user?.name || "User"} size={40} />
+      <Avatar uri={(user as any)?.avatar || user?.avatarUrl} name={user?.name || "User"} size={40} />
       <View style={[styles.composerInput, { backgroundColor: colors.surfaceTertiary }]}>
-        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Share something with your campus…</Text>
+        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Share something with your campus...</Text>
       </View>
       <Ionicons name="image-outline" size={22} color={colors.brandPrimary} />
-    </Pressable>
-  );
-}
-
-function PostCard({ post, onLike }: { post: FeedPostDto | any; onLike: () => void }) {
-  const { colors } = useTheme();
-  const router = useRouter();
-
-  return (
-    <Pressable
-      onPress={() => router.push(`/post/${post.id}`)}
-      style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-    >
-      {post.pinned && (
-        <View style={[styles.pinned, { backgroundColor: colors.brandTertiary }]}>
-          <Ionicons name="pin" size={12} color={colors.onBrandTertiary} />
-          <Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "500" }}>Pinned</Text>
-        </View>
-      )}
-
-      <View style={styles.postHeader}>
-        <Avatar uri={post.author.avatar} name={post.author.name} size={44} verified={post.author.verified} />
-        <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{post.author.name}</Text>
-            {post.author.badge === "official" && (
-              <View style={[styles.badgeChip, { backgroundColor: colors.info }]}>
-                <Text style={{ color: colors.onInfo, fontSize: 9, fontWeight: "500" }}>OFFICIAL</Text>
-              </View>
-            )}
-            {post.author.badge === "faculty" && (
-              <View style={[styles.badgeChip, { backgroundColor: colors.warning }]}>
-                <Text style={{ color: colors.onWarning, fontSize: 9, fontWeight: "500" }}>FACULTY</Text>
-              </View>
-            )}
-          </View>
-          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>
-            {post.author.institution} · {post.createdAt}
-            {post.group ? ` · in ${post.group.name}` : ""}
-          </Text>
-        </View>
-        <Pressable hitSlop={8}>
-          <Ionicons name="ellipsis-horizontal" size={20} color={colors.onSurfaceTertiary} />
-        </Pressable>
-      </View>
-
-      {post.announcement && (
-        <View style={[styles.announcement, { backgroundColor: colors.brandSecondary + "22" }]}>
-          <Ionicons name="megaphone" size={14} color={colors.brandSecondary} />
-          <Text style={{ color: colors.brandSecondary, fontSize: font.sm, fontWeight: "500" }}>Announcement</Text>
-        </View>
-      )}
-
-      <Text style={{ color: colors.onSurface, fontSize: font.base, lineHeight: 22, marginTop: spacing.md }}>
-        {post.content}
-      </Text>
-
-      {post.image && (
-        <Image
-          source={{ uri: post.image }}
-          style={styles.postImage}
-          contentFit="cover"
-        />
-      )}
-
-      <View style={[styles.actions, { borderTopColor: colors.border }]}>
-        <ActionBtn
-          icon={post.liked ? "heart" : "heart-outline"}
-          label={String(post.likes)}
-          color={post.liked ? colors.brandSecondary : colors.onSurfaceTertiary}
-          onPress={onLike}
-        />
-        <ActionBtn icon="reader-outline" label={String(post.comments)} color={colors.onSurfaceTertiary} />
-        <ActionBtn icon="repeat-outline" label={String(post.reposts)} color={colors.onSurfaceTertiary} />
-        <ActionBtn icon={post.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={colors.onSurfaceTertiary} />
-      </View>
-    </Pressable>
-  );
-}
-
-function ActionBtn({ icon, label, color, onPress }: { icon: any; label: string; color: string; onPress?: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={styles.actionBtn} hitSlop={8}>
-      <Ionicons name={icon} size={20} color={color} />
-      {!!label && <Text style={{ color, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>}
     </Pressable>
   );
 }
@@ -231,29 +172,5 @@ const styles = StyleSheet.create({
   composerInput: {
     flex: 1, height: 40, borderRadius: radius.pill,
     paddingHorizontal: spacing.md, justifyContent: "center",
-  },
-  card: {
-    marginHorizontal: spacing.lg,
-    borderRadius: radius.md, borderWidth: 1,
-    padding: spacing.lg,
-  },
-  postHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  badgeChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 4 },
-  announcement: {
-    flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start",
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, marginTop: spacing.md,
-  },
-  postImage: {
-    width: "100%", aspectRatio: 16 / 10, borderRadius: radius.md, marginTop: spacing.md,
-  },
-  actions: {
-    flexDirection: "row", justifyContent: "space-between",
-    borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.md,
-    paddingTop: spacing.md,
-  },
-  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4, paddingHorizontal: 8 },
-  pinned: {
-    flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start",
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginBottom: spacing.sm,
   },
 });

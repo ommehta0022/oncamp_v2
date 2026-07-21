@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Switch, Platform } from "react-native";
+import { Alert, View, Text, StyleSheet, ScrollView, Switch, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -25,9 +25,13 @@ export default function Privacy() {
   
   const update = (k: keyof typeof s) => {
     if (Platform.OS === 'ios') Haptics.selectionAsync();
+    const previous = s;
     const next = { ...s, [k]: !s[k] };
     set(next);
-    api.users.updateSettings({ privacy: { [k]: next[k] } }).catch(() => {});
+    api.users.updateSettings({ privacy: { [k]: next[k] } }).catch((error) => {
+      set(previous);
+      Alert.alert("Save failed", error instanceof Error ? error.message : "Could not save privacy settings.");
+    });
   };
   
   const Sw = (k: keyof typeof s) => (

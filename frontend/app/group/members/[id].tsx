@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TextInput, Pressable, Platform } from "react-native";
+import { ActivityIndicator, View, Text, StyleSheet, FlatList, TextInput, Pressable, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -10,9 +10,10 @@ import Avatar from "@/src/components/Avatar";
 import Header from "@/src/components/Header";
 import EmptyState from "@/src/components/EmptyState";
 import OptionsMenu from "@/src/components/OptionsMenu";
-import { api, GroupDto } from "@/src/lib/api";
+import { api, getUserErrorMessage, GroupDto } from "@/src/lib/api";
 import { useRole } from "@/src/context/RoleProvider";
 import { useToast } from "@/src/components/Toast";
+import { NetworkError } from "@/src/components/NetworkError";
 
 export default function Members() {
   const { colors } = useTheme();
@@ -23,19 +24,35 @@ export default function Members() {
   
   const [group, setGroup] = useState<GroupDto | null>(null);
   const [members, setMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   
   const [activeMenuMember, setActiveMenuMember] = useState<any | null>(null);
   const [roleMenuMember, setRoleMenuMember] = useState<any | null>(null);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     if (!id) return;
-    api.groups.get(id).then(setGroup).catch(() => setGroup(null));
-    api.groups.members(id).then((rows: any) => Array.isArray(rows) && setMembers(rows)).catch(() => setMembers([]));
+    setLoading(true);
+    setError("");
+    try {
+      const [nextGroup, rows] = await Promise.all([
+        api.groups.get(id),
+        api.groups.members(id),
+      ]);
+      setGroup(nextGroup);
+      setMembers(Array.isArray(rows) ? rows : []);
+    } catch (loadError) {
+      setGroup(null);
+      setMembers([]);
+      setError(getUserErrorMessage(loadError, "Could not load group members."));
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const list = useMemo(
@@ -75,7 +92,7 @@ export default function Members() {
     opts.push({
       label: "View Profile",
       icon: "person-outline",
-      onPress: () => router.push((`/profile/${activeMenuMember.userId}`) as any),
+      onPress: () => router.push(`/user/${activeMenuMember.userId}`),
     });
 
     if (isAdmin && activeMenuMember.userId !== user?.id) {
@@ -100,6 +117,14 @@ export default function Members() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="members-screen">
       <Header title="Members" subtitle={group ? `${members.length.toLocaleString()} in ${group.name}` : ""} onBack={() => router.back()} />
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color={colors.brandPrimary} />
+        </View>
+      ) : error ? (
+        <NetworkError message={error} onRetry={() => void load()} />
+      ) : (
+      <>
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
         <View style={[styles.searchBox, { backgroundColor: colors.surfaceTertiary }]}>
           <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
@@ -157,6 +182,8 @@ export default function Members() {
           { label: "Member", icon: "person", onPress: () => handleChangeRole(roleMenuMember.userId, "member") },
         ]}
       />
+      </>
+      )}
     </SafeAreaView>
   );
 }

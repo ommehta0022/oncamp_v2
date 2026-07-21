@@ -155,9 +155,6 @@ export default function InstitutionPostRequests() {
                   <Pressable onPress={() => reject(r)} style={[styles.actionBtn, { borderColor: colors.borderStrong }]} testID={`reject-post-${r.id}`}>
                     <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>Reject</Text>
                   </Pressable>
-                  <Pressable onPress={() => Alert.alert("Ask changes", "The backend does not expose a change-request endpoint for institution post requests yet.")} style={[styles.actionBtn, { borderColor: colors.borderStrong }]}>
-                    <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>Ask changes</Text>
-                  </Pressable>
                   <Pressable onPress={() => approve(r)} style={[styles.approve, { backgroundColor: colors.brandPrimary }]} testID={`approve-post-${r.id}`}>
                     <Ionicons name="checkmark" size={16} color={colors.onBrandPrimary} />
                     <Text style={{ color: colors.onBrandPrimary, fontSize: font.sm, fontWeight: "500" }}>Approve</Text>

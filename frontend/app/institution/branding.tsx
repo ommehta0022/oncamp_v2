@@ -101,11 +101,15 @@ export default function Branding() {
     try {
       await AsyncStorage.setItem(PENDING_BRANDING_KEY, JSON.stringify(form));
       if (!institution?.id) {
-        api.institutions.updateMe({
-          logoUrl: form.logoUrl || undefined,
-          coverUrl: form.coverUrl || undefined,
-          verificationPolicy: { ...policy, brandPalette: form.palette },
-        }).catch(() => {});
+        try {
+          await api.institutions.updateMe({
+            logoUrl: form.logoUrl || undefined,
+            coverUrl: form.coverUrl || undefined,
+            verificationPolicy: { ...policy, brandPalette: form.palette },
+          });
+        } catch (error) {
+          Alert.alert("Saved on this device", getUserErrorMessage(error, "Your branding is saved locally and will be available while institution approval is pending."));
+        }
         router.back();
         return;
       }

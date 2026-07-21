@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -122,12 +122,6 @@ export default function PostRequestsInbox() {
                     testID={`reject-post-${r.id}`}
                   >
                     <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>Reject</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => Alert.alert("Ask changes", "The backend does not expose a change-request endpoint for group post requests yet.")}
-                    style={[styles.actionBtn, { borderColor: colors.borderStrong }]}
-                  >
-                    <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500" }}>Ask changes</Text>
                   </Pressable>
                   <Pressable
                     onPress={() => setStatus(r.id, "approved")}

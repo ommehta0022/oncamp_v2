@@ -13,8 +13,12 @@ from pathlib import Path
 import uuid
 from typing import Any, Optional
 
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
+try:
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as google_requests
+except Exception:
+    id_token = None
+    google_requests = None
 import jwt
 import requests
 from dotenv import load_dotenv
@@ -120,15 +124,8 @@ TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")
 DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 DEV_OTP_CODE = os.getenv("DEV_OTP_CODE", "123456")
 
-def route_unique_id(route: Any) -> str:
-    methods = "_".join(sorted((route.methods or {"GET"}) - {"HEAD", "OPTIONS"})).lower()
-    path = getattr(route, "path_format", route.path).strip("/") or "root"
-    path_token = re.sub(r"[^a-zA-Z0-9_]+", "_", path.replace("{", "").replace("}", ""))
-    return f"{methods}_{path_token}_{route.name}"
-
-
 # Initialize FastAPI app
-app = FastAPI(title="OnCampus API", version="1.0.0", generate_unique_id_function=route_unique_id)
+app = FastAPI(title="OnCampus API", version="1.0.0")
 
 # SECURITY: Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -152,7 +149,8 @@ app.add_middleware(
 
 @app.middleware("http")
 async def maintenance_mode_middleware(request: Request, call_next):
-    if request.url.path.startswith("/admin") or request.url.path.startswith("/health"):
+    health_paths = {"/health", "/v1/health", "/v1/integrations/health"}
+    if request.url.path.startswith("/admin") or request.url.path in health_paths:
         return await call_next(request)
         
     try:
@@ -303,7 +301,7 @@ def public_platform_settings() -> dict[str, Any]:
 @app.middleware("http")
 async def enforce_maintenance_mode(request: Request, call_next):
     path = request.url.path
-    allowed = {"/v1/health", "/v1/platform/settings", "/v1/integrations/health"}
+    allowed = {"/v1/health", "/v1/platform/settings", "/v1/settings/features", "/v1/integrations/health"}
     if path.startswith("/v1/") and path not in allowed and request.method != "OPTIONS":
         settings = public_platform_settings()
         if settings["maintenanceMode"]:
@@ -321,6 +319,12 @@ async def enforce_maintenance_mode(request: Request, call_next):
 @app.get("/v1/platform/settings")
 def get_public_platform_settings() -> dict[str, Any]:
     return public_platform_settings()
+
+
+@app.get("/v1/settings/features")
+def get_feature_flags() -> dict[str, bool]:
+    rows = safe_get("feature_flags", {"select": "flag_key,enabled"})
+    return {row.get("flag_key"): bool(row.get("enabled")) for row in rows if row.get("flag_key")}
 
 
 class UpstashRedis:
@@ -577,10 +581,40 @@ def safe_get(table: str, params: Optional[dict[str, Any]] = None, fallback: Any 
         return [] if fallback is None else fallback
 
 
+def safe_post(table: str, payload: dict[str, Any], fallback: Any = None) -> Any:
+    try:
+        return db.post(table, payload)
+    except HTTPException as exc:
+        logger.info(f"Optional insert into {table} failed: {exc.detail}")
+        return fallback
+
+
+def safe_delete(table: str, params: dict[str, Any], fallback: Any = None) -> Any:
+    try:
+        return db.delete(table, params)
+    except HTTPException as exc:
+        logger.info(f"Optional delete from {table} failed: {exc.detail}")
+        return fallback
+
+
+def notify_admins(title: str, body: str, notification_type: str, data: Optional[dict[str, Any]] = None) -> None:
+    safe_post(
+        "notifications",
+        {
+            "title": title,
+            "body": body,
+            "type": notification_type,
+            "data": data or {},
+            "created_at": now_iso(),
+        },
+    )
+
+
 def serialize_user(row: dict[str, Any]) -> dict[str, Any]:
     account_type = row.get("account_type") or "normal_user"
     return {
         "id": row["id"],
+        "email": row.get("email"),
         "name": row.get("name"),
         "city": row.get("city"),
         "course": row.get("course"),
@@ -601,6 +635,7 @@ def serialize_user(row: dict[str, Any]) -> dict[str, Any]:
 def serialize_group(row: dict[str, Any], role: Optional[str] = None) -> dict[str, Any]:
     return {
         "id": row["id"],
+        "email": row.get("email"),
         "name": row.get("name"),
         "description": row.get("description"),
         "city": row.get("city"),
@@ -613,37 +648,86 @@ def serialize_group(row: dict[str, Any], role: Optional[str] = None) -> dict[str
         "institutionId": row.get("institution_id"),
         "memberCount": row.get("member_count", 0),
         "role": role,
-        "unread": row.get("unread", 0),
         "pinned": row.get("pinned", False),
         "muted": row.get("muted", False),
+        "mutedAt": row.get("muted_at"),
+        "unread": row.get("unread", 0),
         "lastMessage": row.get("last_message"),
         "lastMessageAt": row.get("last_message_at"),
     }
 
 
-class UpdateUserDto(BaseModel):
-    name: Optional[str] = None
-    handle: Optional[str] = None
-    course: Optional[str] = None
-    city: Optional[str] = None
-    bio: Optional[str] = None
-    avatarUrl: Optional[str] = None
-    profileCompleted: Optional[bool] = None
-    onboardingSkipped: Optional[dict[str, Any]] = None
-    defaultAvatarKey: Optional[str] = None
+def group_payload_to_db(payload: dict[str, Any], allow_official: bool = False) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    mapping = {
+        "name": "name",
+        "description": "description",
+        "city": "city",
+        "category": "category",
+        "visibility": "visibility",
+        "avatarUrl": "avatar_url",
+        "avatar_url": "avatar_url",
+        "joinPolicy": "join_policy",
+        "join_policy": "join_policy",
+        "postingMode": "posting_mode",
+        "posting_mode": "posting_mode",
+        "institutionId": "institution_id",
+        "institution_id": "institution_id",
+    }
+    for source, target in mapping.items():
+        value = payload.get(source)
+        if value is not None:
+            data[target] = value.strip() if isinstance(value, str) else value
+    if allow_official and payload.get("official") is not None:
+        data["official"] = bool(payload.get("official"))
+    return data
 
 
-class ReactionDto(BaseModel):
-    type: Optional[str] = "like"
+def serialize_comment(row: dict[str, Any], users_by_id: Optional[dict[str, dict[str, Any]]] = None) -> dict[str, Any]:
+    users_by_id = users_by_id or {}
+    author = users_by_id.get(row.get("user_id"), {})
+    return {
+        "id": row.get("id"),
+        "content": row.get("content") or "",
+        "createdAt": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+        "user": {
+            "id": row.get("user_id"),
+            "name": author.get("name") or "Member",
+            "avatarUrl": author.get("avatar_url"),
+            "verified": author.get("verified", False),
+        },
+    }
 
 
-class PushDeviceDto(BaseModel):
-    pushToken: str
-    platform: Optional[str] = None
-
-
-class RejectRequestDto(BaseModel):
-    reason: Optional[str] = None
+def serialize_post_summary(row: dict[str, Any], user: Optional[CurrentUser] = None) -> dict[str, Any]:
+    author_rows = safe_get("users", {"id": f"eq.{row.get('author_id')}", "select": "*", "limit": "1"}) if row.get("author_id") else []
+    group_rows = safe_get("groups", {"id": f"eq.{row.get('group_id')}", "select": "id,name", "limit": "1"}) if row.get("group_id") else []
+    liked = False
+    bookmarked = False
+    if user:
+        liked = bool(safe_get("post_reactions", {"post_id": f"eq.{row['id']}", "user_id": f"eq.{user.id}", "select": "post_id", "limit": "1"}))
+        bookmarked = bool(safe_get("saved_posts", {"post_id": f"eq.{row['id']}", "user_id": f"eq.{user.id}", "select": "post_id", "limit": "1"}))
+    return {
+        "id": row["id"],
+        "title": row.get("title"),
+        "content": row.get("content"),
+        "mediaUrl": row.get("media_url"),
+        "mediaType": row.get("media_type"),
+        "pinned": row.get("pinned", False),
+        "postType": row.get("type"),
+        "announcement": row.get("type") in {"announcement", "emergency", "notice"},
+        "createdAt": row.get("published_at") or row.get("created_at"),
+        "author": serialize_user(author_rows[0]) if author_rows else {"id": row.get("author_id"), "name": "OnCampus user"},
+        "group": group_rows[0] if group_rows else None,
+        "counts": {
+            "reactions": len(safe_get("post_reactions", {"post_id": f"eq.{row['id']}", "select": "user_id"})),
+            "comments": len(safe_get("post_comments", {"post_id": f"eq.{row['id']}", "deleted_at": "is.null", "select": "id"})),
+            "reposts": len(safe_get("posts", {"repost_of": f"eq.{row['id']}", "status": "eq.published", "select": "id"})),
+        },
+        "liked": liked,
+        "bookmarked": bookmarked,
+    }
 
 
 def group_member_count(group_id: str) -> int:
@@ -661,20 +745,23 @@ def current_institution_admin(user: CurrentUser) -> Optional[dict[str, Any]]:
     return None
 
 
-def require_institution_admin(user: CurrentUser) -> dict[str, Any]:
+def require_institution_admin(user: CurrentUser, institution_id: Optional[str] = None) -> dict[str, Any]:
     admin = current_institution_admin(user)
-    if admin:
+    if admin and (institution_id is None or admin.get("institution_id") == institution_id):
         return admin
     if user.role == "platform_admin":
-        return {"institution_id": None, "role": "platform_admin"}
+        return {"institution_id": institution_id, "role": "platform_admin"}
     raise HTTPException(status_code=403, detail="Institution admin access required")
 
 
 def require_institution_admin_for(institution_id: str, user: CurrentUser) -> dict[str, Any]:
-    admin = require_institution_admin(user)
-    if user.role != "platform_admin" and admin.get("institution_id") != institution_id:
-        raise HTTPException(status_code=403, detail="Institution admin access required")
-    return admin
+    return require_institution_admin(user, institution_id)
+
+
+def get_institution_policy_by_id(institution_id: str) -> dict[str, Any]:
+    rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "verification_policy", "limit": "1"})
+    institution = rows[0] if rows else None
+    return merged_institution_policy(institution)
 
 
 @app.get("/")
@@ -745,16 +832,198 @@ class StartOtpDevDto(BaseModel):
     action: Optional[str] = None
 
 
+class StartInstitutionOtpDto(BaseModel):
+    identifier: str
+
+
 class VerifyOtpDevDto(BaseModel):
     phone: str
     code: str
     platform: Optional[str] = None
 
 
+class VerifyInstitutionOtpDto(BaseModel):
+    phone: str
+    code: str
+    identifier: Optional[str] = None
+    platform: Optional[str] = None
+
+
+def normalized_login_phone(value: str) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) == 10:
+        return f"+91{digits}"
+    if len(digits) == 12 and digits.startswith("91"):
+        return f"+{digits}"
+    if (value or "").strip().startswith("+") and len(digits) >= 10:
+        return f"+{digits}"
+    return (value or "").strip()
+
+
+def is_email_identifier(value: str) -> bool:
+    return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", (value or "").strip().lower()))
+
+
+def user_has_institution_access(user_row: Optional[dict[str, Any]]) -> bool:
+    if not user_row:
+        return False
+    if user_row.get("account_type") in {"institution_admin", "platform_admin"}:
+        return True
+    admin_rows = safe_get(
+        "institution_admins",
+        {"user_id": f"eq.{user_row.get('id')}", "status": "eq.active", "select": "id", "limit": "1"},
+    )
+    if admin_rows:
+        return True
+    requests = safe_get(
+        "institution_verification_requests",
+        {"submitted_by": f"eq.{user_row.get('id')}", "select": "id,status", "order": "created_at.desc", "limit": "1"},
+    )
+    return bool(requests)
+
+
+def ensure_user_login_allowed(user_row: Optional[dict[str, Any]]) -> None:
+    if user_has_institution_access(user_row):
+        raise HTTPException(status_code=403, detail="Use Institution Login for this account.")
+
+
+def find_institution_login(identifier: str) -> dict[str, Any]:
+    raw = (identifier or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Enter your registered institution email or phone number.")
+
+    request_row: Optional[dict[str, Any]] = None
+    user_row: Optional[dict[str, Any]] = None
+    phone = ""
+
+    if is_email_identifier(raw):
+        email = raw.lower()
+        users = safe_get(
+            "users",
+            {"email": f"eq.{email}", "select": "*", "limit": "1"},
+        )
+        user_row = users[0] if users else None
+        requests = safe_get(
+            "institution_verification_requests",
+            {"official_email": f"eq.{email}", "select": "*", "order": "created_at.desc", "limit": "1"},
+        )
+        request_row = requests[0] if requests else None
+        if request_row and request_row.get("submitted_by"):
+            submitted_users = safe_get(
+                "users",
+                {"id": f"eq.{request_row.get('submitted_by')}", "select": "*", "limit": "1"},
+            )
+            user_row = submitted_users[0] if submitted_users else user_row
+        phone = normalized_login_phone(str((request_row or {}).get("phone") or ""))
+    else:
+        phone = normalized_login_phone(raw)
+        if not phone or len(re.sub(r"\D", "", phone)) < 10:
+            raise HTTPException(status_code=400, detail="Enter a valid registered institution phone number.")
+        hashed_phone = phone_hash(phone)
+        users = safe_get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*", "limit": "1"})
+        user_row = users[0] if users else None
+        phone_without_country_code = re.sub(r"^\+91", "", phone)
+        request_filters = [
+            {"phone": f"eq.{phone}", "select": "*", "order": "created_at.desc", "limit": "1"},
+            {"phone": f"eq.{phone_without_country_code}", "select": "*", "order": "created_at.desc", "limit": "1"},
+        ]
+        for filters in request_filters:
+            requests = safe_get("institution_verification_requests", filters)
+            if requests:
+                request_row = requests[0]
+                break
+
+    if not user_row and request_row and request_row.get("submitted_by"):
+        users = safe_get("users", {"id": f"eq.{request_row.get('submitted_by')}", "select": "*", "limit": "1"})
+        user_row = users[0] if users else None
+
+    if not user_row or not user_has_institution_access(user_row):
+        raise HTTPException(status_code=404, detail="No registered institution account found. Please register your institution first.")
+    if not phone or len(re.sub(r"\D", "", phone)) < 10:
+        raise HTTPException(status_code=400, detail="This institution account has no verified phone number. Contact support or log in with the registered phone.")
+
+    return {"phone": phone, "user": user_row, "request": request_row}
+
+
+def verify_phone_otp_code(phone: str, code: str) -> None:
+    if not phone or len(phone) < 10:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+
+    if DEV_MODE:
+        if code != DEV_OTP_CODE:
+            raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
+        return
+
+    try:
+        challenges = db.get("otp_challenges", {
+            "phone": f"eq.{phone}",
+            "verified": "eq.false",
+            "order": "created_at.desc",
+            "limit": "1"
+        })
+        
+        if not challenges:
+            raise HTTPException(status_code=400, detail="No OTP found for this number. Please request a new one.")
+        
+        challenge = challenges[0]
+        expires_at_str = challenge.get("expires_at", "")
+        expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
+        
+        if challenge["attempts"] >= 3:
+            raise HTTPException(status_code=429, detail="Too many failed attempts. Please request a new OTP.")
+        
+        if not verify_otp_code(code, challenge["code_hash"]):
+            db.patch("otp_challenges", 
+                {"id": f"eq.{challenge['id']}"}, 
+                {"attempts": challenge["attempts"] + 1}
+            )
+            raise HTTPException(status_code=400, detail="Invalid OTP code. Please try again.")
+        
+        db.patch("otp_challenges",
+            {"id": f"eq.{challenge['id']}"},
+            {"verified": True, "verified_at": now_iso()}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.info(f"OTP verification error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to verify OTP. Please try again.")
+
+
+def create_auth_session_for_user(user: dict[str, Any], is_new_user: bool, platform: Optional[str], x_device_id: Optional[str]) -> dict[str, Any]:
+    device_id = x_device_id or str(uuid.uuid4())
+    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
+    device_data = {
+        "platform": platform or "unknown",
+        "trusted": True,
+        "last_seen_at": now_iso(),
+    }
+    if existing_device:
+        db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
+    else:
+        db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
+    
+    role = user.get("account_type") or "normal_user"
+    access = create_access_token(user["id"], role)
+    refresh = str(uuid.uuid4())
+    
+    return {
+        "accessToken": access,
+        "refreshToken": refresh,
+        "userId": user["id"],
+        "isNewUser": is_new_user,
+        "user": serialize_user(user),
+    }
+
+
 @app.post("/v1/auth/otp/start")
 def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
     """Start OTP authentication - Sends real SMS via Twilio or uses dev mode."""
-    phone = payload.phone.strip()
+    phone = normalized_login_phone(payload.phone)
 
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
@@ -762,7 +1031,7 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
     # Fast DB check for registration/login
     if payload.action:
         hashed_phone = phone_hash(phone)
-        user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "id", "limit": "1"})
+        user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*", "limit": "1"})
         is_registered = bool(user_rows)
 
         if payload.action == "register" and is_registered:
@@ -770,6 +1039,8 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
         
         if payload.action == "login" and not is_registered:
             raise HTTPException(status_code=400, detail="Number is not registered. Please register first.")
+        if payload.action == "login" and user_rows:
+            ensure_user_login_allowed(user_rows[0])
 
 
     # Development mode - return success without sending
@@ -823,21 +1094,75 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
     }
 
 
+@app.post("/v1/auth/institution/otp/start")
+def start_institution_otp(payload: StartInstitutionOtpDto) -> dict[str, Any]:
+    """Start OTP for registered institution accounts only."""
+    login = find_institution_login(payload.identifier)
+    phone = login["phone"]
+
+    if DEV_MODE:
+        return {
+            "success": True,
+            "challengeId": str(uuid.uuid4()),
+            "expiresInSeconds": 300,
+            "message": f"OTP sent to {phone}",
+            "phone": phone,
+            "devMode": True,
+            "devCode": DEV_OTP_CODE,
+        }
+
+    if not twilio_otp or not twilio_otp.enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="OTP service not configured. Contact support."
+        )
+
+    success, message, otp_code = send_otp_sms(phone)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+
+    challenge_id = str(uuid.uuid4())
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    try:
+        db.post("otp_challenges", {
+            "id": challenge_id,
+            "phone": phone,
+            "code_hash": hash_otp_code(otp_code),
+            "attempts": 0,
+            "verified": False,
+            "expires_at": expires_at,
+            "created_at": now_iso(),
+        })
+    except Exception as e:
+        logger.info(f"Failed to store institution OTP challenge: {e}")
+
+    return {
+        "success": True,
+        "challengeId": challenge_id,
+        "expiresInSeconds": 300,
+        "message": message,
+        "phone": phone,
+        "devMode": False,
+    }
+
+
 @app.post("/v1/auth/otp/verify-dev")
 @app.post("/v1/auth/otp/verify-code")
 def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
     """Verify OTP code - Works with both dev mode and Twilio."""
-    phone = payload.phone.strip()
+    phone = normalized_login_phone(payload.phone)
     code = payload.code.strip()
 
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
 
+    verify_phone_otp_code(phone, code)
+
     # Development mode - check against dev OTP
-    if DEV_MODE:
+    if False:
         if code != DEV_OTP_CODE:
             raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
-    else:
+    elif False:
         # Production mode - verify against stored OTP
         try:
             # Get OTP challenge from database
@@ -893,6 +1218,7 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
     
     if user_rows:
         user = user_rows[0]
+        ensure_user_login_allowed(user)
     else:
         user = db.post(
             "users",
@@ -948,6 +1274,7 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
     is_new_user = not bool(user_rows)
     if user_rows:
         user = user_rows[0]
+        ensure_user_login_allowed(user)
     else:
         user = db.post(
             "users",
@@ -987,6 +1314,28 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
     }
 
 
+@app.post("/v1/auth/institution/otp/verify")
+def verify_institution_otp(payload: VerifyInstitutionOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    phone = normalized_login_phone(payload.phone)
+    code = payload.code.strip()
+    login = find_institution_login(payload.identifier or phone)
+
+    if normalized_login_phone(login["phone"]) != phone:
+        raise HTTPException(status_code=400, detail="This OTP does not match the registered institution account.")
+
+    verify_phone_otp_code(phone, code)
+    user = login["user"]
+    if user.get("account_type") != "institution_admin":
+        patched = db.patch(
+            "users",
+            {"id": f"eq.{user['id']}"},
+            {"account_type": "institution_admin", "can_create_posts": True, "can_create_groups": True, "updated_at": now_iso()},
+        )
+        user = patched[0] if patched else {**user, "account_type": "institution_admin", "can_create_posts": True, "can_create_groups": True}
+
+    return create_auth_session_for_user(user, False, payload.platform, x_device_id)
+
+
 class RefreshRequest(BaseModel):
     refreshToken: str
 
@@ -999,11 +1348,13 @@ class VerifyOtpDto(BaseModel):
 def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
     """Verify Firebase phone auth ID token and create/login user."""
     try:
-        req = google_requests.Request()
         project_id = firebase_project_id()
         if not project_id:
             raise HTTPException(status_code=503, detail="Firebase project ID not configured on backend")
+        if id_token is None or google_requests is None:
+            raise HTTPException(status_code=503, detail="Firebase auth dependency missing")
 
+        req = google_requests.Request()
         decoded = id_token.verify_firebase_token(payload.firebaseIdToken, req, audience=project_id)
         phone = decoded.get("phone_number")
         if not phone:
@@ -1100,6 +1451,55 @@ def me(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     return serialize_user(rows[0])
 
 
+
+class UpdateUserDto(BaseModel):
+    name: Optional[str] = None
+    course: Optional[str] = None
+    city: Optional[str] = None
+    bio: Optional[str] = None
+    avatarUrl: Optional[str] = None
+    email: Optional[str] = None
+    profileCompleted: Optional[bool] = None
+    defaultAvatarKey: Optional[str] = None
+    onboardingSkipped: Optional[dict] = None
+
+@app.patch("/v1/users/me")
+def update_user_me(payload: UpdateUserDto, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    data = {"updated_at": now_iso()}
+    if payload.name is not None: data["name"] = payload.name
+    if payload.course is not None: data["course"] = payload.course
+    if payload.city is not None: data["city"] = payload.city
+    if payload.bio is not None: data["bio"] = payload.bio
+    if payload.avatarUrl is not None: data["avatar_url"] = payload.avatarUrl
+    if payload.email is not None: data["email"] = payload.email
+    if payload.profileCompleted is not None: data["profile_completed"] = payload.profileCompleted
+    if payload.defaultAvatarKey is not None: data["default_avatar_key"] = payload.defaultAvatarKey
+    if payload.onboardingSkipped is not None: data["onboarding_skipped"] = payload.onboardingSkipped
+
+    if len(data) > 1:
+        updated = db.patch("users", {"id": f"eq.{user.id}"}, data)
+        if updated:
+            return serialize_user(updated[0])
+    return me(user=user)
+
+
+@app.delete("/v1/users/me")
+def delete_user_me(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    db.patch(
+        "users",
+        {"id": f"eq.{user.id}"},
+        {
+            "status": "deleted",
+            "deleted_at": now_iso(),
+            "updated_at": now_iso(),
+        },
+    )
+    safe_delete("refresh_tokens", {"user_id": f"eq.{user.id}"})
+    safe_delete("user_devices", {"user_id": f"eq.{user.id}"})
+    db.patch("group_members", {"user_id": f"eq.{user.id}"}, {"status": "left", "left_at": now_iso()})
+    return {"deleted": True}
+
+
 @app.get("/v1/users/me/stats")
 def me_stats(user: CurrentUser = Depends(current_user)) -> dict[str, int]:
     groups = safe_get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id"})
@@ -1114,73 +1514,103 @@ def me_stats(user: CurrentUser = Depends(current_user)) -> dict[str, int]:
     }
 
 
-@app.patch("/v1/users/me")
-def update_me(payload: UpdateUserDto, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    data: dict[str, Any] = {"updated_at": now_iso()}
-    for source, target in {
-        "name": "name",
-        "handle": "handle",
-        "course": "course",
-        "city": "city",
-        "bio": "bio",
-        "avatarUrl": "avatar_url",
-        "profileCompleted": "profile_completed",
-        "onboardingSkipped": "onboarding_skipped",
-        "defaultAvatarKey": "default_avatar_key",
-    }.items():
-        value = getattr(payload, source)
-        if isinstance(value, str):
-            value = value.strip()
-        if value is not None:
-            data[target] = value
-    updated = db.patch("users", {"id": f"eq.{user.id}"}, data)
-    return serialize_user(updated[0] if updated else {"id": user.id, **data})
-
-
-@app.delete("/v1/users/me")
-def delete_me(user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    db.patch("users", {"id": f"eq.{user.id}"}, {"status": "deleted", "updated_at": now_iso()})
-    return {"success": True}
+def serialize_user_settings(row: Optional[dict[str, Any]], user_id: str) -> dict[str, Any]:
+    row = row or {}
+    return {
+        "userId": row.get("user_id", user_id),
+        "privacy": row.get("privacy") or {},
+        "preferences": row.get("preferences") or {},
+        "storage": row.get("storage") or {},
+        "createdAt": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+    }
 
 
 @app.get("/v1/users/me/settings")
 def get_user_settings(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     rows = safe_get("user_settings", {"user_id": f"eq.{user.id}", "select": "*", "limit": "1"})
-    return rows[0] if rows else {"user_id": user.id, "privacy": {}, "preferences": {}, "storage": {}}
+    return serialize_user_settings(rows[0], user.id) if rows else serialize_user_settings(None, user.id)
 
 
 @app.patch("/v1/users/me/settings")
 def update_user_settings(payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    return upsert_user_settings(user.id, payload)
-
-
-@app.get("/v1/users/search")
-def search_users_public(q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
-    query = q.strip()
-    if len(query) < 2:
-        return []
-    rows = safe_get(
-        "users",
-        {"name": f"ilike.*{query}*", "status": "eq.active", "select": "id,name,city,course,bio,handle,avatar_url,verified,account_type", "limit": "20"},
-    )
-    return [serialize_user(row) for row in rows]
+    existing = safe_get("user_settings", {"user_id": f"eq.{user.id}", "select": "*", "limit": "1"})
+    current = existing[0] if existing else {}
+    data: dict[str, Any] = {}
+    for key in ("privacy", "preferences", "storage"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            data[key] = {**(current.get(key) or {}), **value}
+    if not data:
+        return serialize_user_settings(current, user.id)
+    data["updated_at"] = now_iso()
+    if existing:
+        row = db.patch("user_settings", {"user_id": f"eq.{user.id}"}, data)[0]
+    else:
+        row = db.post("user_settings", {"user_id": user.id, **data, "created_at": now_iso()})[0]
+    return serialize_user_settings(row, user.id)
 
 
 @app.get("/v1/users/{user_id}")
-def get_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    rows = db.get("users", {"id": f"eq.{user_id}", "select": "*", "limit": "1"})
+def get_public_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    rows = db.get(
+        "users",
+        {"id": f"eq.{user_id}", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key", "limit": "1"},
+    )
     if not rows:
         raise HTTPException(status_code=404, detail="User not found")
     profile = serialize_user(rows[0])
-    profile["following"] = bool(safe_get("user_follows", {"follower_id": f"eq.{user.id}", "following_id": f"eq.{user_id}", "select": "follower_id"}))
+    profile["following"] = bool(safe_get("user_follows", {"follower_id": f"eq.{user.id}", "following_id": f"eq.{user_id}", "select": "following_id", "limit": "1"}))
     return profile
+
+
+@app.get("/v1/users/{user_id}/posts")
+def get_user_posts(user_id: str, user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    posts = db.get(
+        "posts",
+        {
+            "author_id": f"eq.{user_id}",
+            "status": "eq.published",
+            "select": "id,title,content,media_url,media_type,type,status,pinned,created_at,published_at,author_id,group_id,institution_id",
+            "order": "created_at.desc",
+            "limit": "50",
+        },
+    )
+    return [serialize_post_summary(row, user) for row in posts]
+
+
+def users_for_follow_rows(rows: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    ids = [row.get(key) for row in rows if row.get(key)]
+    if not ids:
+        return []
+    users = safe_get(
+        "users",
+        {"id": f"in.({','.join(ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key"},
+    )
+    user_by_id = {row["id"]: serialize_user(row) for row in users}
+    return [user_by_id[user_id] for user_id in ids if user_id in user_by_id]
+
+
+@app.get("/v1/users/{user_id}/followers")
+def get_user_followers(user_id: str, user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    rows = safe_get("user_follows", {"following_id": f"eq.{user_id}", "select": "follower_id", "order": "created_at.desc"})
+    return users_for_follow_rows(rows, "follower_id")
+
+
+@app.get("/v1/users/{user_id}/following")
+def get_user_following(user_id: str, user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    rows = safe_get("user_follows", {"follower_id": f"eq.{user_id}", "select": "following_id", "order": "created_at.desc"})
+    return users_for_follow_rows(rows, "following_id")
 
 
 @app.post("/v1/users/{user_id}/follow")
 def follow_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     if user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot follow yourself")
-    existing = safe_get("user_follows", {"follower_id": f"eq.{user.id}", "following_id": f"eq.{user_id}", "select": "follower_id"})
+    target = safe_get("users", {"id": f"eq.{user_id}", "select": "id", "limit": "1"})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    existing = safe_get("user_follows", {"follower_id": f"eq.{user.id}", "following_id": f"eq.{user_id}", "select": "follower_id", "limit": "1"})
     if not existing:
         db.post("user_follows", {"follower_id": user.id, "following_id": user_id, "created_at": now_iso()})
     return {"following": True}
@@ -1195,53 +1625,37 @@ def unfollow_user(user_id: str, user: CurrentUser = Depends(current_user)) -> di
     return {"following": False}
 
 
-@app.get("/v1/users/{user_id}/followers")
-def user_followers(user_id: str, user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
-    rows = safe_get("user_follows", {"following_id": f"eq.{user_id}", "select": "follower_id"})
-    users = users_by_id([row["follower_id"] for row in rows])
-    return [serialize_user(users[row["follower_id"]]) for row in rows if row["follower_id"] in users]
-
-
-@app.get("/v1/users/{user_id}/following")
-def user_following(user_id: str, user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
-    rows = safe_get("user_follows", {"follower_id": f"eq.{user_id}", "select": "following_id"})
-    users = users_by_id([row["following_id"] for row in rows])
-    return [serialize_user(users[row["following_id"]]) for row in rows if row["following_id"] in users]
-
-
 @app.post("/v1/users/{user_id}/block")
 def block_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     if user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot block yourself")
-    existing = safe_get("user_blocks", {"blocker_id": f"eq.{user.id}", "blocked_user_id": f"eq.{user_id}", "select": "blocker_id"})
+    existing = safe_get("blocked_users", {"user_id": f"eq.{user.id}", "blocked_user_id": f"eq.{user_id}", "select": "user_id", "limit": "1"})
     if not existing:
-        db.post("user_blocks", {"blocker_id": user.id, "blocked_user_id": user_id, "created_at": now_iso()})
+        db.post("blocked_users", {"user_id": user.id, "blocked_user_id": user_id, "created_at": now_iso()})
     return {"blocked": True}
 
 
 @app.delete("/v1/users/{user_id}/block")
 def unblock_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     try:
-        db.delete("user_blocks", {"blocker_id": f"eq.{user.id}", "blocked_user_id": f"eq.{user_id}"})
+        db.delete("blocked_users", {"user_id": f"eq.{user.id}", "blocked_user_id": f"eq.{user_id}"})
     except HTTPException:
         pass
     return {"blocked": False}
 
 
-@app.get("/v1/users/{user_id}/posts")
-def user_posts(user_id: str, user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
-    rows = safe_get(
-        "posts",
-        {"author_id": f"eq.{user_id}", "status": "eq.published", "select": "*", "order": "published_at.desc,created_at.desc", "limit": "50"},
-    )
-    return [serialize_feed_post(row, user.id) for row in rows]
-
-
 @app.get("/v1/blocked-users")
-def blocked_users(user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
-    rows = safe_get("user_blocks", {"blocker_id": f"eq.{user.id}", "select": "blocked_user_id"})
-    users = users_by_id([row["blocked_user_id"] for row in rows])
-    return [serialize_user(users[row["blocked_user_id"]]) for row in rows if row["blocked_user_id"] in users]
+def list_blocked_users(user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    rows = safe_get("blocked_users", {"user_id": f"eq.{user.id}", "select": "blocked_user_id", "order": "created_at.desc"})
+    ids = [row.get("blocked_user_id") for row in rows if row.get("blocked_user_id")]
+    if not ids:
+        return []
+    users = safe_get(
+        "users",
+        {"id": f"in.({','.join(ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type,can_create_posts,can_create_groups,profile_completed,onboarding_skipped,default_avatar_key"},
+    )
+    user_by_id = {row["id"]: serialize_user(row) for row in users}
+    return [user_by_id[user_id] for user_id in ids if user_id in user_by_id]
 
 
 @app.post("/v1/auth/logout")
@@ -1251,9 +1665,11 @@ def logout(user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
 
 @app.get("/v1/feed")
 def feed(
+    page: int = Query(default=1, ge=1),
     limit: int = Query(default=30, ge=1, le=100),
     user: CurrentUser = Depends(current_user),
 ) -> dict[str, Any]:
+    offset = (page - 1) * limit
     posts = db.get(
         "posts",
         {
@@ -1261,6 +1677,7 @@ def feed(
             "status": "eq.published",
             "order": "pinned.desc,created_at.desc",
             "limit": str(limit),
+            "offset": str(offset),
         },
     )
     author_ids = sorted({post.get("author_id") for post in posts if post.get("author_id")})
@@ -1315,7 +1732,9 @@ def feed(
                 "bookmarked": post["id"] in saved_ids,
             }
             for post in posts
-        ]
+        ],
+        "hasMore": len(posts) == limit,
+        "page": page,
     }
 
 
@@ -1365,6 +1784,7 @@ def get_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
         "comments": [
             {
                 "id": row["id"],
+        "email": row.get("email"),
                 "content": row.get("content"),
                 "createdAt": row.get("created_at"),
                 "user": {
@@ -1390,23 +1810,26 @@ class CreateCommentDto(BaseModel):
 
 
 @app.get("/v1/posts/{post_id}/comments")
-def list_comments(
-    post_id: str,
-    limit: int = Query(default=50, ge=1, le=100),
-    user: CurrentUser = Depends(current_user),
-) -> list[dict[str, Any]]:
-    rows = safe_get(
+def list_post_comments(post_id: str, limit: int = Query(default=50, ge=1, le=200), user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    post_rows = db.get("posts", {"id": f"eq.{post_id}", "status": "eq.published", "select": "id", "limit": "1"})
+    if not post_rows:
+        raise HTTPException(status_code=404, detail="Post not found")
+    comments = safe_get(
         "post_comments",
         {
             "post_id": f"eq.{post_id}",
             "deleted_at": "is.null",
-            "select": "id,post_id,user_id,content,created_at",
+            "select": "id,user_id,content,created_at,updated_at",
             "order": "created_at.asc",
             "limit": str(limit),
         },
     )
-    users = users_by_id([row["user_id"] for row in rows])
-    return [serialize_comment(row, users.get(row["user_id"])) for row in rows]
+    user_ids = sorted({row.get("user_id") for row in comments if row.get("user_id")})
+    users_by_id = {}
+    if user_ids:
+        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,name,avatar_url,verified"})
+        users_by_id = {row["id"]: row for row in users}
+    return [serialize_comment(row, users_by_id) for row in comments]
 
 
 @app.post("/v1/posts/{post_id}/comments")
@@ -1420,19 +1843,16 @@ def create_comment(post_id: str, payload: CreateCommentDto, user: CurrentUser = 
             "content": payload.content,
         },
     )
-    return serialize_comment(rows[0], users_by_id([user.id]).get(user.id))
+    return rows[0]
 
 
 @app.post("/v1/posts/{post_id}/reaction")
-def like_post(post_id: str, payload: Optional[ReactionDto] = None, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    reaction = (payload.type if payload else "like") or "like"
+def like_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     existing = safe_get("post_reactions", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}", "select": "post_id"})
     if not existing:
-        db.post("post_reactions", {"post_id": post_id, "user_id": user.id, "reaction": reaction, "created_at": now_iso()})
-    else:
-        db.patch("post_reactions", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}"}, {"reaction": reaction})
+        db.post("post_reactions", {"post_id": post_id, "user_id": user.id, "reaction": "like"})
     count = len(safe_get("post_reactions", {"post_id": f"eq.{post_id}", "select": "user_id"}))
-    return {"liked": True, "reactions": count, "userReaction": reaction}
+    return {"liked": True, "reactions": count}
 
 
 @app.delete("/v1/posts/{post_id}/reaction")
@@ -1445,30 +1865,46 @@ def unlike_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict
     return {"liked": False, "reactions": count}
 
 
-@app.patch("/v1/comments/{comment_id}")
-def update_comment(comment_id: str, payload: CreateCommentDto, user: CurrentUser = Depends(current_user)) -> Any:
-    rows = db.get("post_comments", {"id": f"eq.{comment_id}", "deleted_at": "is.null", "select": "id,post_id,user_id,content,created_at", "limit": "1"})
-    if not rows:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    comment = rows[0]
-    if comment.get("user_id") != user.id and user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Not authorized to edit this comment")
-    updated = db.patch("post_comments", {"id": f"eq.{comment_id}"}, {"content": payload.content, "updated_at": now_iso()})
-    return serialize_comment(updated[0] if updated else {**comment, "content": payload.content}, users_by_id([comment["user_id"]]).get(comment["user_id"]))
+@app.get("/v1/saved-posts")
+def list_saved_posts(user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    saved = safe_get("saved_posts", {"user_id": f"eq.{user.id}", "select": "post_id,created_at", "order": "created_at.desc"})
+    post_ids = [row["post_id"] for row in saved if row.get("post_id")]
+    if not post_ids:
+        return []
+    posts = safe_get(
+        "posts",
+        {
+            "id": f"in.({','.join(post_ids)})",
+            "status": "eq.published",
+            "select": "id,title,content,media_url,media_type,type,status,pinned,created_at,published_at,author_id,group_id,institution_id",
+        },
+    )
+    post_by_id = {row["id"]: serialize_post_summary(row, user) for row in posts}
+    return [post_by_id[post_id] for post_id in post_ids if post_id in post_by_id]
 
 
-@app.delete("/v1/comments/{comment_id}")
-def delete_comment(comment_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    rows = db.get("post_comments", {"id": f"eq.{comment_id}", "deleted_at": "is.null", "select": "id,post_id,user_id", "limit": "1"})
-    if not rows:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    comment = rows[0]
-    post_rows = safe_get("posts", {"id": f"eq.{comment.get('post_id')}", "select": "group_id,institution_id,author_id", "limit": "1"})
-    group_admin = bool(post_rows and post_rows[0].get("group_id") and group_role(post_rows[0]["group_id"], user.id) in {"owner", "admin", "moderator"})
-    if comment.get("user_id") != user.id and not group_admin and user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Not authorized to delete this comment")
-    db.patch("post_comments", {"id": f"eq.{comment_id}"}, {"deleted_at": now_iso()})
-    return {"success": True}
+class SavePostDto(BaseModel):
+    postId: str
+
+
+@app.post("/v1/saved-posts")
+def save_post(payload: SavePostDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    post = safe_get("posts", {"id": f"eq.{payload.postId}", "status": "eq.published", "select": "id", "limit": "1"})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    existing = safe_get("saved_posts", {"user_id": f"eq.{user.id}", "post_id": f"eq.{payload.postId}", "select": "post_id", "limit": "1"})
+    if not existing:
+        db.post("saved_posts", {"user_id": user.id, "post_id": payload.postId, "created_at": now_iso()})
+    return {"saved": True}
+
+
+@app.delete("/v1/saved-posts/{post_id}")
+def remove_saved_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    try:
+        db.delete("saved_posts", {"user_id": f"eq.{user.id}", "post_id": f"eq.{post_id}"})
+    except HTTPException:
+        pass
+    return {"saved": False}
 
 
 class CreatePostDto(BaseModel):
@@ -1638,9 +2074,56 @@ def pin_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
     }
 
 
+class UpdateCommentDto(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+
+@app.patch("/v1/comments/{comment_id}")
+def update_comment(comment_id: str, payload: UpdateCommentDto, user: CurrentUser = Depends(current_user)) -> Any:
+    rows = db.get("post_comments", {"id": f"eq.{comment_id}", "deleted_at": "is.null", "select": "*", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    comment = rows[0]
+    if comment.get("user_id") != user.id and user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Not authorized to edit this comment")
+    result = db.patch("post_comments", {"id": f"eq.{comment_id}"}, {"content": payload.content, "updated_at": now_iso()})
+    return result[0] if result else {"success": True}
+
+
+@app.delete("/v1/comments/{comment_id}")
+def delete_comment(comment_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    rows = db.get("post_comments", {"id": f"eq.{comment_id}", "deleted_at": "is.null", "select": "*", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    comment = rows[0]
+    posts = safe_get("posts", {"id": f"eq.{comment.get('post_id')}", "select": "group_id,institution_id", "limit": "1"})
+    post = posts[0] if posts else {}
+    can_moderate = comment.get("user_id") == user.id or user.role == "platform_admin"
+    if post.get("group_id"):
+        can_moderate = can_moderate or group_role(post["group_id"], user.id) in {"owner", "admin", "moderator"}
+    if post.get("institution_id"):
+        can_moderate = can_moderate or bool(current_institution_admin(user))
+    if not can_moderate:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this comment")
+    db.patch("post_comments", {"id": f"eq.{comment_id}"}, {"deleted_at": now_iso()})
+    return {"deleted": True}
+
+
+@app.post("/v1/posts/{post_id}/share")
+def share_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    post = safe_get("posts", {"id": f"eq.{post_id}", "status": "eq.published", "select": "id", "limit": "1"})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    safe_post("post_shares", {"post_id": post_id, "user_id": user.id, "created_at": now_iso()})
+    return {"shared": True}
+
+
 @app.post("/v1/posts/{post_id}/view")
 def track_post_view(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    existing = safe_get("post_views", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}", "select": "post_id"})
+    post = safe_get("posts", {"id": f"eq.{post_id}", "select": "id", "limit": "1"})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    existing = safe_get("post_views", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}", "select": "post_id", "limit": "1"})
     if existing:
         db.patch("post_views", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}"}, {"viewed_at": now_iso()})
     else:
@@ -1648,383 +2131,43 @@ def track_post_view(post_id: str, user: CurrentUser = Depends(current_user)) -> 
     return {"viewed": True}
 
 
-@app.post("/v1/posts/{post_id}/share")
-def share_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    existing = safe_get("post_shares", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}", "select": "post_id"})
-    if not existing:
-        db.post("post_shares", {"post_id": post_id, "user_id": user.id, "created_at": now_iso()})
-    return {"shared": True}
-
-
 @app.post("/v1/posts/{post_id}/repost")
-def repost(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    rows = db.get("posts", {"id": f"eq.{post_id}", "select": "*", "limit": "1"})
+def repost_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    rows = db.get(
+        "posts",
+        {"id": f"eq.{post_id}", "status": "eq.published", "select": "id,title,content,media_url,media_type,type,status,pinned,created_at,published_at,author_id,group_id,institution_id", "limit": "1"},
+    )
     if not rows:
         raise HTTPException(status_code=404, detail="Post not found")
     original = rows[0]
-    row = db.post(
-        "posts",
-        {
-            "id": str(uuid.uuid4()),
-            "author_id": user.id,
-            "institution_id": original.get("institution_id"),
-            "group_id": original.get("group_id"),
-            "type": "repost",
-            "visibility": original.get("visibility") or "public",
-            "status": "published",
-            "title": original.get("title"),
-            "content": original.get("content"),
-            "media_url": original.get("media_url"),
-            "media_type": original.get("media_type"),
-            "published_at": now_iso(),
-            "created_at": now_iso(),
-        },
-    )[0]
-    return serialize_feed_post(row, user.id)
-
-
-@app.get("/v1/saved-posts")
-def list_saved_posts(user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
-    saved = safe_get("saved_posts", {"user_id": f"eq.{user.id}", "select": "post_id,created_at", "order": "created_at.desc"})
-    post_ids = [row["post_id"] for row in saved]
-    if not post_ids:
-        return []
-    posts = safe_get("posts", {"id": f"in.({','.join(post_ids)})", "status": "eq.published", "select": "*"})
-    post_by_id = {post["id"]: post for post in posts}
-    return [serialize_feed_post(post_by_id[post_id], user.id) for post_id in post_ids if post_id in post_by_id]
-
-
-@app.post("/v1/saved-posts")
-def save_post(payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    post_id = payload.get("postId") or payload.get("post_id")
-    if not post_id:
-        raise HTTPException(status_code=400, detail="postId is required")
-    existing = safe_get("saved_posts", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}", "select": "post_id"})
-    if not existing:
-        db.post("saved_posts", {"post_id": post_id, "user_id": user.id, "created_at": now_iso()})
-    return {"saved": True}
-
-
-@app.delete("/v1/saved-posts/{post_id}")
-def unsave_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     try:
-        db.delete("saved_posts", {"post_id": f"eq.{post_id}", "user_id": f"eq.{user.id}"})
+        reposted = db.post(
+            "posts",
+            {
+                "id": str(uuid.uuid4()),
+                "author_id": user.id,
+                "group_id": original.get("group_id"),
+                "institution_id": original.get("institution_id"),
+                "type": "repost",
+                "visibility": "public",
+                "status": "published",
+                "title": original.get("title"),
+                "content": original.get("content") or "",
+                "media_url": original.get("media_url"),
+                "media_type": original.get("media_type"),
+                "published_at": now_iso(),
+                "repost_of": post_id,
+            },
+        )[0]
+        return serialize_post_summary(reposted, user)
     except HTTPException:
-        pass
-    return {"saved": False}
-
-
-class CreateGroupDto(BaseModel):
-    name: str
-    description: str
-    city: Optional[str] = None
-    category: str = "Clubs"
-    visibility: str = "public"
-    official: bool = False
-    joinPolicy: Optional[str] = None
-    postingMode: Optional[str] = None
-    institutionId: Optional[str] = None
-    avatarUrl: Optional[str] = None
-    memberLimit: Optional[int] = None
-
-
-class UpdateGroupDto(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    city: Optional[str] = None
-    category: Optional[str] = None
-    visibility: Optional[str] = None
-    official: Optional[bool] = None
-    joinPolicy: Optional[str] = None
-    postingMode: Optional[str] = None
-    avatarUrl: Optional[str] = None
-    memberLimit: Optional[int] = None
-
-
-class SendGroupMessageDto(BaseModel):
-    content: Optional[str] = ""
-    type: str = "text"
-    mediaUrl: Optional[str] = None
-    mediaType: Optional[str] = None
-    replyToId: Optional[str] = None
-    clientMessageId: Optional[str] = None
-
-
-class UpdateGroupMemberRoleDto(BaseModel):
-    role: str
-
-
-def normalize_group_visibility(value: Optional[str], official: bool = False) -> str:
-    visibility = (value or "public").strip().lower()
-    if visibility == "official":
-        return "public"
-    if visibility not in {"public", "private"}:
-        raise HTTPException(status_code=400, detail="Group visibility must be public or private")
-    if official:
-        return "public"
-    return visibility
-
-
-def can_manage_official_group(user: CurrentUser, group: Optional[dict[str, Any]] = None) -> bool:
-    if user.role == "platform_admin":
-        return True
-    admin = current_institution_admin(user)
-    if not admin:
-        return False
-    group_institution_id = group.get("institution_id") if group else None
-    return not group_institution_id or admin.get("institution_id") == group_institution_id
-
-
-def user_institution_scope(user: CurrentUser, requested_institution_id: Optional[str]) -> Optional[str]:
-    if user.role == "platform_admin":
-        return requested_institution_id
-    admin = current_institution_admin(user)
-    if admin:
-        institution_id = admin.get("institution_id")
-        if requested_institution_id and requested_institution_id != institution_id:
-            raise HTTPException(status_code=403, detail="Cannot create groups for another institution")
-        return institution_id
-    if requested_institution_id:
-        raise HTTPException(status_code=403, detail="Institution scope required")
-    return None
-
-
-def get_group_row(group_id: str) -> dict[str, Any]:
-    rows = db.get(
-        "groups",
-        {
-            "id": f"eq.{group_id}",
-            "deleted_at": "is.null",
-            "select": "id,name,description,city,category,visibility,join_policy,avatar_url,official,posting_mode,institution_id,created_by",
-            "limit": "1",
-        },
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="Group not found")
-    return rows[0]
-
-
-def users_by_id(user_ids: list[str]) -> dict[str, dict[str, Any]]:
-    ids = [user_id for user_id in dict.fromkeys(user_ids) if user_id]
-    if not ids:
-        return {}
-    rows = safe_get("users", {"id": f"in.({','.join(ids)})", "select": "id,name,city,course,bio,handle,avatar_url,verified,account_type"})
-    return {row["id"]: row for row in rows}
-
-
-def serialize_group_member(row: dict[str, Any], user_row: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    user_id = row.get("user_id")
-    user_data = serialize_user(user_row) if user_row else {"id": user_id, "name": "Member"}
-    return {
-        "id": user_id,
-        "userId": user_id,
-        "role": row.get("role"),
-        "status": row.get("status"),
-        "joinedAt": row.get("joined_at"),
-        "mutedAt": row.get("muted_at"),
-        "lastReadAt": row.get("last_read_at"),
-        "user": user_data,
-        "users": user_data,
-    }
-
-
-def serialize_message(row: dict[str, Any], user_row: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    sender = serialize_user(user_row) if user_row else {"id": row.get("sender_id"), "name": "Member"}
-    return {
-        "id": row.get("id"),
-        "groupId": row.get("group_id"),
-        "group_id": row.get("group_id"),
-        "senderId": row.get("sender_id"),
-        "sender_id": row.get("sender_id"),
-        "senderName": sender.get("name") or "Member",
-        "senderAvatar": sender.get("avatarUrl"),
-        "users": sender,
-        "content": row.get("content") or "",
-        "type": row.get("type") or "text",
-        "mediaUrl": row.get("media_url"),
-        "media_url": row.get("media_url"),
-        "mediaType": row.get("media_type"),
-        "replyToId": row.get("parent_message_id"),
-        "clientMessageId": row.get("client_message_id"),
-        "createdAt": row.get("created_at"),
-        "created_at": row.get("created_at"),
-        "editedAt": row.get("edited_at"),
-    }
-
-
-def serialize_comment(row: dict[str, Any], user_row: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    author = serialize_user(user_row) if user_row else {"id": row.get("user_id"), "name": "Member"}
-    return {
-        "id": row.get("id"),
-        "postId": row.get("post_id"),
-        "authorId": row.get("user_id"),
-        "authorName": author.get("name") or "Member",
-        "authorAvatar": author.get("avatarUrl"),
-        "content": row.get("content") or "",
-        "createdAt": row.get("created_at"),
-        "user": author,
-    }
-
-
-def serialize_feed_post(row: dict[str, Any], current_user_id: Optional[str] = None) -> dict[str, Any]:
-    author_rows = safe_get("users", {"id": f"eq.{row.get('author_id')}", "select": "id,name,avatar_url,verified,account_type"}) if row.get("author_id") else []
-    group_rows = safe_get("groups", {"id": f"eq.{row.get('group_id')}", "select": "id,name"}) if row.get("group_id") else []
-    liked = False
-    bookmarked = False
-    if current_user_id:
-        liked = bool(safe_get("post_reactions", {"post_id": f"eq.{row.get('id')}", "user_id": f"eq.{current_user_id}", "select": "post_id"}))
-        bookmarked = bool(safe_get("saved_posts", {"post_id": f"eq.{row.get('id')}", "user_id": f"eq.{current_user_id}", "select": "post_id"}))
-    author = author_rows[0] if author_rows else {}
-    return {
-        "id": row.get("id"),
-        "title": row.get("title"),
-        "content": row.get("content"),
-        "mediaUrl": row.get("media_url"),
-        "mediaType": row.get("media_type"),
-        "pinned": row.get("pinned", False),
-        "postType": row.get("type"),
-        "announcement": row.get("type") in {"announcement", "emergency", "notice"},
-        "visibility": row.get("visibility"),
-        "createdAt": row.get("published_at") or row.get("created_at"),
-        "author": {
-            "id": row.get("author_id"),
-            "name": author.get("name") or "OnCampus user",
-            "avatarUrl": author.get("avatar_url"),
-            "verified": author.get("verified", False),
-            "badge": "official" if author.get("account_type") == "institution_admin" else None,
-        },
-        "group": group_rows[0] if group_rows else None,
-        "counts": {
-            "reactions": len(safe_get("post_reactions", {"post_id": f"eq.{row.get('id')}", "select": "user_id"})),
-            "comments": len(safe_get("post_comments", {"post_id": f"eq.{row.get('id')}", "deleted_at": "is.null", "select": "id"})),
-        },
-        "liked": liked,
-        "bookmarked": bookmarked,
-    }
-
-
-def upsert_user_settings(user_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-    existing = safe_get("user_settings", {"user_id": f"eq.{user_id}", "select": "*", "limit": "1"})
-    current = existing[0] if existing else {}
-    data: dict[str, Any] = {}
-    for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(current.get(key), dict):
-            data[key] = {**current.get(key, {}), **value}
-        else:
-            data[key] = value
-    data["updated_at"] = now_iso()
-    if existing:
-        rows = db.patch("user_settings", {"user_id": f"eq.{user_id}"}, data)
-    else:
-        rows = db.post("user_settings", {"user_id": user_id, **data})
-    return rows[0] if rows else {**current, **data, "user_id": user_id}
-
-
-@app.post("/v1/groups")
-def create_group(payload: CreateGroupDto, user: CurrentUser = Depends(current_user)) -> Any:
-    require_group_creator(user)
-    name = payload.name.strip()
-    description = payload.description.strip()
-    if not name or not description:
-        raise HTTPException(status_code=400, detail="Group name and description are required")
-
-    official = payload.official or payload.visibility.strip().lower() == "official"
-    if official and not can_manage_official_group(user):
-        raise HTTPException(status_code=403, detail="Only institution admins can create official groups")
-
-    institution_id = user_institution_scope(user, payload.institutionId)
-    visibility = normalize_group_visibility(payload.visibility, official)
-    group_id = str(uuid.uuid4())
-    created_at = now_iso()
-    row: dict[str, Any] = {
-        "id": group_id,
-        "institution_id": institution_id,
-        "name": name,
-        "description": description,
-        "city": payload.city.strip() if payload.city else None,
-        "category": payload.category.strip() or "Clubs",
-        "visibility": visibility,
-        "join_policy": payload.joinPolicy or ("auto_approve_verified" if visibility == "public" else "request_to_join"),
-        "posting_mode": payload.postingMode or ("institution_only" if official else "members_can_request"),
-        "created_by": user.id,
-        "avatar_url": payload.avatarUrl,
-        "official": official,
-        "created_at": created_at,
-        "updated_at": created_at,
-    }
-    if payload.memberLimit is not None:
-        row["member_limit"] = payload.memberLimit
-
-    group = db.post("groups", row)[0]
-    db.post(
-        "group_members",
-        {
-            "group_id": group_id,
-            "user_id": user.id,
-            "role": "owner",
-            "status": "active",
-            "joined_at": created_at,
-            "last_read_at": created_at,
-        },
-    )
-    return serialize_group({**group, "member_count": 1}, "owner")
-
-
-@app.patch("/v1/groups/{group_id}")
-def update_group(group_id: str, payload: UpdateGroupDto, user: CurrentUser = Depends(current_user)) -> Any:
-    groups = db.get(
-        "groups",
-        {
-            "id": f"eq.{group_id}",
-            "deleted_at": "is.null",
-            "select": "id,name,description,city,category,visibility,join_policy,avatar_url,official,posting_mode,institution_id",
-            "limit": "1",
-        },
-    )
-    if not groups:
-        raise HTTPException(status_code=404, detail="Group not found")
-    group = groups[0]
-    role = group_role(group_id, user.id)
-    if role not in {"owner", "admin"} and user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Only group owners and admins can edit this group")
-
-    official = payload.official
-    if payload.visibility and payload.visibility.strip().lower() == "official":
-        official = True
-    if official is not None and official != bool(group.get("official")) and not can_manage_official_group(user, group):
-        raise HTTPException(status_code=403, detail="Only institution admins can change official status")
-
-    data: dict[str, Any] = {"updated_at": now_iso()}
-    for source, target in {
-        "name": "name",
-        "description": "description",
-        "city": "city",
-        "category": "category",
-        "joinPolicy": "join_policy",
-        "postingMode": "posting_mode",
-        "avatarUrl": "avatar_url",
-        "memberLimit": "member_limit",
-    }.items():
-        value = getattr(payload, source)
-        if isinstance(value, str):
-            value = value.strip()
-        if value is not None:
-            data[target] = value
-    if payload.visibility is not None:
-        data["visibility"] = normalize_group_visibility(payload.visibility, bool(official))
-    if official is not None:
-        data["official"] = official
-    if len(data) == 1:
-        return serialize_group({**group, "member_count": group_member_count(group_id)}, role)
-
-    updated = db.patch("groups", {"id": f"eq.{group_id}"}, data)
-    row = updated[0] if updated else {**group, **data}
-    return serialize_group({**row, "member_count": group_member_count(group_id)}, role)
+        safe_post("post_shares", {"post_id": post_id, "user_id": user.id, "share_type": "repost", "created_at": now_iso()})
+        return {**serialize_post_summary(original, user), "reposted": True}
 
 
 @app.get("/v1/groups")
 def my_groups(user: CurrentUser = Depends(current_user)) -> Any:
-    memberships = db.get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id,role,muted_at"})
+    memberships = db.get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id,role,pinned,muted,muted_at,last_read_at"})
     group_ids = [row["group_id"] for row in memberships]
     if not group_ids:
         return []
@@ -2036,22 +2179,43 @@ def my_groups(user: CurrentUser = Depends(current_user)) -> Any:
             "select": "id,name,description,city,category,visibility,join_policy,avatar_url,official,posting_mode",
         },
     )
-    role_by_group = {row["group_id"]: row["role"] for row in memberships}
-    muted_by_group = {row["group_id"]: bool(row.get("muted_at")) for row in memberships}
-    pinned_rows = safe_get("user_pinned_groups", {"user_id": f"eq.{user.id}", "select": "group_id"})
-    pinned_ids = {row["group_id"] for row in pinned_rows}
+    membership_by_group = {row["group_id"]: row for row in memberships}
     return [
-        serialize_group(
-            {
-                **group,
-                "member_count": group_member_count(group["id"]),
-                "pinned": group["id"] in pinned_ids,
-                "muted": muted_by_group.get(group["id"], False),
-            },
-            role_by_group.get(group["id"]),
-        )
+        serialize_group({**group, **membership_by_group.get(group["id"], {}), "member_count": group_member_count(group["id"])}, membership_by_group.get(group["id"], {}).get("role"))
         for group in groups
     ]
+
+
+@app.post("/v1/groups")
+def create_group(payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    is_official = bool(payload.get("official"))
+    admin = current_institution_admin(user) if is_official else None
+    if is_official and not admin and user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only institution admins can create official groups")
+    data = group_payload_to_db(payload, allow_official=True)
+    if not data.get("name") or not data.get("description"):
+        raise HTTPException(status_code=400, detail="Group name and description are required")
+    data.setdefault("visibility", "public")
+    data.setdefault("join_policy", "auto_approve_verified" if data["visibility"] == "public" else "request_to_join")
+    data.setdefault("posting_mode", "members_can_request")
+    data["id"] = str(uuid.uuid4())
+    data["created_by"] = user.id
+    data["created_at"] = now_iso()
+    data["deleted_at"] = None
+    if admin and not data.get("institution_id"):
+        data["institution_id"] = admin.get("institution_id")
+    group = db.post("groups", data)[0]
+    db.post(
+        "group_members",
+        {
+            "group_id": group["id"],
+            "user_id": user.id,
+            "role": "owner",
+            "status": "active",
+            "joined_at": now_iso(),
+        },
+    )
+    return serialize_group({**group, "member_count": 1}, "owner")
 
 
 @app.get("/v1/discovery/groups")
@@ -2092,67 +2256,90 @@ def discover_groups(
 
 @app.get("/v1/groups/{group_id}")
 def get_group(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
-    group = get_group_row(group_id)
+    rows = db.get(
+        "groups",
+        {
+            "id": f"eq.{group_id}",
+            "deleted_at": "is.null",
+            "select": "id,name,description,city,category,visibility,join_policy,avatar_url,official,posting_mode,created_by,institution_id",
+        },
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Group not found")
+    group = rows[0]
     memberships = db.get(
         "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "status": "eq.active", "select": "role,muted_at"},
+        {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "status": "eq.active", "select": "role,pinned,muted,muted_at"},
     )
-    pinned = bool(safe_get("user_pinned_groups", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "select": "group_id"}))
+    membership = memberships[0] if memberships else {}
     return {
         **group,
         "avatarUrl": group.get("avatar_url"),
         "joinPolicy": group.get("join_policy"),
         "postingMode": group.get("posting_mode"),
-        "pinned": pinned,
-        "muted": bool(memberships and memberships[0].get("muted_at")),
-        "role": memberships[0]["role"] if memberships else None,
+        "role": membership.get("role"),
+        "pinned": membership.get("pinned", False),
+        "muted": membership.get("muted", False),
+        "mutedAt": membership.get("muted_at"),
         "memberCount": group_member_count(group_id),
     }
 
 
-@app.post("/v1/groups/{group_id}/join")
-def join_group(group_id: str, user: CurrentUser = Depends(current_user)) -> Any:
-    group = get_group_row(group_id)
-    existing = safe_get("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "select": "user_id,role,status"})
-    if existing and existing[0].get("status") == "active":
-        return serialize_group({**group, "member_count": group_member_count(group_id)}, existing[0].get("role"))
+@app.patch("/v1/groups/{group_id}")
+def update_group(group_id: str, payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    role = require_group_admin(group_id, user)
+    rows = db.get("groups", {"id": f"eq.{group_id}", "deleted_at": "is.null", "select": "*", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Group not found")
+    group = rows[0]
+    data = group_payload_to_db(payload, allow_official=role in {"owner", "platform_admin"} or user.role == "platform_admin")
+    if payload.get("official") and not group.get("institution_id"):
+        admin = current_institution_admin(user)
+        if not admin and user.role != "platform_admin":
+            raise HTTPException(status_code=403, detail="Only institution admins can mark groups official")
+        if admin:
+            data["institution_id"] = admin.get("institution_id")
+    if not data:
+        return serialize_group({**group, "member_count": group_member_count(group_id)}, role)
+    data["updated_at"] = now_iso()
+    updated = db.patch("groups", {"id": f"eq.{group_id}"}, data)[0]
+    return serialize_group({**updated, "member_count": group_member_count(group_id)}, role)
 
-    join_policy = group.get("join_policy") or "auto_approve_verified"
-    status = "pending" if group.get("visibility") == "private" or join_policy == "request_to_join" else "active"
-    joined_at = now_iso()
-    row = {
-        "role": "member",
-        "status": status,
-        "joined_at": joined_at if status == "active" else None,
-        "last_read_at": joined_at if status == "active" else None,
-        "updated_at": joined_at,
-    }
-    if existing:
-        db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, row)
-    else:
-        db.post("group_members", {"group_id": group_id, "user_id": user.id, **row})
-    return {
-        "status": status,
-        "group": serialize_group(
-            {**group, "member_count": group_member_count(group_id)},
-            "member" if status == "active" else None,
-        ),
-    }
+
+@app.post("/v1/groups/{group_id}/join")
+def join_group(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    group_rows = db.get("groups", {"id": f"eq.{group_id}", "deleted_at": "is.null", "select": "id,join_policy", "limit": "1"})
+    if not group_rows:
+        raise HTTPException(status_code=404, detail="Group not found")
+    existing_member = safe_get("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "status": "eq.active", "select": "role", "limit": "1"})
+    if existing_member:
+        return {"joined": True, "role": existing_member[0].get("role") or "member"}
+
+    join_policy = group_rows[0].get("join_policy") or "open"
+    if join_policy in {"approval", "request", "private", "request_to_join", "approval_required"}:
+        existing_request = safe_get("join_requests", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "status": "eq.pending", "select": "id", "limit": "1"})
+        if existing_request:
+            return {"joined": False, "pending": True, "requestId": existing_request[0]["id"]}
+        request = db.post(
+            "join_requests",
+            {"id": str(uuid.uuid4()), "group_id": group_id, "user_id": user.id, "status": "pending", "source": "app", "created_at": now_iso()},
+        )[0]
+        return {"joined": False, "pending": True, "requestId": request["id"]}
+
+    member = db.post(
+        "group_members",
+        {"group_id": group_id, "user_id": user.id, "role": "member", "status": "active", "joined_at": now_iso()},
+    )[0]
+    return {"joined": True, "role": member.get("role") or "member"}
 
 
 @app.post("/v1/groups/{group_id}/leave")
 def leave_group(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     role = require_group_member(group_id, user)
     if role == "owner":
-        owners = safe_get("group_members", {"group_id": f"eq.{group_id}", "status": "eq.active", "role": "eq.owner", "select": "user_id"})
-        if len(owners) <= 1:
-            raise HTTPException(status_code=400, detail="Transfer ownership before leaving this group")
-    db.patch(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"},
-        {"status": "left", "updated_at": now_iso()},
-    )
-    return {"success": True}
+        raise HTTPException(status_code=400, detail="Transfer ownership before leaving this group")
+    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"status": "left", "left_at": now_iso()})
+    return {"left": True}
 
 
 @app.get("/v1/groups/{group_id}/members")
@@ -2160,259 +2347,236 @@ def list_group_members(group_id: str, user: CurrentUser = Depends(current_user))
     require_group_member(group_id, user)
     rows = db.get(
         "group_members",
-        {
-            "group_id": f"eq.{group_id}",
-            "status": "eq.active",
-            "select": "group_id,user_id,role,status,joined_at,muted_at,last_read_at",
-            "order": "role.asc,joined_at.asc",
-        },
+        {"group_id": f"eq.{group_id}", "status": "eq.active", "select": "group_id,user_id,role,joined_at", "order": "joined_at.asc"},
     )
-    users = users_by_id([row["user_id"] for row in rows])
-    return [serialize_group_member(row, users.get(row["user_id"])) for row in rows]
+    user_ids = [row["user_id"] for row in rows if row.get("user_id")]
+    users_by_id = {}
+    if user_ids:
+        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type"})
+        users_by_id = {row["id"]: serialize_user(row) for row in users}
+    return [
+        {
+            "groupId": row.get("group_id"),
+            "userId": row.get("user_id"),
+            "role": row.get("role") or "member",
+            "joinedAt": row.get("joined_at"),
+            "user": users_by_id.get(row.get("user_id"), {"id": row.get("user_id"), "name": "Member"}),
+        }
+        for row in rows
+    ]
+
+
+@app.patch("/v1/groups/{group_id}/members/{member_user_id}")
+def update_group_member_role(group_id: str, member_user_id: str, payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    role = require_group_admin(group_id, user)
+    new_role = str(payload.get("role") or "").strip().lower()
+    if new_role not in {"member", "moderator", "admin"}:
+        raise HTTPException(status_code=400, detail="Role must be member, moderator, or admin")
+    target_rows = db.get(
+        "group_members",
+        {"group_id": f"eq.{group_id}", "user_id": f"eq.{member_user_id}", "status": "eq.active", "select": "role", "limit": "1"},
+    )
+    if not target_rows:
+        raise HTTPException(status_code=404, detail="Member not found")
+    if target_rows[0].get("role") == "owner" and role != "owner":
+        raise HTTPException(status_code=403, detail="Only owners can change owner membership")
+    updated = db.patch(
+        "group_members",
+        {"group_id": f"eq.{group_id}", "user_id": f"eq.{member_user_id}"},
+        {"role": new_role, "updated_at": now_iso()},
+    )[0]
+    return {"groupId": group_id, "userId": member_user_id, "role": updated.get("role") or new_role}
+
+
+@app.delete("/v1/groups/{group_id}/members/{member_user_id}")
+def remove_group_member(group_id: str, member_user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    role = require_group_admin(group_id, user)
+    target_rows = db.get(
+        "group_members",
+        {"group_id": f"eq.{group_id}", "user_id": f"eq.{member_user_id}", "status": "eq.active", "select": "role", "limit": "1"},
+    )
+    if not target_rows:
+        raise HTTPException(status_code=404, detail="Member not found")
+    target_role = target_rows[0].get("role") or "member"
+    if target_role == "owner":
+        raise HTTPException(status_code=400, detail="Transfer ownership before removing the owner")
+    if target_role == "admin" and role not in {"owner", "platform_admin"} and user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only owners can remove admins")
+    db.patch(
+        "group_members",
+        {"group_id": f"eq.{group_id}", "user_id": f"eq.{member_user_id}"},
+        {"status": "removed", "left_at": now_iso()},
+    )
+    return {"removed": True}
 
 
 @app.get("/v1/groups/{group_id}/join-requests")
-def list_group_join_requests(group_id: str, user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+def list_join_requests(group_id: str, user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
     require_group_admin(group_id, user)
-    rows = safe_get(
-        "group_members",
-        {
-            "group_id": f"eq.{group_id}",
-            "status": "eq.pending",
-            "select": "group_id,user_id,role,status,joined_at,muted_at,last_read_at",
-        },
-    )
-    users = users_by_id([row["user_id"] for row in rows])
-    return [serialize_group_member(row, users.get(row["user_id"])) for row in rows]
+    rows = safe_get("join_requests", {"group_id": f"eq.{group_id}", "status": "eq.pending", "select": "*", "order": "created_at.asc"})
+    user_ids = [row.get("user_id") for row in rows if row.get("user_id")]
+    users_by_id = {}
+    if user_ids:
+        users = safe_get("users", {"id": f"in.({','.join(user_ids)})", "select": "id,email,name,city,course,bio,handle,avatar_url,verified,account_type"})
+        users_by_id = {row["id"]: serialize_user(row) for row in users}
+    return [{**row, "user": users_by_id.get(row.get("user_id")), "users": users_by_id.get(row.get("user_id"))} for row in rows]
 
 
 @app.post("/v1/groups/{group_id}/join-requests/{request_id}/approve")
-def approve_group_join_request(group_id: str, request_id: str, user: CurrentUser = Depends(current_user)) -> Any:
+def approve_join_request(group_id: str, request_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     require_group_admin(group_id, user)
-    rows = safe_get(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{request_id}", "status": "eq.pending", "select": "group_id,user_id,role,status"},
-    )
+    rows = db.get("join_requests", {"id": f"eq.{request_id}", "group_id": f"eq.{group_id}", "select": "*", "limit": "1"})
     if not rows:
         raise HTTPException(status_code=404, detail="Join request not found")
-    updated_at = now_iso()
-    updated = db.patch(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{request_id}"},
-        {"status": "active", "role": rows[0].get("role") or "member", "joined_at": updated_at, "last_read_at": updated_at, "updated_at": updated_at},
-    )
-    users = users_by_id([request_id])
-    return serialize_group_member(updated[0] if updated else {**rows[0], "status": "active"}, users.get(request_id))
+    request_row = rows[0]
+    db.patch("join_requests", {"id": f"eq.{request_id}"}, {"status": "approved", "reviewed_at": now_iso(), "reviewed_by": user.id})
+    existing = safe_get("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{request_row['user_id']}", "select": "user_id", "limit": "1"})
+    if existing:
+        db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{request_row['user_id']}"}, {"status": "active", "role": "member", "joined_at": now_iso()})
+    else:
+        db.post("group_members", {"group_id": group_id, "user_id": request_row["user_id"], "role": "member", "status": "active", "joined_at": now_iso()})
+    return {"approved": True}
 
 
 @app.post("/v1/groups/{group_id}/join-requests/{request_id}/reject")
-def reject_group_join_request(group_id: str, request_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+def reject_join_request(group_id: str, request_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     require_group_admin(group_id, user)
-    rows = safe_get(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{request_id}", "status": "eq.pending", "select": "group_id,user_id"},
-    )
+    db.patch("join_requests", {"id": f"eq.{request_id}", "group_id": f"eq.{group_id}"}, {"status": "rejected", "reviewed_at": now_iso(), "reviewed_by": user.id})
+    return {"rejected": True}
+
+
+class SendMessageDto(BaseModel):
+    content: str = ""
+    type: str = "text"
+    mediaUrl: Optional[str] = None
+    replyToId: Optional[str] = None
+    clientMessageId: Optional[str] = None
+
+
+def serialize_message(row: dict[str, Any], users_by_id: Optional[dict[str, dict[str, Any]]] = None) -> dict[str, Any]:
+    user_row = (users_by_id or {}).get(row.get("sender_id")) or {}
+    return {
+        "id": row["id"],
+        "groupId": row.get("group_id"),
+        "senderId": row.get("sender_id"),
+        "senderName": user_row.get("name") or "Member",
+        "senderAvatar": user_row.get("avatarUrl") or user_row.get("avatar_url"),
+        "content": row.get("content") or "",
+        "type": row.get("type") or "text",
+        "mediaUrl": row.get("media_url"),
+        "replyToId": row.get("reply_to_id"),
+        "clientMessageId": row.get("client_message_id"),
+        "createdAt": row.get("created_at"),
+        "created_at": row.get("created_at"),
+        "users": user_row,
+        "own": False,
+        "pinned": row.get("pinned", False),
+    }
+
+
+@app.get("/v1/groups/{group_id}/messages")
+def list_group_messages(group_id: str, limit: int = Query(default=50, ge=1, le=100), user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    require_group_member(group_id, user)
+    rows = safe_get("messages", {"group_id": f"eq.{group_id}", "deleted_at": "is.null", "select": "*", "order": "created_at.desc", "limit": str(limit)})
+    sender_ids = sorted({row.get("sender_id") for row in rows if row.get("sender_id")})
+    users_by_id = {}
+    if sender_ids:
+        users = safe_get("users", {"id": f"in.({','.join(sender_ids)})", "select": "id,name,avatar_url,verified"})
+        users_by_id = {row["id"]: serialize_user(row) for row in users}
+    return [serialize_message(row, users_by_id) for row in rows]
+
+
+@app.post("/v1/groups/{group_id}/messages")
+def send_group_message(group_id: str, payload: SendMessageDto, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    require_group_member(group_id, user)
+    if not payload.content.strip() and not payload.mediaUrl:
+        raise HTTPException(status_code=400, detail="Message content or media is required")
+    row = db.post(
+        "messages",
+        {
+            "id": str(uuid.uuid4()),
+            "group_id": group_id,
+            "sender_id": user.id,
+            "content": payload.content,
+            "type": payload.type,
+            "media_url": payload.mediaUrl,
+            "reply_to_id": payload.replyToId,
+            "client_message_id": payload.clientMessageId,
+            "created_at": now_iso(),
+        },
+    )[0]
+    users = safe_get("users", {"id": f"eq.{user.id}", "select": "id,name,avatar_url,verified", "limit": "1"})
+    return serialize_message(row, {user.id: serialize_user(users[0])} if users else {})
+
+
+@app.delete("/v1/messages/{message_id}")
+def delete_group_message(message_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    rows = db.get("messages", {"id": f"eq.{message_id}", "deleted_at": "is.null", "select": "*", "limit": "1"})
     if not rows:
-        raise HTTPException(status_code=404, detail="Join request not found")
-    db.patch(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{request_id}"},
-        {"status": "rejected", "updated_at": now_iso()},
-    )
-    return {"success": True}
+        raise HTTPException(status_code=404, detail="Message not found")
+    row = rows[0]
+    is_sender = row.get("sender_id") == user.id
+    is_admin = group_role(row.get("group_id"), user.id) in {"owner", "admin", "moderator"} or user.role == "platform_admin"
+    if not (is_sender or is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this message")
+    db.patch("messages", {"id": f"eq.{message_id}"}, {"deleted_at": now_iso()})
+    return {"deleted": True}
 
 
-@app.delete("/v1/groups/{group_id}/members/{member_id}")
-def remove_group_member(group_id: str, member_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    actor_role = require_group_admin(group_id, user)
-    target_role = group_role(group_id, member_id)
-    if not target_role:
-        raise HTTPException(status_code=404, detail="Member not found")
-    if target_role in {"owner", "admin"} and actor_role != "owner" and user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Only owners can remove owner/admin members")
-    if target_role == "moderator" and actor_role not in {"owner", "admin"} and user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Only owners and admins can remove moderators")
-    db.patch(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{member_id}"},
-        {"status": "removed", "updated_at": now_iso()},
-    )
-    return {"success": True}
+@app.post("/v1/groups/{group_id}/messages/read")
+def mark_group_messages_read(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    require_group_member(group_id, user)
+    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"last_read_at": now_iso()})
+    return {"read": True}
 
 
-@app.patch("/v1/groups/{group_id}/members/{member_id}")
-def update_group_member_role(
-    group_id: str,
-    member_id: str,
-    payload: UpdateGroupMemberRoleDto,
-    user: CurrentUser = Depends(current_user),
-) -> Any:
-    actor_role = require_group_admin(group_id, user)
-    target_role = group_role(group_id, member_id)
-    if not target_role:
-        raise HTTPException(status_code=404, detail="Member not found")
-    next_role = payload.role.strip().lower()
-    if next_role not in {"owner", "admin", "moderator", "member"}:
-        raise HTTPException(status_code=400, detail="Unsupported member role")
-    if actor_role not in {"owner", "admin"} and user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Only owners and admins can change member roles")
-    if user.role != "platform_admin" and actor_role != "owner" and (target_role in {"owner", "admin"} or next_role in {"owner", "admin"}):
-        raise HTTPException(status_code=403, detail="Only owners can manage owner/admin roles")
-    updated = db.patch(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{member_id}"},
-        {"role": next_role, "updated_at": now_iso()},
-    )
-    users = users_by_id([member_id])
-    return serialize_group_member(updated[0] if updated else {"user_id": member_id, "role": next_role, "status": "active"}, users.get(member_id))
+@app.get("/v1/groups/{group_id}/messages/unread")
+def group_unread_count(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, int]:
+    require_group_member(group_id, user)
+    member = safe_get("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "select": "last_read_at", "limit": "1"})
+    last_read = member[0].get("last_read_at") if member else None
+    params = {"group_id": f"eq.{group_id}", "deleted_at": "is.null", "sender_id": f"neq.{user.id}", "select": "id"}
+    if last_read:
+        params["created_at"] = f"gt.{last_read}"
+    return {"unread": len(safe_get("messages", params))}
+
+
+@app.get("/v1/groups/{group_id}/messages/search")
+def search_group_messages(group_id: str, q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    require_group_member(group_id, user)
+    query = q.strip()
+    if len(query) < 2:
+        return []
+    rows = safe_get("messages", {"group_id": f"eq.{group_id}", "deleted_at": "is.null", "content": f"ilike.*{query}*", "select": "*", "order": "created_at.desc", "limit": "50"})
+    return [serialize_message(row) for row in rows]
 
 
 @app.post("/v1/groups/{group_id}/mute")
 def mute_group(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     require_group_member(group_id, user)
-    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"muted_at": now_iso(), "updated_at": now_iso()})
-    return {"success": True}
+    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"muted": True, "muted_at": now_iso()})
+    return {"muted": True}
 
 
 @app.delete("/v1/groups/{group_id}/mute")
 def unmute_group(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     require_group_member(group_id, user)
-    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"muted_at": None, "updated_at": now_iso()})
-    return {"success": True}
+    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"muted": False, "muted_at": None})
+    return {"muted": False}
 
 
 @app.post("/v1/groups/{group_id}/pin")
 def pin_group(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     require_group_member(group_id, user)
-    existing = safe_get("user_pinned_groups", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "select": "group_id"})
-    if not existing:
-        db.post("user_pinned_groups", {"group_id": group_id, "user_id": user.id, "created_at": now_iso()})
+    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"pinned": True})
     return {"pinned": True}
 
 
 @app.delete("/v1/groups/{group_id}/pin")
 def unpin_group(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     require_group_member(group_id, user)
-    try:
-        db.delete("user_pinned_groups", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"})
-    except HTTPException:
-        pass
+    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"pinned": False})
     return {"pinned": False}
-
-
-@app.get("/v1/groups/{group_id}/messages")
-def list_group_messages(
-    group_id: str,
-    limit: int = Query(default=50, ge=1, le=100),
-    user: CurrentUser = Depends(current_user),
-) -> list[dict[str, Any]]:
-    require_group_member(group_id, user)
-    rows = db.get(
-        "messages",
-        {
-            "group_id": f"eq.{group_id}",
-            "deleted_at": "is.null",
-            "select": "id,group_id,sender_id,client_message_id,type,content,media_url,media_type,parent_message_id,created_at,edited_at",
-            "order": "created_at.desc",
-            "limit": str(limit),
-        },
-    )
-    users = users_by_id([row["sender_id"] for row in rows])
-    return [serialize_message(row, users.get(row["sender_id"])) for row in rows]
-
-
-@app.post("/v1/groups/{group_id}/messages")
-def send_group_message(group_id: str, payload: SendGroupMessageDto, user: CurrentUser = Depends(current_user)) -> Any:
-    require_group_member(group_id, user)
-    content = (payload.content or "").strip()
-    media_url = payload.mediaUrl
-    if not content and not media_url:
-        raise HTTPException(status_code=400, detail="Message content or media is required")
-    created_at = now_iso()
-    message = db.post(
-        "messages",
-        {
-            "id": str(uuid.uuid4()),
-            "group_id": group_id,
-            "sender_id": user.id,
-            "client_message_id": payload.clientMessageId,
-            "type": payload.type,
-            "content": content,
-            "media_url": media_url,
-            "media_type": payload.mediaType or payload.type if media_url else None,
-            "parent_message_id": payload.replyToId,
-            "created_at": created_at,
-        },
-    )[0]
-    db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"}, {"last_read_at": created_at, "updated_at": created_at})
-    users = users_by_id([user.id])
-    return serialize_message(message, users.get(user.id))
-
-
-@app.get("/v1/groups/{group_id}/messages/search")
-def search_group_messages(
-    group_id: str,
-    q: str = Query(default="", max_length=80),
-    user: CurrentUser = Depends(current_user),
-) -> list[dict[str, Any]]:
-    require_group_member(group_id, user)
-    query = q.strip()
-    if len(query) < 2:
-        return []
-    rows = safe_get(
-        "messages",
-        {
-            "group_id": f"eq.{group_id}",
-            "deleted_at": "is.null",
-            "content": f"ilike.*{query}*",
-            "select": "id,group_id,sender_id,client_message_id,type,content,media_url,media_type,parent_message_id,created_at,edited_at",
-            "order": "created_at.desc",
-            "limit": "50",
-        },
-    )
-    users = users_by_id([row["sender_id"] for row in rows])
-    return [serialize_message(row, users.get(row["sender_id"])) for row in rows]
-
-
-@app.get("/v1/groups/{group_id}/messages/unread")
-def group_unread_messages(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, int]:
-    require_group_member(group_id, user)
-    membership = safe_get(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}", "select": "last_read_at"},
-    )
-    params: dict[str, Any] = {"group_id": f"eq.{group_id}", "deleted_at": "is.null", "sender_id": f"neq.{user.id}", "select": "id"}
-    if membership and membership[0].get("last_read_at"):
-        params["created_at"] = f"gt.{membership[0]['last_read_at']}"
-    rows = safe_get("messages", params)
-    return {"unread": len(rows)}
-
-
-@app.post("/v1/groups/{group_id}/messages/read")
-def mark_group_messages_read(group_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    require_group_member(group_id, user)
-    db.patch(
-        "group_members",
-        {"group_id": f"eq.{group_id}", "user_id": f"eq.{user.id}"},
-        {"last_read_at": now_iso(), "updated_at": now_iso()},
-    )
-    return {"success": True}
-
-
-@app.delete("/v1/messages/{message_id}")
-def delete_message(message_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    rows = db.get(
-        "messages",
-        {"id": f"eq.{message_id}", "deleted_at": "is.null", "select": "id,group_id,sender_id", "limit": "1"},
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="Message not found")
-    message = rows[0]
-    role = group_role(message["group_id"], user.id)
-    if message.get("sender_id") != user.id and role not in {"owner", "admin", "moderator"} and user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Not authorized to delete this message")
-    db.patch("messages", {"id": f"eq.{message_id}"}, {"deleted_at": now_iso()})
-    return {"success": True}
 
 
 class InstitutionRegistrationDto(BaseModel):
@@ -2434,47 +2598,45 @@ class InstitutionRegistrationDto(BaseModel):
 def register_institution(payload: InstitutionRegistrationDto, user: Optional[CurrentUser] = Depends(optional_user)) -> Any:
     """Register institution for verification - allows unauthenticated submission"""
     
-    # Check if user already has a pending or approved request (only if logged in)
-    if user:
-        existing = safe_get("institution_verification_requests", {
-            "submitted_by": f"eq.{user.id}",
-            "select": "id,status",
-            "order": "created_at.desc",
-            "limit": "1"
-        })
-        if existing:
-            status = existing[0].get("status")
-            if status == "pending":
-                raise HTTPException(status_code=400, detail="You already have a pending verification request")
-            elif status == "approved":
-                raise HTTPException(status_code=400, detail="Your institution is already verified")
-            elif status == "needs_changes":
-                # Allow updating the existing request
-                request_id = existing[0]["id"]
-                db.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
-                    "institution_name": payload.institutionName,
-                    "institution_type": payload.institutionType,
-                    "city": payload.city,
-                    "state": payload.state,
-                    "country": payload.country,
-                    "official_email": payload.officialEmail,
-                    "phone": payload.phone,
-                    "website": payload.website,
-                    "admin_name": payload.adminName,
-                    "designation": payload.designation,
-                    "document_url": payload.documentUrl,
-                    "logo_url": payload.logoUrl,
-                    "status": "pending",
-                    "review_notes": None
-                })
-                # Add notification for admin
-                db.post("admin_notifications", {
-                    "type": "institution_verification",
-                    "title": "Institution Request Updated",
-                    "message": f"Institution {payload.institutionName} updated their request.",
-                    "status": "unread"
-                })
-                return {"success": True, "message": "Verification request updated"}
+    existing_filter = {"submitted_by": f"eq.{user.id}"} if user else {"official_email": f"eq.{payload.officialEmail}"}
+    existing = safe_get("institution_verification_requests", {
+        **existing_filter,
+        "select": "id,status",
+        "order": "created_at.desc",
+        "limit": "1"
+    })
+    if existing:
+        status = existing[0].get("status")
+        if status == "pending":
+            return {"success": True, "message": "Verification request is already pending", "request": existing[0]}
+        if status == "approved":
+            raise HTTPException(status_code=400, detail="Your institution is already verified")
+        if status == "needs_changes":
+            # Allow updating the existing request
+            request_id = existing[0]["id"]
+            db.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, {
+                "institution_name": payload.institutionName,
+                "institution_type": payload.institutionType,
+                "city": payload.city,
+                "state": payload.state,
+                "country": payload.country,
+                "official_email": payload.officialEmail,
+                "phone": payload.phone,
+                "website": payload.website,
+                "admin_name": payload.adminName,
+                "designation": payload.designation,
+                "document_url": payload.documentUrl,
+                "logo_url": payload.logoUrl,
+                "status": "pending",
+                "review_notes": None
+            })
+            notify_admins(
+                "Institution Request Updated",
+                f"Institution {payload.institutionName} updated their request.",
+                "institution_verification",
+                {"request_id": request_id, "institution_name": payload.institutionName},
+            )
+            return {"success": True, "message": "Verification request updated"}
             
     # Create new request
     response = db.post(
@@ -2499,13 +2661,12 @@ def register_institution(payload: InstitutionRegistrationDto, user: Optional[Cur
         },
     )
     
-    # Add notification for admin
-    db.post("admin_notifications", {
-        "type": "institution_verification",
-        "title": "New Institution Request",
-        "message": f"New verification request from {payload.institutionName}",
-        "status": "unread"
-    })
+    notify_admins(
+        "New Institution Request",
+        f"New verification request from {payload.institutionName}",
+        "institution_verification",
+        {"request_id": response[0].get("id") if response else None, "institution_name": payload.institutionName},
+    )
     
     return response[0]
 
@@ -2547,14 +2708,13 @@ def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str
         rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "*"})
         institution = rows[0] if rows else None
 
-    # Scope queries by institution_id if available
-    scoped = {"institution_id": f"eq.{institution_id}"} if institution_id else {}
-    
-    # Fetch posts with error handling
-    posts = safe_get("posts", {**scoped, "select": "id,status,type,created_at", "order": "created_at.desc", "limit": "20"}) or []
-    
-    # Fetch groups with error handling
-    groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,city,category,visibility,official"}) or []
+    if institution_id:
+        scoped = {"institution_id": f"eq.{institution_id}"}
+        posts = safe_get("posts", {**scoped, "select": "id,status,type,created_at", "order": "created_at.desc", "limit": "20"}) or []
+        groups = safe_get("groups", {**scoped, "deleted_at": "is.null", "select": "id,name,city,category,visibility,official"}) or []
+    else:
+        posts = []
+        groups = []
     
     # Batch fetch group members
     group_ids = [g["id"] for g in groups]
@@ -2593,7 +2753,45 @@ def institution_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str
 
 @app.get("/v1/institutions/me/analytics")
 def institution_analytics(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    admin = require_institution_admin(user)
+    admin = current_institution_admin(user)
+    if not admin and user.role != "platform_admin":
+        requests = safe_get(
+            "institution_verification_requests",
+            {
+                "submitted_by": f"eq.{user.id}",
+                "select": "*",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if requests:
+            request = requests[0]
+            return {
+                "institution": {
+                    "name": request.get("institution_name"),
+                    "institution_type": request.get("institution_type"),
+                    "city": request.get("city"),
+                    "state": request.get("state"),
+                    "country": request.get("country"),
+                    "logo_url": request.get("logo_url"),
+                    "status": request.get("status") or "pending",
+                },
+                "counts": {
+                    "reach": 0,
+                    "members": 0,
+                    "groups": 0,
+                    "posts": 0,
+                    "engagements": 0,
+                    "approvalRate": 0,
+                },
+                "topGroups": [],
+                "topPosts": [],
+                "pendingVerification": True,
+            }
+        raise HTTPException(status_code=403, detail="Institution admin access required")
+
+    if not admin:
+        admin = {"institution_id": None, "role": "platform_admin"}
     institution_id = admin.get("institution_id")
     scoped = {"institution_id": f"eq.{institution_id}"} if institution_id else {}
     institution = None
@@ -2677,6 +2875,7 @@ def institution_analytics(user: CurrentUser = Depends(current_user)) -> dict[str
 
 class InstitutionUpdateDto(BaseModel):
     name: Optional[str] = None
+    domain: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
     country: Optional[str] = None
@@ -2685,18 +2884,59 @@ class InstitutionUpdateDto(BaseModel):
     description: Optional[str] = None
     logoUrl: Optional[str] = None
     coverUrl: Optional[str] = None
+    documentUrl: Optional[str] = None
     verificationPolicy: Optional[dict[str, Any]] = None
 
 
 @app.patch("/v1/institutions/me")
 def update_institution(payload: InstitutionUpdateDto, user: CurrentUser = Depends(current_user)) -> Any:
-    admin = require_institution_admin(user)
+    admin = current_institution_admin(user)
+    if not admin and user.role != "platform_admin":
+        requests = safe_get(
+            "institution_verification_requests",
+            {
+                "submitted_by": f"eq.{user.id}",
+                "select": "id,status",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if not requests:
+            raise HTTPException(status_code=403, detail="Institution admin access required")
+
+        request_id = requests[0]["id"]
+        request_data: dict[str, Any] = {}
+        for source, target in {
+            "name": "institution_name",
+            "city": "city",
+            "state": "state",
+            "country": "country",
+            "website": "website",
+            "phone": "phone",
+            "logoUrl": "logo_url",
+            "documentUrl": "document_url",
+        }.items():
+            value = getattr(payload, source)
+            if value is not None:
+                request_data[target] = value
+
+        updated = db.patch("institution_verification_requests", {"id": f"eq.{request_id}"}, request_data)[0] if request_data else requests[0]
+        return {
+            "success": True,
+            "pendingVerification": True,
+            "request": updated,
+            "message": "Pending institution request updated",
+        }
+
+    if not admin:
+        admin = {"institution_id": None, "role": "platform_admin"}
     institution_id = admin.get("institution_id")
     if not institution_id:
         raise HTTPException(status_code=400, detail="No institution scope available")
     data: dict[str, Any] = {}
     for source, target in {
         "name": "name",
+        "domain": "domain",
         "city": "city",
         "state": "state",
         "country": "country",
@@ -2717,11 +2957,22 @@ def update_institution(payload: InstitutionUpdateDto, user: CurrentUser = Depend
 
 @app.get("/v1/institutions/me/admins")
 def institution_admins(user: CurrentUser = Depends(current_user)) -> Any:
-    admin_rows = db.get(
+    admin_rows = safe_get(
         "institution_admins",
         {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "institution_id,role"},
     )
     if not admin_rows and user.role != "platform_admin":
+        requests = safe_get(
+            "institution_verification_requests",
+            {
+                "submitted_by": f"eq.{user.id}",
+                "select": "id,status",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        if requests:
+            return []
         raise HTTPException(status_code=403, detail="Institution admin access required")
     if not admin_rows:
         return []
@@ -2739,6 +2990,7 @@ def institution_admins(user: CurrentUser = Depends(current_user)) -> Any:
     return [
         {
             "id": row["id"],
+        "email": row.get("email"),
             "role": row.get("role"),
             "status": row.get("status"),
             "createdAt": row.get("created_at"),
@@ -2746,6 +2998,382 @@ def institution_admins(user: CurrentUser = Depends(current_user)) -> Any:
         }
         for row in rows
     ]
+
+
+ADMIN_ROLES = {"owner", "admin", "content_admin", "moderator"}
+
+
+class InstitutionAdminInviteDto(BaseModel):
+    email: str
+    role: str = "admin"
+
+
+class InstitutionAdminRoleDto(BaseModel):
+    role: str
+
+
+def current_admin_scope_or_400(user: CurrentUser) -> dict[str, Any]:
+    admin = require_institution_admin(user)
+    institution_id = admin.get("institution_id")
+    if not institution_id:
+        raise HTTPException(status_code=400, detail="No institution scope available")
+    return admin
+
+
+@app.post("/v1/institutions/me/admins")
+def invite_institution_admin(payload: InstitutionAdminInviteDto, user: CurrentUser = Depends(current_user)) -> Any:
+    admin = current_admin_scope_or_400(user)
+    institution_id = admin["institution_id"]
+    role = payload.role if payload.role in ADMIN_ROLES and payload.role != "owner" else "admin"
+    email = payload.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email is required")
+
+    users = safe_get("users", {"email": f"eq.{email}", "select": "id,email,name,avatar_url,verified,account_type", "limit": "1"})
+    if not users:
+        log_institution_activity(user, institution_id, "admin_invite_pending", {"email": email, "role": role})
+        return {"success": True, "pending": True, "email": email, "role": role, "message": "Invite recorded. The user can be activated after they join OnCampus."}
+
+    target_user = users[0]
+    existing = safe_get(
+        "institution_admins",
+        {"institution_id": f"eq.{institution_id}", "user_id": f"eq.{target_user['id']}", "select": "id,status", "limit": "1"},
+    )
+    if existing:
+        row = db.patch(
+            "institution_admins",
+            {"id": f"eq.{existing[0]['id']}"},
+            {"role": role, "status": "active"},
+        )[0]
+    else:
+        row = db.post(
+            "institution_admins",
+            {
+                "id": str(uuid.uuid4()),
+                "institution_id": institution_id,
+                "user_id": target_user["id"],
+                "role": role,
+                "status": "active",
+                "created_at": now_iso(),
+            },
+        )[0]
+    log_institution_activity(user, institution_id, "admin_invited", {"email": email, "role": role, "admin_id": row.get("id")})
+    return {"success": True, "pending": False, "admin": row, "user": serialize_user(target_user)}
+
+
+@app.patch("/v1/institutions/me/admins/{admin_id}")
+def update_institution_admin_role(admin_id: str, payload: InstitutionAdminRoleDto, user: CurrentUser = Depends(current_user)) -> Any:
+    admin = current_admin_scope_or_400(user)
+    institution_id = admin["institution_id"]
+    if payload.role not in ADMIN_ROLES or payload.role == "owner":
+        raise HTTPException(status_code=400, detail="Invalid admin role")
+    rows = safe_get("institution_admins", {"id": f"eq.{admin_id}", "institution_id": f"eq.{institution_id}", "select": "id,role,user_id", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    if rows[0].get("role") == "owner":
+        raise HTTPException(status_code=400, detail="Owner role cannot be changed")
+    updated = db.patch("institution_admins", {"id": f"eq.{admin_id}"}, {"role": payload.role})[0]
+    log_institution_activity(user, institution_id, "admin_role_changed", {"admin_id": admin_id, "role": payload.role})
+    return updated
+
+
+@app.delete("/v1/institutions/me/admins/{admin_id}")
+def remove_institution_admin(admin_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    admin = current_admin_scope_or_400(user)
+    institution_id = admin["institution_id"]
+    rows = safe_get("institution_admins", {"id": f"eq.{admin_id}", "institution_id": f"eq.{institution_id}", "select": "id,role,user_id", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    if rows[0].get("role") == "owner":
+        raise HTTPException(status_code=400, detail="Owner cannot be removed")
+    if rows[0].get("user_id") == user.id:
+        raise HTTPException(status_code=400, detail="You cannot remove yourself")
+    db.patch("institution_admins", {"id": f"eq.{admin_id}"}, {"status": "removed"})
+    log_institution_activity(user, institution_id, "admin_removed", {"admin_id": admin_id})
+    return {"success": True}
+
+
+INSTITUTION_DEFAULT_POLICY: dict[str, Any] = {
+    "publicPage": True,
+    "autoApproveStudents": False,
+    "allowExternalRequests": True,
+    "membersCanCreateGroups": False,
+    "verifiedBadgeVisible": True,
+    "weeklyDigest": True,
+    "brandPalette": "Moss",
+    "rolePermissions": {
+        "owner": ["manage_profile", "manage_admins", "billing", "moderation", "analytics"],
+        "admin": ["manage_profile", "moderation", "analytics"],
+        "content_admin": ["moderation", "analytics"],
+        "moderator": ["moderation"],
+    },
+    "contentFilters": [],
+    "slowMode": {"enabled": False, "seconds": 30},
+    "pushChannels": {"critical": True, "reports": True, "weeklyDigest": True},
+    "twoFactorRequired": False,
+    "billing": {"plan": "free", "paymentContactEmail": "", "invoiceName": ""},
+    "danger": {},
+}
+
+
+class InstitutionSettingsPatchDto(BaseModel):
+    profile: Optional[dict[str, Any]] = None
+    policy: Optional[dict[str, Any]] = None
+    action: Optional[str] = None
+
+
+def institution_scope_for_settings(user: CurrentUser) -> dict[str, Any]:
+    admin = current_institution_admin(user)
+    if admin or user.role == "platform_admin":
+        institution_id = admin.get("institution_id") if admin else None
+        institution = None
+        if institution_id:
+            rows = safe_get("institutions", {"id": f"eq.{institution_id}", "select": "*", "limit": "1"})
+            institution = rows[0] if rows else None
+        return {
+            "admin": admin or {"institution_id": institution_id, "role": "platform_admin"},
+            "institution_id": institution_id,
+            "institution": institution,
+            "request": None,
+            "pending": False,
+        }
+
+    requests = safe_get(
+        "institution_verification_requests",
+        {
+            "submitted_by": f"eq.{user.id}",
+            "select": "*",
+            "order": "created_at.desc",
+            "limit": "1",
+        },
+    )
+    if requests:
+        return {
+            "admin": None,
+            "institution_id": None,
+            "institution": None,
+            "request": requests[0],
+            "pending": True,
+        }
+    raise HTTPException(status_code=403, detail="Institution admin access required")
+
+
+def merged_institution_policy(institution: Optional[dict[str, Any]], request: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    policy = dict(INSTITUTION_DEFAULT_POLICY)
+    stored = (institution or {}).get("verification_policy") or {}
+    if isinstance(stored, dict):
+        policy.update(stored)
+    if request and not institution:
+        policy["billing"] = {**policy["billing"], "paymentContactEmail": request.get("official_email") or ""}
+    return policy
+
+
+def coerce_json_object(value: Any) -> Optional[dict[str, Any]]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+def apply_latest_pending_settings_snapshot(user_id: str, policy: dict[str, Any]) -> dict[str, Any]:
+    snapshots = safe_get(
+        "audit_logs",
+        {
+            "target_type": "eq.institution",
+            "target_id": f"eq.{user_id}",
+            "action": "eq.pending_settings_updated",
+            "select": "details,created_at",
+            "order": "created_at.desc",
+            "limit": "1",
+        },
+    )
+    details = coerce_json_object(snapshots[0].get("details")) if snapshots else None
+    if isinstance(details, dict) and isinstance(details.get("policy"), dict):
+        policy.update(details["policy"])
+    return policy
+
+
+def apply_pending_profile_snapshot(request: Optional[dict[str, Any]], policy: dict[str, Any]) -> Optional[dict[str, Any]]:
+    if not request:
+        return request
+    pending_profile = coerce_json_object(policy.get("pendingProfile"))
+    if not pending_profile:
+        return request
+    next_request = dict(request)
+    for source, target in {
+        "name": "institution_name",
+        "description": "description",
+        "phone": "phone",
+        "city": "city",
+        "state": "state",
+        "country": "country",
+        "website": "website",
+        "domain": "domain",
+    }.items():
+        if source in pending_profile and pending_profile[source] is not None:
+            next_request[target] = pending_profile[source]
+    return next_request
+
+
+def log_institution_activity(user: CurrentUser, institution_id: Optional[str], action: str, details: dict[str, Any]) -> None:
+    safe_post(
+        "audit_logs",
+        {
+            "action": action,
+            "target_type": "institution",
+            "target_id": institution_id or user.id,
+            "details": details,
+            "created_at": now_iso(),
+        },
+    )
+
+
+def institution_counts(institution_id: Optional[str]) -> dict[str, int]:
+    if not institution_id:
+        return {"posts": 0, "groups": 0, "members": 0, "reports": 0}
+    groups = safe_get("groups", {"institution_id": f"eq.{institution_id}", "deleted_at": "is.null", "select": "id"})
+    group_ids = [row["id"] for row in groups]
+    posts = safe_get("posts", {"institution_id": f"eq.{institution_id}", "select": "id"})
+    members = safe_get(
+        "group_members",
+        {"group_id": f"in.({','.join(group_ids)})", "status": "eq.active", "select": "user_id"} if group_ids else {"group_id": "eq.__none__", "select": "user_id"},
+    )
+    return {"posts": len(posts), "groups": len(groups), "members": len(members), "reports": 0}
+
+
+@app.get("/v1/institutions/me/settings")
+def institution_settings_summary(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    scope = institution_scope_for_settings(user)
+    institution = scope["institution"]
+    request = scope["request"]
+    institution_id = scope["institution_id"]
+    policy = merged_institution_policy(institution, request)
+    if scope["pending"]:
+        policy = apply_latest_pending_settings_snapshot(user.id, policy)
+        request = apply_pending_profile_snapshot(request, policy)
+    counts = institution_counts(institution_id)
+
+    activity = safe_get(
+        "audit_logs",
+        {
+            "target_type": "eq.institution",
+            "target_id": f"eq.{institution_id or user.id}",
+            "select": "id,action,details,created_at",
+            "order": "created_at.desc",
+            "limit": "20",
+        },
+    )
+
+    related_ids: list[str] = []
+    if institution_id:
+        groups = safe_get("groups", {"institution_id": f"eq.{institution_id}", "select": "id"})
+        posts = safe_get("posts", {"institution_id": f"eq.{institution_id}", "select": "id"})
+        related_ids = [row["id"] for row in groups + posts] + [institution_id]
+    reports = safe_get(
+        "reports",
+        {"target_id": f"in.({','.join(related_ids)})", "select": "*", "order": "created_at.desc", "limit": "20"} if related_ids else {"id": "eq.__none__", "select": "*"},
+    )
+    counts["reports"] = len([row for row in reports if row.get("status") == "pending"])
+
+    banned_users = safe_get(
+        "users",
+        {"status": "eq.banned", "select": "id,name,avatar_url,city,course,status", "limit": "20"},
+    )
+
+    billing = policy.get("billing") or {}
+    plan = billing.get("plan") or "free"
+    return {
+        "institution": institution,
+        "request": request,
+        "pendingVerification": scope["pending"],
+        "policy": policy,
+        "counts": counts,
+        "activity": activity,
+        "reports": reports,
+        "bannedUsers": [serialize_user(row) for row in banned_users],
+        "billing": {
+            "plan": plan,
+            "status": "Free tier" if plan == "free" else "Upgrade requested",
+            "paymentContactEmail": billing.get("paymentContactEmail") or "",
+            "invoiceName": billing.get("invoiceName") or "",
+            "invoices": billing.get("invoices") or [],
+        },
+    }
+
+
+@app.patch("/v1/institutions/me/settings")
+def update_institution_settings(payload: InstitutionSettingsPatchDto, user: CurrentUser = Depends(current_user)) -> Any:
+    scope = institution_scope_for_settings(user)
+    institution = scope["institution"]
+    request = scope["request"]
+    institution_id = scope["institution_id"]
+
+    profile_snapshot: dict[str, Any] = {}
+    if payload.profile:
+        profile_snapshot = {key: value for key, value in payload.profile.items() if value is not None}
+        profile_payload = InstitutionUpdateDto(**payload.profile)
+        update_institution(profile_payload, user)
+
+    next_policy = merged_institution_policy(institution, request)
+    if scope["pending"]:
+        next_policy = apply_latest_pending_settings_snapshot(user.id, next_policy)
+        if profile_snapshot:
+            next_policy["pendingProfile"] = {**(next_policy.get("pendingProfile") or {}), **profile_snapshot}
+    if payload.policy:
+        for key, value in payload.policy.items():
+            if isinstance(value, dict) and isinstance(next_policy.get(key), dict):
+                next_policy[key] = {**next_policy[key], **value}
+            else:
+                next_policy[key] = value
+
+    if payload.action == "pause":
+        next_policy["publicPage"] = False
+        next_policy["danger"] = {**(next_policy.get("danger") or {}), "pausedAt": now_iso(), "pausedBy": user.id}
+    elif payload.action == "resume":
+        next_policy["publicPage"] = True
+        danger = dict(next_policy.get("danger") or {})
+        danger.pop("pausedAt", None)
+        next_policy["danger"] = danger
+    elif payload.action == "request_delete":
+        next_policy["danger"] = {**(next_policy.get("danger") or {}), "deletionRequestedAt": now_iso(), "deletionRequestedBy": user.id}
+
+    if institution_id:
+        updated = db.patch("institutions", {"id": f"eq.{institution_id}"}, {"verification_policy": next_policy})[0]
+        log_institution_activity(user, institution_id, payload.action or "settings_updated", {"policyKeys": list((payload.policy or {}).keys())})
+        return {"success": True, "institution": updated, "policy": next_policy}
+
+    log_institution_activity(user, None, "pending_settings_updated", {"policyKeys": list((payload.policy or {}).keys()), "policy": next_policy, "action": payload.action})
+    return {"success": True, "pendingVerification": True, "policy": next_policy}
+
+
+@app.get("/v1/institutions/me/export")
+def export_institution_data(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    scope = institution_scope_for_settings(user)
+    institution_id = scope["institution_id"]
+    institution = scope["institution"]
+    request = scope["request"]
+    groups = safe_get("groups", {"institution_id": f"eq.{institution_id}", "select": "*"} if institution_id else {"id": "eq.__none__", "select": "*"})
+    posts = safe_get("posts", {"institution_id": f"eq.{institution_id}", "select": "*"} if institution_id else {"id": "eq.__none__", "select": "*"})
+    admins = safe_get("institution_admins", {"institution_id": f"eq.{institution_id}", "select": "*"} if institution_id else {"id": "eq.__none__", "select": "*"})
+    policy = merged_institution_policy(institution, request)
+    if scope["pending"]:
+        policy = apply_latest_pending_settings_snapshot(user.id, policy)
+        request = apply_pending_profile_snapshot(request, policy)
+    log_institution_activity(user, institution_id, "data_exported", {"groups": len(groups), "posts": len(posts)})
+    return {
+        "exportedAt": now_iso(),
+        "institution": institution,
+        "pendingRequest": request,
+        "policy": policy,
+        "groups": groups,
+        "posts": posts,
+        "admins": admins,
+    }
 
 
 class GroupPostRequestDto(BaseModel):
@@ -2850,161 +3478,33 @@ def approve_group_post_request(group_id: str, request_id: str, user: CurrentUser
     return updated_req
 
 
+class RejectRequestDto(BaseModel):
+    reason: Optional[str] = None
+
+
 @app.post("/v1/groups/{group_id}/post-requests/{request_id}/reject")
-def reject_group_post_request(
-    group_id: str,
-    request_id: str,
-    payload: RejectRequestDto,
-    user: CurrentUser = Depends(current_user),
-) -> Any:
+def reject_group_post_request(group_id: str, request_id: str, payload: RejectRequestDto = RejectRequestDto(), user: CurrentUser = Depends(current_user)) -> Any:
     require_group_admin(group_id, user)
-    rows = db.patch(
-        "group_post_requests",
-        {"id": f"eq.{request_id}", "group_id": f"eq.{group_id}"},
-        {
-            "status": "rejected",
-            "decision_note": payload.reason,
-            "decided_by": user.id,
-            "decided_at": now_iso(),
-        },
-    )
+    rows = db.get("group_post_requests", {"id": f"eq.{request_id}", "group_id": f"eq.{group_id}", "select": "*", "limit": "1"})
     if not rows:
         raise HTTPException(status_code=404, detail="Request not found")
-    req = rows[0]
-    if req.get("requester_id"):
-        db.post(
-            "notifications",
-            {
-                "user_id": req["requester_id"],
-                "title": "Post Request Rejected",
-                "body": "Your request to post in the group was declined.",
-                "type": "post_request_rejected",
-                "data": {"group_id": group_id, "request_id": request_id},
-            },
-        )
-    return req
-
-
-def serialize_notification(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": row.get("id"),
-        "title": row.get("title"),
-        "body": row.get("body"),
-        "type": row.get("type"),
-        "data": row.get("data") or {},
-        "read": bool(row.get("read_at")),
-        "readAt": row.get("read_at"),
-        "createdAt": row.get("created_at"),
-    }
-
-
-@app.get("/v1/notifications")
-def list_notifications(user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
-    rows = safe_get(
-        "notifications",
-        {"user_id": f"eq.{user.id}", "select": "*", "order": "created_at.desc", "limit": "100"},
-    )
-    return [serialize_notification(row) for row in rows]
-
-
-@app.get("/v1/notifications/unread")
-def unread_notifications(user: CurrentUser = Depends(current_user)) -> dict[str, int]:
-    rows = safe_get("notifications", {"user_id": f"eq.{user.id}", "read_at": "is.null", "select": "id"})
-    return {"unread": len(rows)}
-
-
-@app.patch("/v1/notifications/read-all")
-def mark_all_notifications_read(user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    db.patch("notifications", {"user_id": f"eq.{user.id}", "read_at": "is.null"}, {"read_at": now_iso()})
-    return {"success": True}
-
-
-@app.patch("/v1/notifications/{notification_id}/read")
-def mark_notification_read(notification_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    db.patch("notifications", {"id": f"eq.{notification_id}", "user_id": f"eq.{user.id}"}, {"read_at": now_iso()})
-    return {"success": True}
-
-
-@app.delete("/v1/notifications/{notification_id}")
-def delete_notification(notification_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    db.delete("notifications", {"id": f"eq.{notification_id}", "user_id": f"eq.{user.id}"})
-    return {"success": True}
-
-
-@app.post("/v1/notifications/register-device")
-def register_push_device(payload: PushDeviceDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    device_id = sha256(f"push:{payload.pushToken}")
-    existing = safe_get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
-    data = {
-        "user_id": user.id,
-        "platform": payload.platform or "unknown",
-        "push_token": payload.pushToken,
-        "trusted": True,
-        "last_seen_at": now_iso(),
-    }
-    if existing:
-        db.patch("user_devices", {"id": f"eq.{device_id}"}, data)
-    else:
-        db.post("user_devices", {"id": device_id, **data})
-    return {"registered": True}
-
-
-@app.patch("/v1/notifications/preferences")
-def update_notification_preferences_alias(payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> Any:
-    return update_notification_preferences(NotificationPreferencesDto(**payload), user)
-
-
-@app.get("/v1/admin/dashboard")
-def mobile_admin_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    if user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Platform admin access required")
-    users = safe_get("users", {"select": "id"})
-    groups = safe_get("groups", {"deleted_at": "is.null", "select": "id"})
-    posts = safe_get("posts", {"status": "eq.published", "select": "id"})
-    reports = safe_get("reports", {"status": "eq.pending", "select": "id"})
-    return {
-        "counts": {
-            "users": len(users),
-            "groups": len(groups),
-            "posts": len(posts),
-            "pendingReports": len(reports),
-        }
-    }
-
-
-@app.post("/v1/admin/cache/clear")
-def mobile_admin_clear_cache(user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    if user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Platform admin access required")
-    return {"success": True}
-
-
-@app.post("/v1/admin/reports/{report_id}/resolve")
-def mobile_admin_resolve_report(report_id: str, payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    if user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Platform admin access required")
-    db.patch(
-        "reports",
-        {"id": f"eq.{report_id}"},
-        {"status": payload.get("action") or "resolved", "resolved_by": user.id, "resolved_at": now_iso()},
-    )
-    return {"success": True}
-
-
-@app.post("/v1/admin/users/{target_user_id}/ban")
-def mobile_admin_ban_user(target_user_id: str, payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    if user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Platform admin access required")
-    db.patch("users", {"id": f"eq.{target_user_id}"}, {"status": "banned", "ban_reason": payload.get("reason"), "updated_at": now_iso()})
-    return {"success": True}
-
-
-@app.post("/v1/admin/users/{target_user_id}/unban")
-def mobile_admin_unban_user(target_user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    if user.role != "platform_admin":
-        raise HTTPException(status_code=403, detail="Platform admin access required")
-    db.patch("users", {"id": f"eq.{target_user_id}"}, {"status": "active", "ban_reason": None, "updated_at": now_iso()})
-    return {"success": True}
+    request_row = rows[0]
+    if request_row.get("status") not in {"pending", "needs_changes"}:
+        raise HTTPException(status_code=400, detail="Request is already processed")
+    updated = db.patch(
+        "group_post_requests",
+        {"id": f"eq.{request_id}"},
+        {"status": "rejected", "decided_by": user.id, "decided_at": now_iso(), "rejection_reason": payload.reason},
+    )[0]
+    safe_post("notifications", {
+        "user_id": request_row.get("requester_id"),
+        "title": "Post Request Rejected",
+        "body": "Your group post request was not approved.",
+        "type": "post_request_rejected",
+        "data": {"group_id": group_id, "request_id": request_id, "reason": payload.reason},
+        "created_at": now_iso(),
+    })
+    return updated
 
 
 class NotificationPreferencesDto(BaseModel):
@@ -3016,6 +3516,11 @@ class NotificationPreferencesDto(BaseModel):
     postActivity: Optional[bool] = None
 
 
+class DeviceRegistrationDto(BaseModel):
+    pushToken: str = Field(min_length=8)
+    platform: Optional[str] = None
+
+
 def serialize_notification_preferences(row: dict[str, Any], user_id: str) -> dict[str, Any]:
     return {
         "userId": row.get("user_id", user_id),
@@ -3025,6 +3530,18 @@ def serialize_notification_preferences(row: dict[str, Any], user_id: str) -> dic
         "announcements": row.get("announcements", True),
         "joinRequests": row.get("join_requests", True),
         "postActivity": row.get("post_activity", True),
+    }
+
+
+def serialize_notification(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "type": row.get("type") or "notification",
+        "title": row.get("title") or "",
+        "body": row.get("body") or "",
+        "data": row.get("data") or {},
+        "read": bool(row.get("read") or row.get("read_at")),
+        "createdAt": row.get("created_at"),
     }
 
 
@@ -3055,6 +3572,91 @@ def update_notification_preferences(payload: NotificationPreferencesDto, user: C
     data["updated_at"] = now_iso()
     row = db.patch("notification_preferences", {"user_id": f"eq.{user.id}"}, data)[0] if existing else db.post("notification_preferences", {"user_id": user.id, **data})[0]
     return serialize_notification_preferences(row, user.id)
+
+
+@app.patch("/v1/notifications/preferences")
+def update_notification_preferences_alias(payload: NotificationPreferencesDto, user: CurrentUser = Depends(current_user)) -> Any:
+    return update_notification_preferences(payload, user)
+
+
+@app.get("/v1/notifications")
+def list_notifications(user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+    rows = safe_get(
+        "notifications",
+        {
+            "user_id": f"eq.{user.id}",
+            "select": "id,user_id,type,title,body,data,read,read_at,created_at",
+            "order": "created_at.desc",
+            "limit": "100",
+        },
+    )
+    return [serialize_notification(row) for row in rows]
+
+
+@app.get("/v1/notifications/unread")
+def notification_unread_count(user: CurrentUser = Depends(current_user)) -> dict[str, int]:
+    rows = safe_get(
+        "notifications",
+        {
+            "user_id": f"eq.{user.id}",
+            "read": "eq.false",
+            "select": "id",
+            "limit": "1000",
+        },
+    )
+    return {"unread": len(rows)}
+
+
+@app.patch("/v1/notifications/read-all")
+def mark_all_notifications_read(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    rows = safe_get("notifications", {"user_id": f"eq.{user.id}", "read": "eq.false", "select": "id"})
+    if rows:
+        db.patch(
+            "notifications",
+            {"user_id": f"eq.{user.id}", "read": "eq.false"},
+            {"read": True, "read_at": now_iso()},
+        )
+    return {"updated": len(rows)}
+
+
+@app.patch("/v1/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    updated = db.patch(
+        "notifications",
+        {"id": f"eq.{notification_id}", "user_id": f"eq.{user.id}"},
+        {"read": True, "read_at": now_iso()},
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return serialize_notification(updated[0])
+
+
+@app.delete("/v1/notifications/{notification_id}")
+def delete_notification(notification_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    deleted = db.delete("notifications", {"id": f"eq.{notification_id}", "user_id": f"eq.{user.id}"})
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"deleted": True}
+
+
+@app.post("/v1/notifications/register-device")
+def register_notification_device(payload: DeviceRegistrationDto, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    existing = safe_get(
+        "user_devices",
+        {"push_token": f"eq.{payload.pushToken}", "select": "id", "limit": "1"},
+    )
+    data = {
+        "user_id": user.id,
+        "push_token": payload.pushToken,
+        "platform": payload.platform or "unknown",
+        "trusted": True,
+        "last_seen_at": now_iso(),
+    }
+    if existing:
+        row = db.patch("user_devices", {"id": f"eq.{existing[0]['id']}"}, data)[0]
+    else:
+        row = db.post("user_devices", {"id": str(uuid.uuid4()), **data, "created_at": now_iso()})[0]
+    return {"registered": True, "deviceId": row.get("id")}
 
 
 @app.get("/v1/search")
@@ -3088,6 +3690,7 @@ def search(q: str = Query(default="", max_length=80), user: CurrentUser = Depend
         "posts": [
             {
                 "id": row["id"],
+        "email": row.get("email"),
                 "title": row.get("title"),
                 "content": row.get("content"),
                 "mediaUrl": row.get("media_url"),
@@ -3107,50 +3710,53 @@ class ReportDto(BaseModel):
     details: Optional[str] = None
 
 
-class TargetReportDto(BaseModel):
-    reason: str
-    details: Optional[str] = None
-
-
-@app.post("/v1/reports")
-def create_report(payload: ReportDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+def create_report_record(target_type: str, target_id: str, reason: str, details: Optional[str], user: CurrentUser) -> dict[str, bool]:
     db.post("reports", {
         "id": str(uuid.uuid4()),
-        "reporter_id": user.id,
-        "target_type": payload.targetType,
-        "target_id": payload.targetId,
-        "reason": payload.reason,
-        "description": payload.details,
+        "reported_by": user.id,
+        "target_type": target_type,
+        "target_id": target_id,
+        "reason": reason,
+        "details": details,
         "status": "pending",
         "created_at": now_iso()
     })
     return {"success": True}
 
 
-@app.post("/v1/reports/{target_type}/{target_id}")
-def create_target_report(
-    target_type: str,
-    target_id: str,
-    payload: TargetReportDto,
-    user: CurrentUser = Depends(current_user),
-) -> dict[str, bool]:
-    normalized_type = target_type.strip().lower()
-    if normalized_type not in {"post", "comment", "group", "user", "message"}:
-        raise HTTPException(status_code=400, detail="Unsupported report target type")
-    db.post(
-        "reports",
-        {
-            "id": str(uuid.uuid4()),
-            "reporter_id": user.id,
-            "target_type": normalized_type,
-            "target_id": target_id,
-            "reason": payload.reason,
-            "description": payload.details,
-            "status": "pending",
-            "created_at": now_iso(),
-        },
-    )
-    return {"success": True}
+@app.post("/v1/reports")
+def create_report(payload: ReportDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    return create_report_record(payload.targetType, payload.targetId, payload.reason, payload.details, user)
+
+
+class ReportTargetDto(BaseModel):
+    reason: str
+    details: Optional[str] = None
+
+
+@app.post("/v1/reports/post/{post_id}")
+def report_post(post_id: str, payload: ReportTargetDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    return create_report_record("post", post_id, payload.reason, payload.details, user)
+
+
+@app.post("/v1/reports/group/{group_id}")
+def report_group(group_id: str, payload: ReportTargetDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    return create_report_record("group", group_id, payload.reason, payload.details, user)
+
+
+@app.post("/v1/reports/user/{user_id}")
+def report_user(user_id: str, payload: ReportTargetDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    return create_report_record("user", user_id, payload.reason, payload.details, user)
+
+
+@app.post("/v1/reports/message/{message_id}")
+def report_message(message_id: str, payload: ReportTargetDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    return create_report_record("message", message_id, payload.reason, payload.details, user)
+
+
+@app.post("/v1/reports/comment/{comment_id}")
+def report_comment(comment_id: str, payload: ReportTargetDto, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    return create_report_record("comment", comment_id, payload.reason, payload.details, user)
 
 
 @app.get("/v1/search/groups")
@@ -3194,6 +3800,7 @@ def search_posts(q: str = Query(default="", max_length=80), user: CurrentUser = 
     return [
         {
             "id": row["id"],
+        "email": row.get("email"),
             "title": row.get("title"),
             "content": row.get("content"),
             "mediaUrl": row.get("media_url"),
@@ -3430,14 +4037,6 @@ async def upload_institution_doc(
     return {"url": public_url, "type": "institution_document"}
 
 
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    port = int(os.environ.get("PORT", 8000))
-    is_dev = os.environ.get("DEV_MODE", "true").lower() == "true"
-    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=is_dev)
-
-
 # -- POST REQUESTS (INSTITUTION LEVEL & MY REQUESTS) ---------
 
 @app.get("/v1/users/me/post-requests")
@@ -3458,6 +4057,11 @@ def create_institution_post_request(
     user: CurrentUser = Depends(current_user),
 ) -> Any:
     """Create a post request for an institution."""
+    policy = get_institution_policy_by_id(institution_id)
+    requester_admin = current_institution_admin(user)
+    is_admin_requester = user.role == "platform_admin" or bool(requester_admin and requester_admin.get("institution_id") == institution_id)
+    if not policy.get("allowExternalRequests", True) and not is_admin_requester:
+        raise HTTPException(status_code=403, detail="External post requests are disabled for this institution")
     return db.post(
         "group_post_requests",
         {
@@ -3483,7 +4087,6 @@ def get_institution_post_requests(
 
 class ApproveInstitutionRequestDto(BaseModel):
     target_group_id: str
-
 
 @app.post("/v1/institutions/{institution_id}/post-requests/{request_id}/approve")
 def approve_institution_post_request(

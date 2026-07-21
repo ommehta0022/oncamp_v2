@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { ActivityIndicator, Alert, View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -11,7 +11,7 @@ import Avatar from "@/src/components/Avatar";
 import SettingsRow from "@/src/components/SettingsRow";
 import EmptyState from "@/src/components/EmptyState";
 import { useRole } from "@/src/context/RoleProvider";
-import { api, GroupDto } from "@/src/lib/api";
+import { api, getUserErrorMessage, GroupDto } from "@/src/lib/api";
 import ReportModal from "@/src/components/ReportModal";
 
 export default function GroupInfo() {
@@ -22,6 +22,7 @@ export default function GroupInfo() {
   const [group, setGroup] = useState<GroupDto | null>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [action, setAction] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -45,6 +46,81 @@ export default function GroupInfo() {
   const handleReport = async (reason: string, details: string) => {
     if (!id) return;
     await api.reports.reportGroup(id, { reason, details });
+  };
+
+  const refreshGroup = async (groupId: string) => {
+    const next = await api.groups.get(groupId);
+    setGroup(next);
+    return next;
+  };
+
+  const joinGroup = async () => {
+    if (!group || action) return;
+    setAction("join");
+    try {
+      await api.groups.join(group.id);
+      await refreshGroup(group.id);
+    } catch (error) {
+      Alert.alert("Join failed", getUserErrorMessage(error, "Could not send your join request."));
+    } finally {
+      setAction(null);
+    }
+  };
+
+  const togglePinned = async () => {
+    if (!group || action) return;
+    const previous = group;
+    const pinned = !group.pinned;
+    setGroup({ ...group, pinned });
+    setAction("pin");
+    try {
+      if (pinned) await api.groups.pinGroup(group.id);
+      else await api.groups.unpinGroup(group.id);
+    } catch (error) {
+      setGroup(previous);
+      Alert.alert("Save failed", getUserErrorMessage(error, "Could not update pinned groups."));
+    } finally {
+      setAction(null);
+    }
+  };
+
+  const toggleMuted = async () => {
+    if (!group || action) return;
+    const previous = group;
+    const muted = !group.muted;
+    setGroup({ ...group, muted });
+    setAction("mute");
+    try {
+      if (muted) await api.groups.muteGroup(group.id);
+      else await api.groups.unmuteGroup(group.id);
+    } catch (error) {
+      setGroup(previous);
+      Alert.alert("Save failed", getUserErrorMessage(error, "Could not update group notifications."));
+    } finally {
+      setAction(null);
+    }
+  };
+
+  const leaveGroup = () => {
+    if (!group || action) return;
+    Alert.alert("Leave group?", `You will stop receiving posts and messages from ${group.name}.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Leave",
+        style: "destructive",
+        onPress: async () => {
+          setAction("leave");
+          try {
+            await api.groups.leave(group.id);
+            router.back();
+          } catch (error) {
+            Alert.alert("Leave failed", getUserErrorMessage(error, "Could not leave this group."));
+          } finally {
+            setAction(null);
+          }
+        },
+      },
+    ]);
   };
 
   return (
@@ -94,11 +170,18 @@ export default function GroupInfo() {
               </Pressable>
             ) : (
               <Pressable
-                onPress={() => api.groups.join(group.id).then(() => api.groups.get(group.id).then(setGroup)).catch(() => {})}
+                onPress={joinGroup}
+                disabled={action === "join"}
                 style={[styles.primaryBtn, { backgroundColor: colors.brandPrimary }]}
               >
-                <Ionicons name="person-add" size={18} color={colors.onBrandPrimary} />
-                <Text style={{ color: colors.onBrandPrimary, fontSize: font.base, fontWeight: "500" }}>Join group</Text>
+                {action === "join" ? (
+                  <ActivityIndicator color={colors.onBrandPrimary} />
+                ) : (
+                  <>
+                    <Ionicons name="person-add" size={18} color={colors.onBrandPrimary} />
+                    <Text style={{ color: colors.onBrandPrimary, fontSize: font.base, fontWeight: "500" }}>Join group</Text>
+                  </>
+                )}
               </Pressable>
             )}
           </View>
@@ -134,6 +217,18 @@ export default function GroupInfo() {
           {role === "normal_user" && (
             <SettingsRow icon="clipboard-outline" title="Submit a post / poster request" subtitle="Ask admins to publish your poster in this group" onPress={() => router.push(`/group/post-request/${group.id}`)} testID="submit-post-request-btn" />
           )}
+          {role === "normal_user" && group.institutionId && (
+            <SettingsRow
+              icon="business-outline"
+              title="Send request to institution"
+              subtitle="Ask this institution to publish your post in an official group"
+              onPress={() => router.push({
+                pathname: "/institution/post-request/[id]",
+                params: { id: group.institutionId, name: typeof group.institution === "string" ? group.institution : group.name },
+              })}
+              testID="submit-institution-post-request-btn"
+            />
+          )}
           {isGroupAdmin && (
             <SettingsRow icon="shield-checkmark-outline" title="Admin panel" subtitle="Manage requests, roles, and content" onPress={() => router.push(`/group/admin/${group.id}`)} testID="open-admin-panel-btn" />
           )}
@@ -144,27 +239,15 @@ export default function GroupInfo() {
             <SettingsRow 
               icon={group.pinned ? "pin" : "pin-outline"}
               title={group.pinned ? "Unpin group" : "Pin group"}
-              onPress={() => {
-                if (group.pinned) {
-                  api.groups.unpinGroup(group.id).then(() => setGroup({ ...group, pinned: false })).catch(() => {});
-                } else {
-                  api.groups.pinGroup(group.id).then(() => setGroup({ ...group, pinned: true })).catch(() => {});
-                }
-              }} 
+              onPress={togglePinned}
             />
             <SettingsRow 
               icon={group.muted ? "volume-mute" : "volume-high-outline"}
               title={group.muted ? "Unmute group" : "Mute group"}
               subtitle="Stop receiving push notifications"
-              onPress={() => {
-                if (group.muted) {
-                  api.groups.unmuteGroup(group.id).then(() => setGroup({ ...group, muted: false })).catch(() => {});
-                } else {
-                  api.groups.muteGroup(group.id).then(() => setGroup({ ...group, muted: true })).catch(() => {});
-                }
-              }} 
+              onPress={toggleMuted}
             />
-            <SettingsRow icon="exit-outline" title="Leave group" destructive onPress={() => api.groups.leave(group.id).then(() => router.back()).catch(() => {})} />
+            <SettingsRow icon="exit-outline" title="Leave group" destructive onPress={leaveGroup} />
           </View>
         )}
 

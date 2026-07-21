@@ -12,6 +12,7 @@ import { ThemeProvider, useTheme } from "@/src/theme/ThemeProvider";
 import { RoleProvider } from "@/src/context/RoleProvider";
 import { NotificationProvider } from "@/src/context/NotificationProvider";
 import { PushNotificationProvider } from "@/src/context/PushNotificationProvider";
+import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
 import { ToastProvider } from "@/src/components/Toast";
 import { api } from "@/src/lib/api";
 
@@ -102,14 +103,16 @@ export default function RootLayout() {
         <ActionSheetProvider>
           <ThemeProvider>
             <RoleProvider>
-              <NotificationProvider>
-                <PushNotificationProvider>
-                  <ToastProvider>
-                    <ThemedStack />
-                    <SessionExpiredModal />
-                  </ToastProvider>
-                </PushNotificationProvider>
-              </NotificationProvider>
+              <FeatureFlagsProvider>
+                <NotificationProvider>
+                  <PushNotificationProvider>
+                    <ToastProvider>
+                      <ThemedStack />
+                      <SessionExpiredModal />
+                    </ToastProvider>
+                  </PushNotificationProvider>
+                </NotificationProvider>
+              </FeatureFlagsProvider>
             </RoleProvider>
           </ThemeProvider>
         </ActionSheetProvider>
