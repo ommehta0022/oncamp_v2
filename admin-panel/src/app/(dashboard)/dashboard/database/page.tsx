@@ -279,7 +279,7 @@ export default function DatabasePage() {
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
                     <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
                       <span className="text-sm text-gray-600">
-                        {Array.isArray(queryResult) ? ${queryResult.length} rows returned : "Query executed successfully"}
+                        {Array.isArray(queryResult) ? `${queryResult.length} rows returned` : "Query executed successfully"}
                       </span>
                     </div>
                     <div className="p-4 bg-white overflow-x-auto">
