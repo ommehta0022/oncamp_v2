@@ -71,9 +71,6 @@ export default function EditProfile() {
           return;
         } finally {
           setUploadingAvatar(false);
-          return;
-        } finally {
-          setUploadingAvatar(false);
         }
       }
 

@@ -5,7 +5,7 @@ import { Activity, CheckCircle, XCircle, Loader2 } from "lucide-react";
 
 export default function SmokeTestPage() {
   const [isRunning, setIsRunning] = useState(false);
-  const [results, setResults] = useState<any>([]);
+  const [results, setResults] = useState<any[]>([]);
 
   const tests = [
     { name: "System Health (/v1/health)", run: () => api.getSystemStatus() },
@@ -72,13 +72,13 @@ export default function SmokeTestPage() {
           {results.map((res, idx) => (
             <div
               key={idx}
-              className={\lex items-center justify-between p-4 rounded-lg border ${
+              className={`flex items-center justify-between p-4 rounded-lg border ${
                 res.status === "pending"
                   ? "bg-gray-50 border-gray-200"
                   : res.status === "success"
                   ? "bg-green-50 border-green-200"
                   : "bg-red-50 border-red-200"
-              }\}
+              }`}
             >
               <div className="flex items-center space-x-3">
                 {res.status === "pending" && <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />}

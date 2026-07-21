@@ -21,7 +21,7 @@ export default function NotificationsPage() {
   const [recent, setRecent] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [channelsConfigured, setChannelsConfigured] = useState<Record<string, boolean>>({});
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<any | null>(null);
   const [form, setForm] = useState({
     title: "",
     body: "",

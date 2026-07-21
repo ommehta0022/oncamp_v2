@@ -2038,7 +2038,8 @@ def delete_post(post_id: str, user: CurrentUser = Depends(current_user)) -> Any:
 
 @app.delete("/v1/posts/{post_id}/pin")
 def unpin_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
-    post = safe_get("posts", {"id": f"eq.{post_id}", "deleted_at": "is.null"}, one=True)
+    posts = db.get("posts", {"id": f"eq.{post_id}", "select": "*", "limit": "1"})
+    post = posts[0] if posts else None
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     if not (user.role == "platform_admin" or (_admin := current_institution_admin(user)) and post.get("institution_id") == _admin.get("institution_id")):
@@ -2407,8 +2408,8 @@ class TransferOwnershipRequest(BaseModel):
 
 @app.post("/v1/groups/{group_id}/transfer")
 def transfer_group_ownership(group_id: str, req: TransferOwnershipRequest, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
-    rold = group_role(group_id, user.id)
-    if role != "owner" and user.rold != "platform_admin":
+    role = group_role(group_id, user.id)
+    if role != "owner" and user.role != "platform_admin":
         raise HTTPException(status_code=403, detail="Only the group owner can transfer ownership")
         
     target_rows = db.get(

@@ -19,7 +19,7 @@ export default function DatabasePage() {
   const [activeTab, setActiveTab] = useState("tables");
   const [selectedTable, setSelectedTable] = useState("");
   const [sqlQuery, setSqlQuery] = useState("");
-  const [queryResult, setQueryResult] = useState<any>(null);
+  const [queryResult, setQueryResult] = useState<any | null>(null);
   const [page, setPage] = useState(1);
 
   const { data: tables } = useQuery({
@@ -189,6 +189,7 @@ export default function DatabasePage() {
                           )}
                         </tr>
                       </thead>
+                      <tbody>
                         {tableData.data?.length === 0 ? (
                           <tr>
                             <td className="px-6 py-8 text-center text-sm text-gray-500" colSpan={100}>

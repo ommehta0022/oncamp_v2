@@ -7,7 +7,7 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 export default function InstitutionDetails() {
   const { id } = useParams();
   const router = useRouter();
-  const [item, setItem] = useState<any>(null);
+  const [item, setItem] = useState<any | null>(null);
 
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [newIdentifier, setNewIdentifier] = useState("");

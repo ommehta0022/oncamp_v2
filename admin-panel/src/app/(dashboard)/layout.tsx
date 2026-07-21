@@ -61,11 +61,11 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [stats, setStats] = useState({ pendingReports: 0, unresolvedErrors: 0, pendingInstitutions: 0 });
-  const [notificationStats, setNotificationStats] = useState<any>({
+  const [notificationStats, setNotificationStats] = useState({
     unread: 0,
     recent: [],
   });
-  const [selectedNotification, setSelectedNotification] = useState<any>(null);
+  const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
 
   // Wait for auth store to rehydrate before checking authentication
   useEffect(() => {

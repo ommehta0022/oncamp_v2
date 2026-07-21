@@ -6,7 +6,7 @@ import { Search, Eye, Trash2, AlertTriangle, CheckCircle, Clock } from "lucide-r
 
 export default function InstitutionsPage() {
   const router = useRouter();
-  const [items, setItems] = useState<any>([]);
+  const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ status: "all" });
@@ -88,16 +88,16 @@ export default function InstitutionsPage() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{item.city}</td>
                   <td className="px-6 py-4">
-                    <span className={\px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       item.status === 'active' ? 'bg-green-100 text-green-800' : 
                       item.status === 'suspended' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
-                    }\}>
+                    }`}>
                       {item.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end gap-2">
-                      <button onClick={() => router.push(\/dashboard/institutions/${item.id}\)} className="text-gray-400 hover:text-blue-600" title="View details"><Eye className="h-5 w-5" /></button>
+                      <button onClick={() => router.push(`/dashboard/institutions/${item.id}`)} className="text-gray-400 hover:text-blue-600" title="View details"><Eye className="h-5 w-5" /></button>
                     </div>
                   </td>
                 </tr>

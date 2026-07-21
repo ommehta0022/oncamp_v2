@@ -7,7 +7,7 @@ import { ArrowLeft } from "lucide-react";
 export default function PostDetails() {
   const { id } = useParams();
   const router = useRouter();
-  const [item, setItem] = useState<any>(null);
+  const [item, setItem] = useState<any | null>(null);
 
   useEffect(() => {
     api.getPost(id as string).then(res => setItem(res.data)).catch(console.error);

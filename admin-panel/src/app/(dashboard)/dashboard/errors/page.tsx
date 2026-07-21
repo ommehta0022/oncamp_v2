@@ -16,7 +16,7 @@ export default function ErrorsPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [level, setLevel] = useState("");
-  const [selectedError, setSelectedError] = useState<any>(null);
+  const [selectedError, setSelectedError] = useState<any | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const { data, isLoading } = useQuery({

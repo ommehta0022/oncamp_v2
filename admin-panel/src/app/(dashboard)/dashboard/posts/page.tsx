@@ -6,7 +6,7 @@ import { Search, Eye, Filter } from "lucide-react";
 
 export default function PostsPage() {
   const router = useRouter();
-  const [items, setItems] = useState<any>([]);
+  const [items, setItems] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ type: "all", status: "all" });
 
@@ -73,22 +73,22 @@ export default function PostsPage() {
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 font-medium text-gray-900">{item.title || "Untitled"}</td>
                   <td className="px-6 py-4">
-                    <span className={\px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       item.type === 'event' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
-                    }\}>
+                    }`}>
                       {item.type}
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={\px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       item.status === 'published' ? 'bg-green-100 text-green-800' : 
                       item.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'
-                    }\}>
+                    }`}>
                       {item.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right text-sm">
-                    <button onClick={() => router.push(\/dashboard/posts/${item.id}\)} className="text-gray-400 hover:text-blue-600"><Eye className="h-5 w-5 inline" /></button>
+                    <button onClick={() => router.push(`/dashboard/posts/${item.id}`)} className="text-gray-400 hover:text-blue-600"><Eye className="h-5 w-5 inline" /></button>
                   </td>
                 </tr>
               ))}
