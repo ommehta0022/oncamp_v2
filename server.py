@@ -1454,6 +1454,7 @@ def me(user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
 
 class UpdateUserDto(BaseModel):
     name: Optional[str] = None
+    handle: Optional[str] = None
     course: Optional[str] = None
     city: Optional[str] = None
     bio: Optional[str] = None
@@ -1468,6 +1469,7 @@ class UpdateUserDto(BaseModel):
 def update_user_me(payload: UpdateUserDto, user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
     data = {"updated_at": now_iso()}
     if payload.name is not None: data["name"] = payload.name
+    if payload.handle is not None: data["handle"] = payload.handle
     if payload.course is not None: data["course"] = payload.course
     if payload.city is not None: data["city"] = payload.city
     if payload.bio is not None: data["bio"] = payload.bio

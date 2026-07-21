@@ -118,6 +118,9 @@ export async function pickImage(options: ImagePickerOptions = {}): Promise<strin
  * Show action sheet with camera/library options
  */
 export async function showImagePicker(options: ImagePickerOptions = {}): Promise<string | null> {
+  if (Platform.OS === "web") {
+    return pickImage(options);
+  }
   return new Promise((resolve) => {
     Alert.alert(
       "Choose Photo",
@@ -157,11 +160,17 @@ export async function uploadAvatar(imageUri: string): Promise<UploadResult> {
     const match = /\.(\w+)$/.exec(filename);
     const type = match ? `image/${match[1]}` : "image/jpeg";
 
-    formData.append("file", {
-      uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-      name: filename,
-      type,
-    } as any);
+    if (Platform.OS === "web") {
+      const res = await fetch(imageUri);
+      const blob = await res.blob();
+      formData.append("file", blob, filename);
+    } else {
+      formData.append("file", {
+        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
+        name: filename,
+        type,
+      } as any);
+    }
 
     const token = await getAccessToken();
     const response = await fetch(`${API_BASE_URL}/upload/avatar`, {
@@ -203,11 +212,17 @@ export async function uploadPostMedia(imageUri: string): Promise<UploadResult> {
         ? `video/${extension === "mov" ? "quicktime" : "mp4"}`
         : `image/${extension === "jpg" ? "jpeg" : extension || "jpeg"}`;
 
-    formData.append("file", {
-      uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-      name: filename,
-      type,
-    } as any);
+    if (Platform.OS === "web") {
+      const res = await fetch(imageUri);
+      const blob = await res.blob();
+      formData.append("file", blob, filename);
+    } else {
+      formData.append("file", {
+        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
+        name: filename,
+        type,
+      } as any);
+    }
 
     const token = await getAccessToken();
     const response = await fetch(`${API_BASE_URL}/upload/post-media`, {
@@ -245,11 +260,17 @@ export async function uploadGroupAvatar(groupId: string, imageUri: string): Prom
     const match = /\.(\w+)$/.exec(filename);
     const type = match ? `image/${match[1]}` : "image/jpeg";
 
-    formData.append("file", {
-      uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-      name: filename,
-      type,
-    } as any);
+    if (Platform.OS === "web") {
+      const res = await fetch(imageUri);
+      const blob = await res.blob();
+      formData.append("file", blob, filename);
+    } else {
+      formData.append("file", {
+        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
+        name: filename,
+        type,
+      } as any);
+    }
 
     const token = await getAccessToken();
     const response = await fetch(`${API_BASE_URL}/upload/group-avatar/${groupId}`, {
@@ -286,11 +307,17 @@ export async function uploadMessageMedia(groupId: string, imageUri: string): Pro
     const match = /\.(\w+)$/.exec(filename);
     const type = match ? `image/${match[1]}` : "image/jpeg";
 
-    formData.append("file", {
-      uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-      name: filename,
-      type,
-    } as any);
+    if (Platform.OS === "web") {
+      const res = await fetch(imageUri);
+      const blob = await res.blob();
+      formData.append("file", blob, filename);
+    } else {
+      formData.append("file", {
+        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
+        name: filename,
+        type,
+      } as any);
+    }
 
     const token = await getAccessToken();
     const response = await fetch(`${API_BASE_URL}/upload/message-media/${groupId}`, {
@@ -327,11 +354,17 @@ export async function uploadInstitutionDoc(imageUri: string): Promise<UploadResu
     const match = /\.(\w+)$/.exec(filename);
     const type = match ? `image/${match[1]}` : "image/jpeg";
 
-    formData.append("file", {
-      uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-      name: filename,
-      type,
-    } as any);
+    if (Platform.OS === "web") {
+      const res = await fetch(imageUri);
+      const blob = await res.blob();
+      formData.append("file", blob, filename);
+    } else {
+      formData.append("file", {
+        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
+        name: filename,
+        type,
+      } as any);
+    }
 
     const token = await getAccessToken();
     const response = await fetch(`${API_BASE_URL}/upload/institution-doc`, {

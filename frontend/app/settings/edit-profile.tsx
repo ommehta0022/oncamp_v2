@@ -146,19 +146,19 @@ export default function EditProfile() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
           
           <View style={{ marginBottom: spacing.xl }}>
-            <View style={{ position: "relative" }}>
-              {displayCover ? (
-                <Image source={{ uri: displayCover }} style={{ width: "100%", height: 120 }} contentFit="cover" />
-              ) : (
-                <View style={{ width: "100%", height: 120, backgroundColor: colors.brandPrimary || "#2E5C4E" }} />
-              )}
-              <LinearGradient colors={["transparent", "rgba(0,0,0,0.5)"]} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none" />
-              <TouchableOpacity onPress={handleCoverPick} style={{ position: "absolute", bottom: spacing.sm, right: spacing.sm, backgroundColor: "rgba(0,0,0,0.6)", padding: 8, borderRadius: 20 }}>
-                <Ionicons name="camera" size={20} color="#FFF" />
+              <TouchableOpacity activeOpacity={0.9} onPress={handleCoverPick} style={{ position: "relative" }}>
+                {displayCover ? (
+                  <Image source={{ uri: displayCover }} style={{ width: "100%", height: 120 }} contentFit="cover" />
+                ) : (
+                  <View style={{ width: "100%", height: 120, backgroundColor: colors.brandPrimary || "#2E5C4E" }} />
+                )}
+                <LinearGradient colors={["transparent", "rgba(0,0,0,0.5)"]} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none" />
+                <View style={{ position: "absolute", bottom: 12, right: 12, backgroundColor: "rgba(0,0,0,0.6)", padding: 8, borderRadius: 20 }}>
+                  <Ionicons name="camera" size={20} color="#FFF" />
+                </View>
               </TouchableOpacity>
-            </View>
 
-            <View style={{ alignItems: "center", marginTop: -55 }}>
+            <View style={{ alignItems: "center", marginTop: -55 }} pointerEvents="box-none">
               <View style={{ position: "relative" }}>
               {displayAvatar ? (
                 <Image 
