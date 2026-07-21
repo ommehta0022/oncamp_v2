@@ -1458,6 +1458,7 @@ class UpdateUserDto(BaseModel):
     city: Optional[str] = None
     bio: Optional[str] = None
     avatarUrl: Optional[str] = None
+    coverUrl: Optional[str] = None
     email: Optional[str] = None
     profileCompleted: Optional[bool] = None
     defaultAvatarKey: Optional[str] = None
@@ -1471,6 +1472,7 @@ def update_user_me(payload: UpdateUserDto, user: CurrentUser = Depends(current_u
     if payload.city is not None: data["city"] = payload.city
     if payload.bio is not None: data["bio"] = payload.bio
     if payload.avatarUrl is not None: data["avatar_url"] = payload.avatarUrl
+    if payload.coverUrl is not None: data["cover_url"] = payload.coverUrl
     if payload.email is not None: data["email"] = payload.email
     if payload.profileCompleted is not None: data["profile_completed"] = payload.profileCompleted
     if payload.defaultAvatarKey is not None: data["default_avatar_key"] = payload.defaultAvatarKey

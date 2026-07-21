@@ -12,6 +12,7 @@ import { useRole } from "@/src/context/RoleProvider";
 import { api } from "@/src/lib/api";
 import { normalizeGroup } from "@/src/lib/mappers";
 import InstitutionDashboard from "../institution/dashboard";
+import ImageViewer from "@/src/components/ImageViewer";
 
 interface UserStats {
   groups: number;
@@ -27,6 +28,7 @@ export default function Profile() {
   const [myGroups, setMyGroups] = useState<any[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [viewImage, setViewImage] = useState<string | null>(null);
 
   const loadProfileData = useCallback(async () => {
     try {
@@ -59,12 +61,14 @@ export default function Profile() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="profile-screen">
       <ScrollView contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
         <View style={{ position: "relative" }}>
-          {(user as any)?.coverUrl ? (
-            <Image source={{ uri: (user as any).coverUrl }} style={styles.cover} contentFit="cover" />
-          ) : (
-            <View style={[styles.cover, { backgroundColor: colors.brandPrimary }]} />
-          )}
-          <LinearGradient colors={["transparent", "rgba(0,0,0,0.6)"]} style={styles.coverScrim} />
+          <Pressable onPress={() => { if ((user as any)?.coverUrl) setViewImage((user as any).coverUrl); }}>
+            {(user as any)?.coverUrl ? (
+              <Image source={{ uri: (user as any).coverUrl }} style={styles.cover} contentFit="cover" />
+            ) : (
+              <View style={[styles.cover, { backgroundColor: colors.brandPrimary }]} />
+            )}
+            <LinearGradient colors={["transparent", "rgba(0,0,0,0.6)"]} style={styles.coverScrim} />
+          </Pressable>
           
           <View style={styles.topBar}>
             <View />
@@ -86,7 +90,10 @@ export default function Profile() {
               size={100} 
               verified={(user as any)?.verified} 
               withBorder={true}
-              onPress={() => router.push("/settings/edit-profile")}
+              onPress={() => {
+                const img = (user as any)?.avatarUrl || (user as any)?.avatar;
+                if (img) setViewImage(img);
+              }}
             />
           </View>
           <View style={{ flex: 1, marginTop: spacing.md, flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm }}>
@@ -194,9 +201,15 @@ export default function Profile() {
             <WorkspaceAction icon="bookmark-outline" label="Saved posts" onPress={() => router.push("/saved")} />
             <WorkspaceAction icon="time-outline" label="Activity log" onPress={() => router.push("/settings/activity")} />
           </View>
+          <View style={{ height: 40 }} />
         </View>
-
       </ScrollView>
+
+      <ImageViewer 
+        visible={!!viewImage} 
+        imageUrl={viewImage || ""} 
+        onClose={() => setViewImage(null)} 
+      />
     </SafeAreaView>
   );
 }

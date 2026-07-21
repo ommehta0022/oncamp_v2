@@ -26,11 +26,19 @@ export default function EditProfile() {
   const [saving, setSaving] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [coverUri, setCoverUri] = useState<string | null>(null);
+  const [uploadingCover, setUploadingCover] = useState(false);
 
   const handleAvatarPick = async () => {
     if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const uri = await showImagePicker({ aspect: [1, 1], quality: 0.8 });
     if (uri) setAvatarUri(uri);
+  };
+
+  const handleCoverPick = async () => {
+    if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const uri = await showImagePicker({ aspect: [3, 1], quality: 0.8 });
+    if (uri) setCoverUri(uri);
   };
 
   const save = async () => {
@@ -45,6 +53,7 @@ export default function EditProfile() {
     setSaving(true);
     try {
       let avatarUrl = user?.avatarUrl;
+      let coverUrl = user?.coverUrl;
       
       if (avatarUri) {
         setUploadingAvatar(true);
@@ -62,10 +71,28 @@ export default function EditProfile() {
           return;
         } finally {
           setUploadingAvatar(false);
+          return;
+        } finally {
+          setUploadingAvatar(false);
+        }
+      }
+
+      if (coverUri) {
+        setUploadingCover(true);
+        try {
+          const result = await uploadAvatar(coverUri);
+          coverUrl = result.url;
+        } catch (error) {
+          console.error("Cover upload failed:", error);
+          setSaving(false);
+          setUploadingCover(false);
+          return;
+        } finally {
+          setUploadingCover(false);
         }
       }
       
-      await saveProfile(avatarUrl);
+      await saveProfile(avatarUrl, coverUrl);
     } catch (error) {
       console.error("Profile update failed:", error);
       Alert.alert("Error", "Failed to save profile. Please try again.");
@@ -73,7 +100,7 @@ export default function EditProfile() {
     }
   };
 
-  const saveProfile = async (avatarUrl?: string) => {
+  const saveProfile = async (avatarUrl?: string, coverUrl?: string) => {
     try {
       await api.users.updateMe({ 
         name: name.trim(), 
@@ -82,6 +109,7 @@ export default function EditProfile() {
         city: city.trim() || undefined, 
         bio: bio.trim() || undefined,
         avatarUrl: avatarUrl || user?.avatarUrl,
+        coverUrl: coverUrl || user?.coverUrl,
         profileCompleted: true 
       });
       await refreshUser().catch(() => {});
@@ -93,6 +121,7 @@ export default function EditProfile() {
   };
 
   const displayAvatar = avatarUri || user?.avatarUrl;
+  const displayCover = coverUri || (user as any)?.coverUrl;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.surface }} edges={["top"]}>
@@ -100,8 +129,8 @@ export default function EditProfile() {
         title="Edit Profile"
         onBack={() => router.back()}
         right={
-          <Pressable onPress={save} disabled={saving || uploadingAvatar || !name.trim()} style={({pressed}) => [{opacity: pressed ? 0.5 : 1}]}>
-            {saving || uploadingAvatar ? (
+          <Pressable onPress={save} disabled={saving || uploadingAvatar || uploadingCover || !name.trim()} style={({pressed}) => [{opacity: pressed ? 0.5 : 1}]}>
+            {saving || uploadingAvatar || uploadingCover ? (
               <ActivityIndicator size="small" color={colors.brandPrimary} />
             ) : (
               <Text style={{ 
@@ -118,8 +147,22 @@ export default function EditProfile() {
       />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
-          <View style={{ alignItems: "center", paddingVertical: spacing.xl }}>
+          
+          <View style={{ marginBottom: spacing.xl }}>
             <View style={{ position: "relative" }}>
+              {displayCover ? (
+                <Image source={{ uri: displayCover }} style={{ width: "100%", height: 120 }} contentFit="cover" />
+              ) : (
+                <View style={{ width: "100%", height: 120, backgroundColor: colors.brandPrimary || "#2E5C4E" }} />
+              )}
+              <LinearGradient colors={["transparent", "rgba(0,0,0,0.5)"]} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none" />
+              <TouchableOpacity onPress={handleCoverPick} style={{ position: "absolute", bottom: spacing.sm, right: spacing.sm, backgroundColor: "rgba(0,0,0,0.6)", padding: 8, borderRadius: 20 }}>
+                <Ionicons name="camera" size={20} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ alignItems: "center", marginTop: -55 }}>
+              <View style={{ position: "relative" }}>
               {displayAvatar ? (
                 <Image 
                   source={{ uri: displayAvatar }} 
@@ -173,9 +216,12 @@ export default function EditProfile() {
                 </LinearGradient>
               </TouchableOpacity>
             </View>
+            </View>
+          </View>
 
-            <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 13, marginTop: spacing.md, fontWeight: "500" }}>
-              Change Profile Picture
+          <View style={{ paddingHorizontal: spacing.lg, alignItems: "center", marginBottom: spacing.lg }}>
+            <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 13, fontWeight: "500" }}>
+              Change Profile & Cover Photos
             </Text>
           </View>
 

@@ -378,6 +378,7 @@ export type SessionUser = {
   name?: string;
   phone?: string;
   avatarUrl?: string;
+  coverUrl?: string;
   city?: string;
   course?: string;
   email?: string;
