@@ -55,7 +55,7 @@ export default function PostsPage() {
                   <td className="px-6 py-4 text-sm text-gray-500">{item.type}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{item.status}</td>
                   <td className="px-6 py-4 text-right text-sm">
-                    <button onClick={() => router.push(/dashboard/posts/)} className="text-gray-400 hover:text-blue-600"><Eye className="h-5 w-5" /></button>
+                    <button onClick={() => router.push(`/dashboard/posts/${item.id}`)} className="text-gray-400 hover:text-blue-600"><Eye className="h-5 w-5" /></button>
                   </td>
                 </tr>
               ))}

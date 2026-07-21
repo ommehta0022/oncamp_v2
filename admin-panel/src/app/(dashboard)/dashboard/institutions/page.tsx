@@ -72,13 +72,13 @@ export default function InstitutionsPage() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{item.city}</td>
                   <td className="px-6 py-4">
-                    <span className={px-2 inline-flex text-xs leading-5 font-semibold rounded-full }>
+                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-700">
                       {item.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end gap-2">
-                      <button onClick={() => router.push(/dashboard/institutions/)} className="text-gray-400 hover:text-blue-600" title="View details"><Eye className="h-5 w-5" /></button>
+                      <button onClick={() => router.push(`/dashboard/institutions/${item.id}`)} className="text-gray-400 hover:text-blue-600" title="View details"><Eye className="h-5 w-5" /></button>
                     </div>
                   </td>
                 </tr>

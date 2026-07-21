@@ -618,18 +618,48 @@ class ApiClient {
     const response = await this.client.post(`/admin/errors/${id}/resolve`);
     return response.data;
   }
+
+  // Institutions
+  async getInstitutions(params?: any) {
+    const response = await this.client.get("/admin/institutions", { params });
+    return response.data;
+  }
+
+  async getInstitution(id: string) {
+    const response = await this.client.get(`/admin/institutions/${id}`);
+    return response.data;
+  }
+
+  async updateInstitution(id: string, data: any) {
+    const response = await this.client.patch(`/admin/institutions/${id}`, data);
+    return response.data;
+  }
+
+  async deleteInstitution(id: string) {
+    const response = await this.client.delete(`/admin/institutions/${id}`);
+    return response.data;
+  }
+
+  // Posts
+  async getPosts(params?: any) {
+    const response = await this.client.get("/admin/posts", { params });
+    return response.data;
+  }
+
+  async getPost(id: string) {
+    const response = await this.client.get(`/admin/posts/${id}`);
+    return response.data;
+  }
+
+  async updatePost(id: string, data: any) {
+    const response = await this.client.patch(`/admin/posts/${id}`, data);
+    return response.data;
+  }
+
+  async deletePost(id: string) {
+    const response = await this.client.delete(`/admin/posts/${id}`);
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();
-
-  // Institutions
-  async getInstitutions(params?: any) { const response = await this.client.get("/admin/institutions", { params }); return response.data; }
-  async getInstitution(id: string) { const response = await this.client.get(/admin/institutions/); return response.data; }
-  async updateInstitution(id: string, data: any) { const response = await this.client.patch(/admin/institutions/, data); return response.data; }
-  async deleteInstitution(id: string) { const response = await this.client.delete(/admin/institutions/); return response.data; }
-
-  // Posts
-  async getPosts(params?: any) { const response = await this.client.get("/admin/posts", { params }); return response.data; }
-  async getPost(id: string) { const response = await this.client.get(/admin/posts/); return response.data; }
-  async updatePost(id: string, data: any) { const response = await this.client.patch(/admin/posts/, data); return response.data; }
-  async deletePost(id: string) { const response = await this.client.delete(/admin/posts/); return response.data; }
