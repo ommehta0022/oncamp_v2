@@ -1,4 +1,8 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://oncampus-backend-production.up.railway.app"
+  },
   "headers": [
     {
       "source": "/_next/static/(.*)",
@@ -22,7 +26,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://perpetual-motivation-production-be1a.up.railway.app/admin/:path*"
+      "destination": "https://oncampus-backend-production.up.railway.app/admin/:path*"
     }
   ]
 }

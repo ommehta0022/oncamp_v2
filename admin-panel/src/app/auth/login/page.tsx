@@ -8,7 +8,7 @@ import { Lock, Mail, Eye, EyeOff, Shield, ArrowLeft, KeyRound, Copy, Check } fro
 
 const RAILWAY_URL =
   process.env.NEXT_PUBLIC_API_URL ||
-  "https://perpetual-motivation-production-be1a.up.railway.app";
+  "https://oncampus-backend-production.up.railway.app";
 
 export default function LoginPage() {
   const router = useRouter();
