@@ -129,7 +129,7 @@ module.exports = ({ config }) => {
     extra: {
       ...config.extra,
       firebase: firebaseWebConfig(),
-      apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || "https://perpetual-motivation-production-be1a.up.railway.app/v1",
+      apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || "https://oncampus-backend-production.up.railway.app/v1",
     },
   };
 };

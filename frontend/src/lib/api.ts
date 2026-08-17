@@ -33,7 +33,7 @@ type ApiOptions = {
   suppressSessionExpiredModal?: boolean;
 };
 
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = 45000;
 
 export type ApiErrorCode =
   | "NETWORK_ERROR"
@@ -160,7 +160,7 @@ const extra = Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
   extra?.apiBaseUrl ||
-  "https://perpetual-motivation-production-be1a.up.railway.app/v1";
+  "https://oncampus-backend-production.up.railway.app/v1";
 
 function uuid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {

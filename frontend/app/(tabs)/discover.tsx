@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -40,21 +40,32 @@ export default function Discover() {
   const [cityModalVisible, setCityModalVisible] = useState(false);
   const [discoverCards, setDiscoverCards] = useState<DiscoverCard[]>([]);
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { width } = useWindowDimensions();
 
+  const fetchDiscover = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const cached = await cache.get<DiscoverCard[]>("discover_groups");
+      if (cached?.length) setDiscoverCards(cached.map(normalizeGroup));
+      const res = await api.groups.discover("");
+      const next = ((res as any).groups || res || []).map(normalizeGroup);
+      setDiscoverCards(next);
+      await cache.set("discover_groups", next);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not load discover groups.";
+      setError(message);
+      showToast({ message, variant: "error" });
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
+
   useEffect(() => {
-    const fetchDiscover = async () => {
-      try {
-        const cached = await cache.get<DiscoverCard[]>("discover_groups");
-        if (cached?.length) setDiscoverCards(cached.map(normalizeGroup));
-        const res = await api.groups.discover("");
-        const next = ((res as any).groups || res || []).map(normalizeGroup);
-        setDiscoverCards(next);
-        await cache.set("discover_groups", next);
-      } catch {}
-    };
     void fetchDiscover();
-  }, []);
+  }, [fetchDiscover]);
 
   const cardWidth = (width - spacing.lg * 2 - spacing.md) / 2;
 
@@ -194,7 +205,21 @@ export default function Discover() {
           ))}
         </View>
 
-        {filtered.length === 0 && (
+        {loading && discoverCards.length === 0 ? (
+          <ActivityIndicator color={colors.brandPrimary} style={{ paddingVertical: spacing["2xl"] }} />
+        ) : null}
+
+        {error && discoverCards.length === 0 ? (
+          <View style={{ padding: spacing["2xl"], alignItems: "center" }}>
+            <Ionicons name="cloud-offline-outline" size={32} color={colors.muted} />
+            <Text style={{ color: colors.onSurfaceTertiary, marginTop: spacing.md, fontSize: font.base, textAlign: "center" }}>{error}</Text>
+            <Pressable onPress={() => void fetchDiscover()} style={{ marginTop: spacing.lg, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brandPrimary }}>
+              <Text style={{ color: colors.onBrandPrimary, fontWeight: "600" }}>Try Again</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {!loading && !error && filtered.length === 0 && (
           <View style={{ padding: spacing["2xl"], alignItems: "center" }}>
             <Ionicons name="search" size={32} color={colors.muted} />
             <Text style={{ color: colors.onSurfaceTertiary, marginTop: spacing.md, fontSize: font.base }}>

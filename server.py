@@ -740,6 +740,27 @@ def group_member_count(group_id: str) -> int:
     return len(rows)
 
 
+def group_member_counts(group_ids: list[str]) -> dict[str, int]:
+    """Fetch member counts for many groups with one Supabase request."""
+    unique_ids = sorted({group_id for group_id in group_ids if group_id})
+    if not unique_ids:
+        return {}
+    rows = safe_get(
+        "group_members",
+        {
+            "group_id": f"in.({','.join(unique_ids)})",
+            "status": "eq.active",
+            "select": "group_id",
+        },
+    )
+    counts = {group_id: 0 for group_id in unique_ids}
+    for row in rows:
+        group_id = row.get("group_id")
+        if group_id in counts:
+            counts[group_id] += 1
+    return counts
+
+
 def current_institution_admin(user: CurrentUser) -> Optional[dict[str, Any]]:
     rows = safe_get(
         "institution_admins",
@@ -2314,8 +2335,16 @@ def my_groups(user: CurrentUser = Depends(current_user)) -> Any:
         },
     )
     membership_by_group = {row["group_id"]: row for row in memberships}
+    member_counts = group_member_counts(group_ids)
     return [
-        serialize_group({**group, **membership_by_group.get(group["id"], {}), "member_count": group_member_count(group["id"])}, membership_by_group.get(group["id"], {}).get("role"))
+        serialize_group(
+            {
+                **group,
+                **membership_by_group.get(group["id"], {}),
+                "member_count": member_counts.get(group["id"], 0),
+            },
+            membership_by_group.get(group["id"], {}).get("role"),
+        )
         for group in groups
     ]
 
@@ -2385,7 +2414,13 @@ def discover_groups(
             0 if q_lower in x.get("name", "").lower() else 1
         ))
         
-    return {"groups": [serialize_group({**row, "member_count": group_member_count(row["id"])}) for row in rows]}
+    member_counts = group_member_counts([row["id"] for row in rows])
+    return {
+        "groups": [
+            serialize_group({**row, "member_count": member_counts.get(row["id"], 0)})
+            for row in rows
+        ]
+    }
 
 
 @app.get("/v1/groups/{group_id}")

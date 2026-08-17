@@ -27,8 +27,10 @@ export default function Groups() {
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchGroups = useCallback(async () => {
+    setError(null);
     try {
       const cached = await cache.get("my_groups");
       if (cached) setGroups((cached as any[]).map(normalizeGroup));
@@ -36,7 +38,9 @@ export default function Groups() {
       const next = ((response as any).groups || response || []).map(normalizeGroup);
       setGroups(next);
       await cache.set("my_groups", next);
-    } catch {}
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load your groups.");
+    }
   }, []);
 
   useEffect(() => {
@@ -169,10 +173,15 @@ export default function Groups() {
         }}
         ListEmptyComponent={
           <View style={{ padding: spacing["2xl"], alignItems: "center" }}>
-            <Ionicons name="folder-open-outline" size={36} color={colors.muted} />
+            <Ionicons name={error ? "cloud-offline-outline" : "folder-open-outline"} size={36} color={colors.muted} />
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.md }}>
-              No groups match this filter
+              {error || "No groups match this filter"}
             </Text>
+            {error ? (
+              <Pressable onPress={() => void fetchGroups()} style={{ marginTop: spacing.lg, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brandPrimary }}>
+                <Text style={{ color: colors.onBrandPrimary, fontWeight: "600" }}>Try Again</Text>
+              </Pressable>
+            ) : null}
           </View>
         }
       />
