@@ -33,7 +33,7 @@ type ApiOptions = {
   suppressSessionExpiredModal?: boolean;
 };
 
-const DEFAULT_TIMEOUT_MS = 45000;
+const DEFAULT_TIMEOUT_MS = 90000;
 
 export type ApiErrorCode =
   | "NETWORK_ERROR"
@@ -300,9 +300,10 @@ async function refreshAccessToken() {
     const refreshToken = await getSecureItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) return null;
     try {
+      const deviceId = await getDeviceId();
       const response = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-device-id": deviceId },
         body: JSON.stringify({ refreshToken }),
       });
       const session = await parseResponse<{ accessToken: string; refreshToken: string }>(response);
@@ -566,13 +567,20 @@ export const api = {
         })
       ),
     me: () => request<SessionUser>("/auth/me"),
-    logout: () => request<void>("/auth/logout", { method: "POST", suppressSessionExpiredModal: true }),
+    logout: async () => {
+      const refreshToken = await getSecureItem(REFRESH_TOKEN_KEY);
+      return request<void>("/auth/logout", {
+        method: "POST",
+        body: { refreshToken },
+        suppressSessionExpiredModal: true,
+      });
+    },
   },
   users: {
     me: () => request<SessionUser>("/users/me"),
     deleteMe: () => request("/users/me", { method: "DELETE" }),
     stats: () => request<{ groups: number; posts: number; followers: number; following: number; streak: number; daysSinceJoin: number }>("/users/me/stats"),
-    achievements: () => request<Array<{ id: string; label: string; icon: string; color: string; earned: boolean; description: string }>>("/users/me/achievements"),
+    achievements: () => request<{ id: string; label: string; icon: string; color: string; earned: boolean; description: string }[]>("/users/me/achievements"),
     updateMe: (body: Partial<SessionUser>) => request<SessionUser>("/users/me", { method: "PATCH", body }),
     settings: () => request("/users/me/settings"),
     updateSettings: (body: unknown) => request("/users/me/settings", { method: "PATCH", body }),
@@ -609,7 +617,8 @@ export const api = {
       request(`/groups/${groupId}/post-requests/${requestId}/reject`, { method: "POST", body: { reason } }),
     join: (groupId: string) => request(`/groups/${groupId}/join`, { method: "POST" }),
     leave: (groupId: string) => request(`/groups/${groupId}/leave`, { method: "POST" }),
-    messages: (groupId: string, limit = 50) => request(`/groups/${groupId}/messages?limit=${limit}`),
+    messages: (groupId: string, limit = 50, after?: string) =>
+      request(`/groups/${groupId}/messages?limit=${limit}${after ? `&after=${encodeURIComponent(after)}` : ""}`),
     unreadCount: (groupId: string) => request<{ unread: number }>(`/groups/${groupId}/messages/unread`),
     markRead: (groupId: string) => request(`/groups/${groupId}/messages/read`, { method: "POST" }),
     deleteMessage: (messageId: string) => request(`/messages/${messageId}`, { method: "DELETE" }),
@@ -660,7 +669,6 @@ export const api = {
   },
   admin: {
     dashboard: () => request("/admin/dashboard"),
-    clearCache: () => request("/admin/system/cache/clear", { method: "POST" }),
     resolveReport: (reportId: string, action: string) => request(`/admin/reports/${reportId}/resolve`, { method: "POST", body: { action } }),
     banUser: (userId: string, reason: string) => request(`/admin/users/${userId}/ban`, { method: "POST", body: { reason } }),
     unbanUser: (userId: string) => request(`/admin/users/${userId}/unban`, { method: "POST" }),

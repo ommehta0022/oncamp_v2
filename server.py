@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 import base64
 import hashlib
 import json
 import logging
 import re
+import secrets
 import sys
+import time
 
 import os
 import sys
@@ -22,7 +25,7 @@ except Exception:
 import jwt
 import requests
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile, File, Form
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -114,6 +117,7 @@ FIREBASE_SERVICE_ACCOUNT_PATH = firebase_env_path or (
 FIREBASE_SERVICE_ACCOUNT_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 
 JWT_SECRET = os.getenv("JWT_SECRET") or value_after("JWT_SECRET", read_secret_file("JWT")) or "dev-only-change-me"
+REFRESH_TOKEN_TTL_DAYS = int(os.getenv("REFRESH_TOKEN_TTL_DAYS", "30"))
 
 # Twilio Configuration
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
@@ -126,6 +130,13 @@ DEV_OTP_CODE = os.getenv("DEV_OTP_CODE", "123456")
 
 # Initialize FastAPI app
 app = FastAPI(title="OnCampus API", version="1.0.0")
+
+MAINTENANCE_CACHE_TTL_SECONDS = int(os.getenv("MAINTENANCE_CACHE_TTL_SECONDS", "60"))
+_maintenance_cache: dict[str, Any] = {
+    "checked_at": 0.0,
+    "enabled": False,
+    "message": "System under maintenance",
+}
 
 # SECURITY: Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -153,23 +164,29 @@ async def maintenance_mode_middleware(request: Request, call_next):
     if request.url.path.startswith("/admin") or request.url.path in health_paths:
         return await call_next(request)
         
-    try:
-        # Avoid direct DB object initialization overhead per request if possible,
-        # but since db is global here we can just do a quick fetch
-        settings = db.get("system_settings", {"key": "eq.maintenance_mode"})
-        if settings and len(settings) > 0 and settings[0].get("value") == True:
-            # We also try to get the message
-            msg_settings = db.get("system_settings", {"key": "eq.maintenance_message"})
+    now = time.monotonic()
+    if now - float(_maintenance_cache["checked_at"]) >= MAINTENANCE_CACHE_TTL_SECONDS:
+        try:
+            settings = db.get("system_settings", {"key": "eq.maintenance_mode", "select": "value", "limit": "1"})
+            enabled = bool(settings and settings[0].get("value") is True)
             message = "System under maintenance"
-            if msg_settings and len(msg_settings) > 0:
-                message = msg_settings[0].get("value", message)
-            
-            return JSONResponse(
-                status_code=503,
-                content={"message": message, "maintenance": True}
-            )
-    except Exception:
-        pass
+            if enabled:
+                msg_settings = db.get(
+                    "system_settings",
+                    {"key": "eq.maintenance_message", "select": "value", "limit": "1"},
+                )
+                if msg_settings:
+                    message = msg_settings[0].get("value") or message
+            _maintenance_cache.update(checked_at=now, enabled=enabled, message=message)
+        except Exception:
+            # Keep the last known state and retry on the next request.
+            _maintenance_cache["checked_at"] = now
+
+    if _maintenance_cache["enabled"]:
+        return JSONResponse(
+            status_code=503,
+            content={"message": _maintenance_cache["message"], "maintenance": True},
+        )
         
     return await call_next(request)
 
@@ -186,6 +203,9 @@ class SupabaseRest:
             "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json",
         }
+        self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=50)
+        self.session.mount("https://", adapter)
 
     def ensure(self) -> None:
         if not self.enabled:
@@ -196,25 +216,25 @@ class SupabaseRest:
 
     def get(self, table: str, params: Optional[dict[str, Any]] = None) -> Any:
         self.ensure()
-        response = requests.get(f"{self.base}/{table}", headers=self.headers, params=params, timeout=20)
+        response = self.session.get(f"{self.base}/{table}", headers=self.headers, params=params, timeout=20)
         return self._json(response)
 
     def post(self, table: str, payload: dict[str, Any]) -> Any:
         self.ensure()
         headers = {**self.headers, "Prefer": "return=representation"}
-        response = requests.post(f"{self.base}/{table}", headers=headers, json=payload, timeout=20)
+        response = self.session.post(f"{self.base}/{table}", headers=headers, json=payload, timeout=20)
         return self._json(response)
 
     def patch(self, table: str, params: dict[str, Any], payload: dict[str, Any]) -> Any:
         self.ensure()
         headers = {**self.headers, "Prefer": "return=representation"}
-        response = requests.patch(f"{self.base}/{table}", headers=headers, params=params, json=payload, timeout=20)
+        response = self.session.patch(f"{self.base}/{table}", headers=headers, params=params, json=payload, timeout=20)
         return self._json(response)
 
     def delete(self, table: str, params: dict[str, Any]) -> Any:
         self.ensure()
         headers = {**self.headers, "Prefer": "return=representation"}
-        response = requests.delete(f"{self.base}/{table}", headers=headers, params=params, timeout=20)
+        response = self.session.delete(f"{self.base}/{table}", headers=headers, params=params, timeout=20)
         return self._json(response)
 
     @staticmethod
@@ -227,6 +247,9 @@ class SupabaseRest:
 
 
 db = SupabaseRest()
+DB_READ_EXECUTOR = ThreadPoolExecutor(max_workers=12, thread_name_prefix="supabase-read")
+USER_SECURITY_CACHE_TTL_SECONDS = int(os.getenv("USER_SECURITY_CACHE_TTL_SECONDS", "15"))
+_user_security_cache: dict[str, tuple[float, str]] = {}
 
 # Initialize Twilio OTP Service
 twilio_otp = None
@@ -438,13 +461,26 @@ def current_user(
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload["sub"]
-            
-            # SECURITY: Check if user is blacklisted (deleted/banned)
-            blacklist_check = safe_get("token_blacklist", {
-                "user_id": f"eq.{user_id}",
-                "select": "reason,expires_at",
-                "limit": "1"
-            })
+
+            cached_security = _user_security_cache.get(user_id)
+            now_monotonic = time.monotonic()
+            if cached_security and now_monotonic - cached_security[0] < USER_SECURITY_CACHE_TTL_SECONDS:
+                if cached_security[1] != "active":
+                    raise HTTPException(status_code=403, detail=cached_security[1])
+                return CurrentUser(id=user_id, role=payload.get("role", "normal_user"))
+
+            blacklist_future = DB_READ_EXECUTOR.submit(
+                safe_get,
+                "token_blacklist",
+                {"user_id": f"eq.{user_id}", "select": "reason,expires_at", "limit": "1"},
+            )
+            user_future = DB_READ_EXECUTOR.submit(
+                safe_get,
+                "users",
+                {"id": f"eq.{user_id}", "select": "status", "limit": "1"},
+            )
+            blacklist_check = blacklist_future.result()
+            user_check = user_future.result()
             
             if blacklist_check:
                 blacklist = blacklist_check[0]
@@ -465,32 +501,22 @@ def current_user(
                     except:
                         pass
                     
-                    raise HTTPException(
-                        status_code=403, 
-                        detail="Access revoked. Your account has been deleted or banned."
-                    )
-            
-            # Also check user status directly
-            user_check = safe_get("users", {
-                "id": f"eq.{user_id}",
-                "select": "status",
-                "limit": "1"
-            })
+                    message = "Access revoked. Your account has been deleted or banned."
+                    _user_security_cache[user_id] = (now_monotonic, message)
+                    raise HTTPException(status_code=403, detail=message)
             
             if user_check:
                 status = user_check[0].get("status")
                 if status == "banned":
-                    raise HTTPException(
-                        status_code=403, 
-                        detail="Account banned. Please contact support."
-                    )
+                    message = "Account banned. Please contact support."
+                    _user_security_cache[user_id] = (now_monotonic, message)
+                    raise HTTPException(status_code=403, detail=message)
             else:
-                # User doesn't exist in database
-                raise HTTPException(
-                    status_code=403, 
-                    detail="Account not found. Your account may have been deleted."
-                )
-            
+                message = "Account not found. Your account may have been deleted."
+                _user_security_cache[user_id] = (now_monotonic, message)
+                raise HTTPException(status_code=403, detail=message)
+
+            _user_security_cache[user_id] = (now_monotonic, "active")
             return CurrentUser(id=user_id, role=payload.get("role", "normal_user"))
             
         except jwt.PyJWTError:
@@ -562,12 +588,14 @@ def phone_hash(phone: str) -> str:
 
 
 def create_access_token(user_id: str, role: str = "normal_user") -> str:
+    if JWT_SECRET == "dev-only-change-me" and not DEV_MODE:
+        raise HTTPException(status_code=503, detail="JWT_SECRET is not configured")
     return jwt.encode(
         {
             "sub": user_id,
             "role": role,
             "iat": int(datetime.now(timezone.utc).timestamp()),
-            "exp": int((datetime.now(timezone.utc) + timedelta(days=7)).timestamp()),
+            "exp": int((datetime.now(timezone.utc) + timedelta(minutes=15)).timestamp()),
         },
         JWT_SECRET,
         algorithm="HS256",
@@ -579,10 +607,18 @@ def safe_get(table: str, params: Optional[dict[str, Any]] = None, fallback: Any 
         return db.get(table, params)
     except HTTPException as e:
         logger.error(f"safe_get failed for {table}: {e.detail}")
-        # FOR DEBUGGING: Return a fake record containing the error so we can see it in the app!
-        if fallback is None and table == "notifications":
-            return [{"id": "error-123", "type": "announcement", "title": "API Error", "body": str(e.detail), "read": False}]
         return [] if fallback is None else fallback
+
+
+def parallel_safe_get(
+    requests_by_key: dict[str, tuple[str, dict[str, Any]]],
+) -> dict[str, Any]:
+    """Run independent Supabase reads concurrently and preserve their keys."""
+    futures = {
+        key: DB_READ_EXECUTOR.submit(safe_get, table, params)
+        for key, (table, params) in requests_by_key.items()
+    }
+    return {key: future.result() for key, future in futures.items()}
 
 
 def safe_post(table: str, payload: dict[str, Any], fallback: Any = None) -> Any:
@@ -975,6 +1011,9 @@ def verify_phone_otp_code(phone: str, code: str) -> None:
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
 
+    if not redis.check_rate_limit(f"otp:verify:{sha256(phone)}", 8, 900):
+        raise HTTPException(status_code=429, detail="Too many verification attempts. Request a new OTP.")
+
     if DEV_MODE:
         if code != DEV_OTP_CODE:
             raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
@@ -1020,22 +1059,42 @@ def verify_phone_otp_code(phone: str, code: str) -> None:
         raise HTTPException(status_code=500, detail="Failed to verify OTP. Please try again.")
 
 
+def issue_refresh_token(user_id: str, device_id: str, family: Optional[str] = None) -> str:
+    raw_token = secrets.token_urlsafe(48)
+    db.post(
+        "refresh_tokens",
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "device_id": device_id,
+            "token_hash": sha256(raw_token),
+            "family": family or str(uuid.uuid4()),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_TTL_DAYS)).isoformat(),
+            "created_at": now_iso(),
+        },
+    )
+    return raw_token
+
+
 def create_auth_session_for_user(user: dict[str, Any], is_new_user: bool, platform: Optional[str], x_device_id: Optional[str]) -> dict[str, Any]:
     device_id = x_device_id or str(uuid.uuid4())
-    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
+    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id,user_id"})
     device_data = {
+        "user_id": user["id"],
         "platform": platform or "unknown",
         "trusted": True,
         "last_seen_at": now_iso(),
     }
     if existing_device:
+        if existing_device[0].get("user_id") != user["id"]:
+            raise HTTPException(status_code=409, detail="Device identifier is already registered")
         db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
     else:
         db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
     
     role = user.get("account_type") or "normal_user"
     access = create_access_token(user["id"], role)
-    refresh = str(uuid.uuid4())
+    refresh = issue_refresh_token(user["id"], device_id)
     
     return {
         "accessToken": access,
@@ -1053,6 +1112,9 @@ def start_otp(payload: StartOtpDevDto) -> dict[str, Any]:
 
     if not phone or len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
+
+    if not redis.check_rate_limit(f"otp:start:{sha256(phone)}", 5, 900):
+        raise HTTPException(status_code=429, detail="Too many OTP requests. Try again later.")
 
     # Fast DB check for registration/login
     if payload.action:
@@ -1126,6 +1188,9 @@ def start_institution_otp(payload: StartInstitutionOtpDto) -> dict[str, Any]:
     login = find_institution_login(payload.identifier)
     phone = login["phone"]
 
+    if not redis.check_rate_limit(f"otp:institution:{sha256(phone)}", 5, 900):
+        raise HTTPException(status_code=429, detail="Too many OTP requests. Try again later.")
+
     if DEV_MODE:
         return {
             "success": True,
@@ -1174,7 +1239,7 @@ def start_institution_otp(payload: StartInstitutionOtpDto) -> dict[str, Any]:
 
 @app.post("/v1/auth/otp/verify-dev")
 @app.post("/v1/auth/otp/verify-code")
-def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
+def verify_otp_code_login(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
     """Verify OTP code - Works with both dev mode and Twilio."""
     phone = normalized_login_phone(payload.phone)
     code = payload.code.strip()
@@ -1184,59 +1249,6 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
 
     verify_phone_otp_code(phone, code)
 
-    # Development mode - check against dev OTP
-    if False:
-        if code != DEV_OTP_CODE:
-            raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
-    elif False:
-        # Production mode - verify against stored OTP
-        try:
-            # Get OTP challenge from database
-            challenges = db.get("otp_challenges", {
-                "phone": f"eq.{phone}",
-                "verified": "eq.false",
-                "order": "created_at.desc",
-                "limit": "1"
-            })
-            
-            if not challenges:
-                raise HTTPException(status_code=400, detail="No OTP found for this number. Please request a new one.")
-            
-            challenge = challenges[0]
-            
-            # Check expiration
-            expires_at_str = challenge.get("expires_at", "")
-            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) > expires_at:
-                raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
-            
-            # Check attempts
-            if challenge["attempts"] >= 3:
-                raise HTTPException(status_code=429, detail="Too many failed attempts. Please request a new OTP.")
-            
-            # Verify code
-            if not verify_otp_code(code, challenge["code_hash"]):
-                # Increment attempts
-                db.patch("otp_challenges", 
-                    {"id": f"eq.{challenge['id']}"}, 
-                    {"attempts": challenge["attempts"] + 1}
-                )
-                raise HTTPException(status_code=400, detail="Invalid OTP code. Please try again.")
-            
-            # Mark as verified
-            db.patch("otp_challenges",
-                {"id": f"eq.{challenge['id']}"},
-                {"verified": True, "verified_at": now_iso()}
-            )
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.info(f"⚠️  OTP verification error: {e}")
-            raise HTTPException(status_code=500, detail="Failed to verify OTP. Please try again.")
-    
     # Find or create user by phone hash
     hashed_phone = phone_hash(phone)
     user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*"})
@@ -1257,87 +1269,7 @@ def verify_otp(payload: VerifyOtpDevDto, x_device_id: Optional[str] = Header(def
             },
         )[0]
 
-    # Register device
-    device_id = x_device_id or str(uuid.uuid4())
-    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
-    device_data = {
-        "platform": payload.platform or "unknown",
-        "trusted": True,
-        "last_seen_at": now_iso(),
-    }
-    if existing_device:
-        db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
-    else:
-        db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
-    
-    # Generate tokens
-    role = user.get("account_type") or "normal_user"
-    access = create_access_token(user["id"], role)
-    refresh = str(uuid.uuid4())
-    
-    return {
-        "accessToken": access,
-        "refreshToken": refresh,
-        "userId": user["id"],
-        "isNewUser": is_new_user,
-        "user": serialize_user(user),
-    }
-
-    if not phone or len(phone) < 10:
-        raise HTTPException(status_code=400, detail="Invalid phone number")
-
-    # In dev mode, check against dev OTP
-    if DEV_MODE:
-        if code != DEV_OTP_CODE:
-            raise HTTPException(status_code=400, detail=f"Invalid OTP code. Dev mode expects: {DEV_OTP_CODE}")
-    else:
-        # In production, would verify against Firebase or Redis
-        raise HTTPException(status_code=503, detail="Production OTP verification not configured")
-    
-    # Find or create user by phone hash
-    hashed_phone = phone_hash(phone)
-    user_rows = db.get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*"})
-    is_new_user = not bool(user_rows)
-    if user_rows:
-        user = user_rows[0]
-        ensure_user_login_allowed(user)
-    else:
-        user = db.post(
-            "users",
-            {
-                "id": str(uuid.uuid4()),
-                "phone_hash": hashed_phone,
-                "status": "active",
-                "account_type": "normal_user",
-                "updated_at": now_iso(),
-            },
-        )[0]
-
-    # Register device
-    device_id = x_device_id or str(uuid.uuid4())
-    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
-    device_data = {
-        "platform": payload.platform or "unknown",
-        "trusted": True,
-        "last_seen_at": now_iso(),
-    }
-    if existing_device:
-        db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
-    else:
-        db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
-    
-    # Generate tokens
-    role = user.get("account_type") or "normal_user"
-    access = create_access_token(user["id"], role)
-    refresh = str(uuid.uuid4())
-    
-    return {
-        "accessToken": access,
-        "refreshToken": refresh,
-        "userId": user["id"],
-        "isNewUser": is_new_user,
-        "user": serialize_user(user),
-    }
+    return create_auth_session_for_user(user, is_new_user, payload.platform, x_device_id)
 
 
 @app.post("/v1/auth/institution/otp/verify")
@@ -1393,6 +1325,7 @@ def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(defaul
     is_new_user = not bool(user_rows)
     if user_rows:
         user = user_rows[0]
+        ensure_user_login_allowed(user)
     else:
         user = db.post(
             "users",
@@ -1405,57 +1338,52 @@ def verify_otp(payload: VerifyOtpDto, x_device_id: Optional[str] = Header(defaul
             },
         )[0]
 
-    device_id = x_device_id or str(uuid.uuid4())
-    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id"})
-    device_data = {
-        "platform": payload.platform or "unknown",
-        "trusted": True,
-        "last_seen_at": now_iso(),
-    }
-    if existing_device:
-        db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
-    else:
-        db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
-    role = user.get("account_type") or "normal_user"
-    access = create_access_token(user["id"], role)
-    refresh = str(uuid.uuid4())
-    return {
-        "accessToken": access,
-        "refreshToken": refresh,
-        "userId": user["id"],
-        "isNewUser": is_new_user,
-        "user": serialize_user(user),
-    }
+    return create_auth_session_for_user(user, is_new_user, payload.platform, x_device_id)
 
 
 
 @app.post("/v1/auth/refresh")
 def refresh_token(payload: RefreshRequest, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
-    import hashlib
-    token_hash = hashlib.sha256(payload.refreshToken.encode()).hexdigest()
-    tokens = db.get("refresh_tokens", {"token_hash": f"eq.{token_hash}"})
+    token_hash = sha256(payload.refreshToken)
+    tokens = db.get("refresh_tokens", {"token_hash": f"eq.{token_hash}", "select": "*", "limit": "1"})
     if not tokens:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     
     token = tokens[0]
     if token.get("revoked_at"):
+        db.patch(
+            "refresh_tokens",
+            {"user_id": f"eq.{token['user_id']}", "revoked_at": "is.null"},
+            {"revoked_at": now_iso()},
+        )
         raise HTTPException(status_code=401, detail="Refresh token revoked")
-        
+
+    expires_at = datetime.fromisoformat(str(token["expires_at"]).replace("Z", "+00:00"))
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
+        db.patch("refresh_tokens", {"id": f"eq.{token['id']}"}, {"revoked_at": now_iso()})
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    token_device_id = token.get("device_id")
+    if token_device_id and x_device_id and token_device_id != x_device_id:
+        raise HTTPException(status_code=401, detail="Refresh token does not belong to this device")
+
+    users = db.get("users", {"id": f"eq.{token['user_id']}", "select": "id,status,account_type", "limit": "1"})
+    if not users:
+        raise HTTPException(status_code=401, detail="Account not found")
+    ensure_user_login_allowed(users[0])
+
     # Mark old token as revoked
     db.patch("refresh_tokens", {"id": f"eq.{token['id']}"}, {"revoked_at": now_iso()})
     
     # Generate new tokens
-    new_access = create_access_token(token["user_id"])
-    new_refresh = str(uuid.uuid4())
-    new_hash = hashlib.sha256(new_refresh.encode()).hexdigest()
-    
-    db.post("refresh_tokens", {
-        "user_id": token["user_id"],
-        "device_id": x_device_id or token.get("device_id") or "unknown",
-        "token_hash": new_hash,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "created_at": now_iso()
-    })
+    new_access = create_access_token(token["user_id"], users[0].get("account_type") or "normal_user")
+    new_refresh = issue_refresh_token(
+        token["user_id"],
+        x_device_id or token_device_id or "unknown",
+        token.get("family") or str(uuid.uuid4()),
+    )
     
     return {
         "accessToken": new_access,
@@ -1772,16 +1700,20 @@ def unfollow_user(user_id: str, user: CurrentUser = Depends(current_user)) -> di
 def block_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     if user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot block yourself")
-    existing = safe_get("blocked_users", {"user_id": f"eq.{user.id}", "blocked_user_id": f"eq.{user_id}", "select": "user_id", "limit": "1"})
+    if not safe_get("users", {"id": f"eq.{user_id}", "select": "id", "limit": "1"}):
+        raise HTTPException(status_code=404, detail="User not found")
+    existing = safe_get("user_blocks", {"blocker_id": f"eq.{user.id}", "blocked_user_id": f"eq.{user_id}", "select": "blocker_id", "limit": "1"})
     if not existing:
-        db.post("blocked_users", {"user_id": user.id, "blocked_user_id": user_id, "created_at": now_iso()})
+        db.post("user_blocks", {"blocker_id": user.id, "blocked_user_id": user_id, "created_at": now_iso()})
+    db.delete("user_follows", {"follower_id": f"eq.{user.id}", "following_id": f"eq.{user_id}"})
+    db.delete("user_follows", {"follower_id": f"eq.{user_id}", "following_id": f"eq.{user.id}"})
     return {"blocked": True}
 
 
 @app.delete("/v1/users/{user_id}/block")
 def unblock_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     try:
-        db.delete("blocked_users", {"user_id": f"eq.{user.id}", "blocked_user_id": f"eq.{user_id}"})
+        db.delete("user_blocks", {"blocker_id": f"eq.{user.id}", "blocked_user_id": f"eq.{user_id}"})
     except HTTPException:
         pass
     return {"blocked": False}
@@ -1789,7 +1721,7 @@ def unblock_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dic
 
 @app.get("/v1/blocked-users")
 def list_blocked_users(user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
-    rows = safe_get("blocked_users", {"user_id": f"eq.{user.id}", "select": "blocked_user_id", "order": "created_at.desc"})
+    rows = safe_get("user_blocks", {"blocker_id": f"eq.{user.id}", "select": "blocked_user_id", "order": "created_at.desc"})
     ids = [row.get("blocked_user_id") for row in rows if row.get("blocked_user_id")]
     if not ids:
         return []
@@ -1801,9 +1733,105 @@ def list_blocked_users(user: CurrentUser = Depends(current_user)) -> list[dict[s
     return [user_by_id[user_id] for user_id in ids if user_id in user_by_id]
 
 
+def blocked_relationship_ids(user_id: str) -> set[str]:
+    rows = safe_get(
+        "user_blocks",
+        {
+            "or": f"(blocker_id.eq.{user_id},blocked_user_id.eq.{user_id})",
+            "select": "blocker_id,blocked_user_id",
+        },
+    )
+    blocked: set[str] = set()
+    for row in rows:
+        other_id = row.get("blocked_user_id") if row.get("blocker_id") == user_id else row.get("blocker_id")
+        if other_id:
+            blocked.add(other_id)
+    return blocked
+
+
+class LogoutRequest(BaseModel):
+    refreshToken: Optional[str] = None
+
+
 @app.post("/v1/auth/logout")
-def logout(user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+def logout(
+    payload: Optional[LogoutRequest] = Body(default=None),
+    user: CurrentUser = Depends(current_user),
+) -> dict[str, bool]:
+    filters: dict[str, Any] = {"user_id": f"eq.{user.id}", "revoked_at": "is.null"}
+    if payload and payload.refreshToken:
+        filters["token_hash"] = f"eq.{sha256(payload.refreshToken)}"
+    db.patch("refresh_tokens", filters, {"revoked_at": now_iso()})
     return {"success": True}
+
+
+def require_platform_admin(user: CurrentUser) -> None:
+    rows = safe_get(
+        "users",
+        {"id": f"eq.{user.id}", "account_type": "eq.platform_admin", "select": "id", "limit": "1"},
+    )
+    if not rows:
+        raise HTTPException(status_code=403, detail="Platform admin access required")
+
+
+@app.get("/v1/admin/dashboard")
+def mobile_admin_dashboard(user: CurrentUser = Depends(current_user)) -> dict[str, int]:
+    require_platform_admin(user)
+    return {
+        "users_count": len(safe_get("users", {"select": "id", "limit": "10000"})),
+        "groups_count": len(safe_get("groups", {"deleted_at": "is.null", "select": "id", "limit": "10000"})),
+        "posts_count": len(safe_get("posts", {"deleted_at": "is.null", "select": "id", "limit": "10000"})),
+        "open_reports_count": len(safe_get("reports", {"status": "eq.pending", "select": "id", "limit": "10000"})),
+    }
+
+
+@app.post("/v1/admin/reports/{report_id}/resolve")
+def mobile_admin_resolve_report(report_id: str, payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, Any]:
+    require_platform_admin(user)
+    updated = db.patch(
+        "reports",
+        {"id": f"eq.{report_id}"},
+        {
+            "status": "resolved",
+            "resolution": str(payload.get("action") or "resolved"),
+            "resolved_by": user.id,
+            "resolved_at": now_iso(),
+        },
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return updated[0]
+
+
+@app.post("/v1/admin/users/{user_id}/ban")
+def mobile_admin_ban_user(user_id: str, payload: dict[str, Any], user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    require_platform_admin(user)
+    if user_id == user.id:
+        raise HTTPException(status_code=400, detail="You cannot ban your own account")
+    updated = db.patch(
+        "users",
+        {"id": f"eq.{user_id}"},
+        {"status": "banned", "ban_reason": str(payload.get("reason") or "Policy violation"), "updated_at": now_iso()},
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    safe_post("token_blacklist", {"user_id": user_id, "reason": "user_banned", "admin_id": user.id, "created_at": now_iso()})
+    db.patch("refresh_tokens", {"user_id": f"eq.{user_id}", "revoked_at": "is.null"}, {"revoked_at": now_iso()})
+    return {"banned": True}
+
+
+@app.post("/v1/admin/users/{user_id}/unban")
+def mobile_admin_unban_user(user_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
+    require_platform_admin(user)
+    updated = db.patch(
+        "users",
+        {"id": f"eq.{user_id}"},
+        {"status": "active", "ban_reason": None, "banned_until": None, "updated_at": now_iso()},
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    db.delete("token_blacklist", {"user_id": f"eq.{user_id}", "reason": "eq.user_banned"})
+    return {"banned": False}
 
 
 @app.get("/v1/feed")
@@ -1813,39 +1841,75 @@ def feed(
     user: CurrentUser = Depends(current_user),
 ) -> dict[str, Any]:
     offset = (page - 1) * limit
-    posts = db.get(
-        "posts",
-        {
+    blocked_ids = blocked_relationship_ids(user.id)
+    post_filters: dict[str, Any] = {
             "select": "id,title,content,media_url,media_type,type,status,pinned,created_at,published_at,author_id,group_id,institution_id",
             "status": "eq.published",
             "order": "pinned.desc,created_at.desc",
             "limit": str(limit),
             "offset": str(offset),
-        },
-    )
+    }
+    if blocked_ids:
+        post_filters["author_id"] = f"not.in.({','.join(sorted(blocked_ids))})"
+    posts = db.get("posts", post_filters)
     author_ids = sorted({post.get("author_id") for post in posts if post.get("author_id")})
     group_ids = sorted({post.get("group_id") for post in posts if post.get("group_id")})
-    authors = {}
-    groups_by_id = {}
-    if author_ids:
-        rows = safe_get("users", {"id": f"in.({','.join(author_ids)})", "select": "id,name,avatar_url,cover_url,verified,account_type"})
-        authors = {row["id"]: row for row in rows}
-    if group_ids:
-        rows = safe_get("groups", {"id": f"in.({','.join(group_ids)})", "select": "id,name"})
-        groups_by_id = {row["id"]: row for row in rows}
+    authors: dict[str, dict[str, Any]] = {}
+    groups_by_id: dict[str, dict[str, Any]] = {}
     liked_ids = set()
     saved_ids = set()
+    reaction_counts: dict[str, int] = {}
+    comment_counts: dict[str, int] = {}
     post_ids = [post["id"] for post in posts]
+
+    feed_reads: dict[str, tuple[str, dict[str, Any]]] = {}
+    if author_ids:
+        feed_reads["authors"] = (
+            "users",
+            {"id": f"in.({','.join(author_ids)})", "select": "id,name,avatar_url,cover_url,verified,account_type"},
+        )
+    if group_ids:
+        feed_reads["groups"] = (
+            "groups",
+            {"id": f"in.({','.join(group_ids)})", "select": "id,name"},
+        )
     if post_ids:
-        liked_rows = safe_get(
+        post_filter = f"in.({','.join(post_ids)})"
+        feed_reads["reactions"] = (
             "post_reactions",
-            {"post_id": f"in.({','.join(post_ids)})", "user_id": f"eq.{user.id}", "select": "post_id"},
+            {"post_id": post_filter, "select": "post_id"},
         )
-        liked_ids = {row["post_id"] for row in liked_rows}
-        saved_rows = safe_get(
+        feed_reads["comments"] = (
+            "post_comments",
+            {"post_id": post_filter, "deleted_at": "is.null", "select": "post_id"},
+        )
+        feed_reads["liked"] = (
+            "post_reactions",
+            {"post_id": post_filter, "user_id": f"eq.{user.id}", "select": "post_id"},
+        )
+        feed_reads["saved"] = (
             "saved_posts",
-            {"post_id": f"in.({','.join(post_ids)})", "user_id": f"eq.{user.id}", "select": "post_id"},
+            {"post_id": post_filter, "user_id": f"eq.{user.id}", "select": "post_id"},
         )
+
+    feed_data = parallel_safe_get(feed_reads) if feed_reads else {}
+    authors = {row["id"]: row for row in feed_data.get("authors", [])}
+    groups_by_id = {row["id"]: row for row in feed_data.get("groups", [])}
+
+    if post_ids:
+        all_reactions = feed_data.get("reactions", [])
+        for row in all_reactions:
+            post_id = row.get("post_id")
+            if post_id:
+                reaction_counts[post_id] = reaction_counts.get(post_id, 0) + 1
+        all_comments = feed_data.get("comments", [])
+        for row in all_comments:
+            post_id = row.get("post_id")
+            if post_id:
+                comment_counts[post_id] = comment_counts.get(post_id, 0) + 1
+        liked_rows = feed_data.get("liked", [])
+        liked_ids = {row["post_id"] for row in liked_rows}
+        saved_rows = feed_data.get("saved", [])
         saved_ids = {row["post_id"] for row in saved_rows}
     return {
         "feed": [
@@ -1868,8 +1932,8 @@ def feed(
                 },
                 "group": groups_by_id.get(post["group_id"]) if post.get("group_id") else None,
                 "counts": {
-                    "reactions": len(safe_get("post_reactions", {"post_id": f"eq.{post['id']}", "select": "user_id"})),
-                    "comments": len(safe_get("post_comments", {"post_id": f"eq.{post['id']}", "deleted_at": "is.null", "select": "id"})),
+                    "reactions": reaction_counts.get(post["id"], 0),
+                    "comments": comment_counts.get(post["id"], 0),
                 },
                 "liked": post["id"] in liked_ids,
                 "bookmarked": post["id"] in saved_ids,
@@ -2413,7 +2477,7 @@ def discover_groups(
             0 if x.get("name", "").lower().startswith(q_lower) else 1,
             0 if q_lower in x.get("name", "").lower() else 1
         ))
-        
+
     member_counts = group_member_counts([row["id"] for row in rows])
     return {
         "groups": [
@@ -2630,13 +2694,38 @@ def approve_join_request(group_id: str, request_id: str, user: CurrentUser = Dep
         db.patch("group_members", {"group_id": f"eq.{group_id}", "user_id": f"eq.{request_row['user_id']}"}, {"status": "active", "role": "member", "joined_at": now_iso()})
     else:
         db.post("group_members", {"group_id": group_id, "user_id": request_row["user_id"], "role": "member", "status": "active", "joined_at": now_iso()})
+    group_rows = safe_get("groups", {"id": f"eq.{group_id}", "select": "name", "limit": "1"})
+    db.post("notifications", {
+        "id": str(uuid.uuid4()),
+        "user_id": request_row["user_id"],
+        "type": "join_request_approved",
+        "title": "Join request approved",
+        "body": f"You can now participate in {(group_rows[0].get('name') if group_rows else 'the group')}.",
+        "data": {"group_id": group_id},
+        "read": False,
+        "created_at": now_iso(),
+    })
     return {"approved": True}
 
 
 @app.post("/v1/groups/{group_id}/join-requests/{request_id}/reject")
 def reject_join_request(group_id: str, request_id: str, user: CurrentUser = Depends(current_user)) -> dict[str, bool]:
     require_group_admin(group_id, user)
+    rows = db.get("join_requests", {"id": f"eq.{request_id}", "group_id": f"eq.{group_id}", "select": "*", "limit": "1"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Join request not found")
     db.patch("join_requests", {"id": f"eq.{request_id}", "group_id": f"eq.{group_id}"}, {"status": "rejected", "reviewed_at": now_iso(), "reviewed_by": user.id})
+    group_rows = safe_get("groups", {"id": f"eq.{group_id}", "select": "name", "limit": "1"})
+    db.post("notifications", {
+        "id": str(uuid.uuid4()),
+        "user_id": rows[0]["user_id"],
+        "type": "join_request_rejected",
+        "title": "Join request update",
+        "body": f"Your request to join {(group_rows[0].get('name') if group_rows else 'the group')} was not approved.",
+        "data": {"group_id": group_id},
+        "read": False,
+        "created_at": now_iso(),
+    })
     return {"rejected": True}
 
 
@@ -2648,8 +2737,14 @@ class SendMessageDto(BaseModel):
     clientMessageId: Optional[str] = None
 
 
-def serialize_message(row: dict[str, Any], users_by_id: Optional[dict[str, dict[str, Any]]] = None) -> dict[str, Any]:
+def serialize_message(
+    row: dict[str, Any],
+    users_by_id: Optional[dict[str, dict[str, Any]]] = None,
+    replies_by_id: Optional[dict[str, dict[str, Any]]] = None,
+) -> dict[str, Any]:
     user_row = (users_by_id or {}).get(row.get("sender_id")) or {}
+    reply_row = (replies_by_id or {}).get(row.get("reply_to_id"))
+    reply_user = (users_by_id or {}).get(reply_row.get("sender_id"), {}) if reply_row else {}
     return {
         "id": row["id"],
         "groupId": row.get("group_id"),
@@ -2660,6 +2755,11 @@ def serialize_message(row: dict[str, Any], users_by_id: Optional[dict[str, dict[
         "type": row.get("type") or "text",
         "mediaUrl": row.get("media_url"),
         "replyToId": row.get("reply_to_id"),
+        "replyTo": {
+            "id": reply_row.get("id"),
+            "senderName": reply_user.get("name") or "Member",
+            "content": reply_row.get("content") or "",
+        } if reply_row else None,
         "clientMessageId": row.get("client_message_id"),
         "createdAt": row.get("created_at"),
         "created_at": row.get("created_at"),
@@ -2670,15 +2770,41 @@ def serialize_message(row: dict[str, Any], users_by_id: Optional[dict[str, dict[
 
 
 @app.get("/v1/groups/{group_id}/messages")
-def list_group_messages(group_id: str, limit: int = Query(default=50, ge=1, le=100), user: CurrentUser = Depends(current_user)) -> list[dict[str, Any]]:
+def list_group_messages(
+    group_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    after: Optional[str] = Query(default=None),
+    user: CurrentUser = Depends(current_user),
+) -> list[dict[str, Any]]:
     require_group_member(group_id, user)
-    rows = safe_get("messages", {"group_id": f"eq.{group_id}", "deleted_at": "is.null", "select": "*", "order": "created_at.desc", "limit": str(limit)})
-    sender_ids = sorted({row.get("sender_id") for row in rows if row.get("sender_id")})
+    filters: dict[str, Any] = {
+        "group_id": f"eq.{group_id}",
+        "deleted_at": "is.null",
+        "select": "*",
+        "order": "created_at.asc" if after else "created_at.desc",
+        "limit": str(limit),
+    }
+    if after:
+        filters["created_at"] = f"gt.{after}"
+    blocked_ids = blocked_relationship_ids(user.id)
+    rows = [
+        row for row in safe_get("messages", filters)
+        if row.get("sender_id") not in blocked_ids
+    ]
+    reply_ids = sorted({row.get("reply_to_id") for row in rows if row.get("reply_to_id")})
+    replies_by_id: dict[str, dict[str, Any]] = {}
+    if reply_ids:
+        reply_rows = safe_get("messages", {"id": f"in.({','.join(reply_ids)})", "select": "id,sender_id,content"})
+        replies_by_id = {row["id"]: row for row in reply_rows}
+    sender_ids = sorted({
+        *[row.get("sender_id") for row in rows if row.get("sender_id")],
+        *[row.get("sender_id") for row in replies_by_id.values() if row.get("sender_id")],
+    })
     users_by_id = {}
     if sender_ids:
         users = safe_get("users", {"id": f"in.({','.join(sender_ids)})", "select": "id,name,avatar_url,cover_url,verified"})
         users_by_id = {row["id"]: serialize_user(row) for row in users}
-    return [serialize_message(row, users_by_id) for row in rows]
+    return [serialize_message(row, users_by_id, replies_by_id) for row in rows]
 
 
 @app.post("/v1/groups/{group_id}/messages")
@@ -2686,6 +2812,21 @@ def send_group_message(group_id: str, payload: SendMessageDto, user: CurrentUser
     require_group_member(group_id, user)
     if not payload.content.strip() and not payload.mediaUrl:
         raise HTTPException(status_code=400, detail="Message content or media is required")
+    if payload.clientMessageId:
+        existing = safe_get(
+            "messages",
+            {
+                "group_id": f"eq.{group_id}",
+                "sender_id": f"eq.{user.id}",
+                "client_message_id": f"eq.{payload.clientMessageId}",
+                "deleted_at": "is.null",
+                "select": "*",
+                "limit": "1",
+            },
+        )
+        if existing:
+            users = safe_get("users", {"id": f"eq.{user.id}", "select": "id,name,avatar_url,cover_url,verified", "limit": "1"})
+            return serialize_message(existing[0], {user.id: serialize_user(users[0])} if users else {})
     row = db.post(
         "messages",
         {
@@ -3883,8 +4024,13 @@ def search(q: str = Query(default="", max_length=80), user: CurrentUser = Depend
             "limit": "20",
         },
     )
-    users_rows = safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,cover_url,verified,account_type", "limit": "20"})
-    posts = safe_get(
+    blocked_ids = blocked_relationship_ids(user.id)
+    users_rows = [
+        row for row in safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,cover_url,verified,account_type", "limit": "40"})
+        if row.get("id") not in blocked_ids and row.get("id") != user.id
+    ][:20]
+    posts = [
+        row for row in safe_get(
         "posts",
         {
             "status": "eq.published",
@@ -3892,14 +4038,13 @@ def search(q: str = Query(default="", max_length=80), user: CurrentUser = Depend
             "select": "id,title,content,media_url,created_at,published_at,author_id",
             "limit": "20",
         },
-    )
+    ) if row.get("author_id") not in blocked_ids]
     return {
         "groups": [serialize_group({**row, "member_count": group_member_count(row["id"])}) for row in groups],
         "users": [serialize_user(row) for row in users_rows],
         "posts": [
             {
                 "id": row["id"],
-        "email": row.get("email"),
                 "title": row.get("title"),
                 "content": row.get("content"),
                 "mediaUrl": row.get("media_url"),
@@ -3989,7 +4134,11 @@ def search_groups(q: str = Query(default="", max_length=80), user: CurrentUser =
 def search_users(q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> list[dict]:
     query = q.strip()
     if len(query) < 2: return []
-    users_rows = safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,cover_url,verified,account_type", "limit": "20"})
+    blocked_ids = blocked_relationship_ids(user.id)
+    users_rows = [
+        row for row in safe_get("users", {"name": f"ilike.*{query}*", "select": "id,name,city,course,avatar_url,cover_url,verified,account_type", "limit": "40"})
+        if row.get("id") not in blocked_ids and row.get("id") != user.id
+    ][:20]
     return [serialize_user(row) for row in users_rows]
 
 
@@ -3997,7 +4146,8 @@ def search_users(q: str = Query(default="", max_length=80), user: CurrentUser = 
 def search_posts(q: str = Query(default="", max_length=80), user: CurrentUser = Depends(current_user)) -> list[dict]:
     query = q.strip()
     if len(query) < 2: return []
-    posts_rows = safe_get(
+    blocked_ids = blocked_relationship_ids(user.id)
+    posts_rows = [row for row in safe_get(
         "posts",
         {
             "status": "eq.published",
@@ -4005,11 +4155,10 @@ def search_posts(q: str = Query(default="", max_length=80), user: CurrentUser = 
             "select": "id,title,content,media_url,type,created_at,published_at,author_id",
             "limit": "20",
         },
-    )
+    ) if row.get("author_id") not in blocked_ids]
     return [
         {
             "id": row["id"],
-        "email": row.get("email"),
             "title": row.get("title"),
             "content": row.get("content"),
             "mediaUrl": row.get("media_url"),
@@ -4023,8 +4172,10 @@ def search_posts(q: str = Query(default="", max_length=80), user: CurrentUser = 
 # FILE / MEDIA UPLOAD  →  Supabase Storage
 # ─────────────────────────────────────────────
 # Uses existing buckets: 'avatars' and 'group-media'
-SUPABASE_AVATAR_BUCKET = os.getenv("SUPABASE_AVATAR_BUCKET", "avatars")
-SUPABASE_MEDIA_BUCKET  = os.getenv("SUPABASE_MEDIA_BUCKET", "group-media")
+SUPABASE_PUBLIC_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "oncampus-media")
+SUPABASE_AVATAR_BUCKET = os.getenv("SUPABASE_AVATAR_BUCKET", SUPABASE_PUBLIC_BUCKET)
+SUPABASE_MEDIA_BUCKET  = os.getenv("SUPABASE_MEDIA_BUCKET", SUPABASE_PUBLIC_BUCKET)
+SUPABASE_PRIVATE_BUCKET = os.getenv("SUPABASE_PRIVATE_BUCKET", "verification-docs")
 
 ALLOWED_IMAGE_TYPES  = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 ALLOWED_VIDEO_TYPES  = {"video/mp4", "video/quicktime", "video/webm"}
@@ -4044,8 +4195,14 @@ def _max_bytes(content_type: str) -> int:
     return MAX_IMAGE_SIZE_MB * 1024 * 1024
 
 
-def _storage_upload(file_bytes: bytes, storage_path: str, content_type: str, bucket: str) -> str:
-    """Upload bytes to Supabase Storage and return the public URL."""
+def _storage_upload(
+    file_bytes: bytes,
+    storage_path: str,
+    content_type: str,
+    bucket: str,
+    public: bool = True,
+) -> str:
+    """Upload bytes to Supabase Storage and return a public URL or private reference."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise HTTPException(status_code=503, detail="Supabase storage is not configured.")
 
@@ -4059,7 +4216,9 @@ def _storage_upload(file_bytes: bytes, storage_path: str, content_type: str, buc
     resp = requests.post(upload_url, headers=headers, data=file_bytes, timeout=60)
     if resp.status_code >= 400:
         raise HTTPException(status_code=502, detail=f"Storage upload failed: {resp.text}")
-    return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{storage_path}"
+    if public:
+        return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{storage_path}"
+    return f"storage://{bucket}/{storage_path}"
 
 
 # ── 1. Avatar upload ────────────────────────────────────────────
@@ -4240,10 +4399,16 @@ async def upload_institution_doc(
 
     ext          = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "pdf"
     unique_name  = f"{uuid.uuid4()}.{ext}"
-    storage_path = f"institution-docs/public/{unique_name}"
-    public_url   = _storage_upload(file_bytes, storage_path, file.content_type, SUPABASE_MEDIA_BUCKET)
+    storage_path = f"institution-docs/{uuid.uuid4()}/{unique_name}"
+    private_ref = _storage_upload(
+        file_bytes,
+        storage_path,
+        file.content_type,
+        SUPABASE_PRIVATE_BUCKET,
+        public=False,
+    )
 
-    return {"url": public_url, "type": "institution_document"}
+    return {"url": private_ref, "type": "institution_document"}
 
 
 # -- POST REQUESTS (INSTITUTION LEVEL & MY REQUESTS) ---------
