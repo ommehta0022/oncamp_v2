@@ -120,6 +120,7 @@ admin-panel/.next/
 *.sql
 !database/mobile_api_support.sql
 !database/runtime_api_support.sql
+!database/optimize_api_latency.sql
 !database/demo_oncampus_institution_seed.sql
 !database/remove_demo_oncampus_institution_seed.sql
 !need_to_add/
