@@ -138,6 +138,9 @@ _maintenance_cache: dict[str, Any] = {
     "message": "System under maintenance",
 }
 
+PLATFORM_SETTINGS_CACHE_TTL_SECONDS = int(os.getenv("PLATFORM_SETTINGS_CACHE_TTL_SECONDS", "60"))
+_platform_settings_cache: dict[str, Any] = {"checked_at": 0.0, "value": None}
+
 # SECURITY: Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -159,36 +162,13 @@ app.add_middleware(
 )
 
 @app.middleware("http")
-async def maintenance_mode_middleware(request: Request, call_next):
-    health_paths = {"/health", "/v1/health", "/v1/integrations/health"}
-    if request.url.path.startswith("/admin") or request.url.path in health_paths:
-        return await call_next(request)
-        
-    now = time.monotonic()
-    if now - float(_maintenance_cache["checked_at"]) >= MAINTENANCE_CACHE_TTL_SECONDS:
-        try:
-            settings = db.get("system_settings", {"key": "eq.maintenance_mode", "select": "value", "limit": "1"})
-            enabled = bool(settings and settings[0].get("value") is True)
-            message = "System under maintenance"
-            if enabled:
-                msg_settings = db.get(
-                    "system_settings",
-                    {"key": "eq.maintenance_message", "select": "value", "limit": "1"},
-                )
-                if msg_settings:
-                    message = msg_settings[0].get("value") or message
-            _maintenance_cache.update(checked_at=now, enabled=enabled, message=message)
-        except Exception:
-            # Keep the last known state and retry on the next request.
-            _maintenance_cache["checked_at"] = now
-
-    if _maintenance_cache["enabled"]:
-        return JSONResponse(
-            status_code=503,
-            content={"message": _maintenance_cache["message"], "maintenance": True},
-        )
-        
-    return await call_next(request)
+async def response_timing_middleware(request: Request, call_next):
+    started_at = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.1f}"
+    response.headers["Server-Timing"] = f'app;dur={elapsed_ms:.1f}'
+    return response
 
 
 class SupabaseRest:
@@ -202,6 +182,7 @@ class SupabaseRest:
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json",
+            "Accept-Encoding": "gzip",
         }
         self.session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=50)
@@ -237,6 +218,16 @@ class SupabaseRest:
         response = self.session.delete(f"{self.base}/{table}", headers=headers, params=params, timeout=20)
         return self._json(response)
 
+    def rpc(self, function: str, payload: Optional[dict[str, Any]] = None) -> Any:
+        self.ensure()
+        response = self.session.post(
+            f"{self.base}/rpc/{function}",
+            headers=self.headers,
+            json=payload or {},
+            timeout=20,
+        )
+        return self._json(response)
+
     @staticmethod
     def _json(response: requests.Response) -> Any:
         if response.status_code >= 400:
@@ -250,6 +241,28 @@ db = SupabaseRest()
 DB_READ_EXECUTOR = ThreadPoolExecutor(max_workers=12, thread_name_prefix="supabase-read")
 USER_SECURITY_CACHE_TTL_SECONDS = int(os.getenv("USER_SECURITY_CACHE_TTL_SECONDS", "15"))
 _user_security_cache: dict[str, tuple[float, str]] = {}
+API_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("API_RESPONSE_CACHE_TTL_SECONDS", "15"))
+_api_response_cache: dict[str, tuple[float, Any]] = {}
+
+
+def response_cache_get(key: str) -> Any:
+    cached = _api_response_cache.get(key)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
+    if cached:
+        _api_response_cache.pop(key, None)
+    return None
+
+
+def response_cache_set(key: str, value: Any, ttl_seconds: Optional[int] = None) -> Any:
+    if len(_api_response_cache) > 1000:
+        now = time.monotonic()
+        for cached_key, (expires_at, _) in list(_api_response_cache.items()):
+            if expires_at <= now:
+                _api_response_cache.pop(cached_key, None)
+    ttl = API_RESPONSE_CACHE_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+    _api_response_cache[key] = (time.monotonic() + ttl, value)
+    return value
 
 # Initialize Twilio OTP Service
 twilio_otp = None
@@ -305,20 +318,49 @@ def setting_bool(value: Any, default: bool = False) -> bool:
     return bool(value)
 
 
-def public_platform_settings() -> dict[str, Any]:
-    return {
-        "appName": get_system_setting("platform_name", "OnCampus"),
-        "supportEmail": get_system_setting("support_email", "support@oncampus.app"),
-        "maintenanceMode": setting_bool(get_system_setting("maintenance_mode", False)),
-        "maintenanceMessage": get_system_setting(
-            "maintenance_message",
-            "System under maintenance. We'll be back soon!",
-        ),
-        "registrationEnabled": setting_bool(get_system_setting("registration_enabled", True), True),
-        "groupCreationEnabled": setting_bool(get_system_setting("group_creation_enabled", True), True),
-        "pushNotificationsEnabled": setting_bool(get_system_setting("push_notifications_enabled", True), True),
-        "emailNotificationsEnabled": setting_bool(get_system_setting("email_notifications_enabled", True), True),
+def public_platform_settings(force_refresh: bool = False) -> dict[str, Any]:
+    now = time.monotonic()
+    cached_value = _platform_settings_cache.get("value")
+    if (
+        not force_refresh
+        and cached_value is not None
+        and now - float(_platform_settings_cache["checked_at"]) < PLATFORM_SETTINGS_CACHE_TTL_SECONDS
+    ):
+        return cached_value
+
+    defaults: dict[str, Any] = {
+        "platform_name": "OnCampus",
+        "support_email": "support@oncampus.app",
+        "maintenance_mode": False,
+        "maintenance_message": "System under maintenance. We'll be back soon!",
+        "registration_enabled": True,
+        "group_creation_enabled": True,
+        "push_notifications_enabled": True,
+        "email_notifications_enabled": True,
     }
+    try:
+        keys = ",".join(defaults)
+        rows = db.get("system_settings", {"key": f"in.({keys})", "select": "key,value"})
+        for row in rows:
+            if row.get("key") in defaults:
+                defaults[row["key"]] = row.get("value")
+    except HTTPException:
+        if cached_value is not None:
+            _platform_settings_cache["checked_at"] = now
+            return cached_value
+
+    value = {
+        "appName": defaults["platform_name"],
+        "supportEmail": defaults["support_email"],
+        "maintenanceMode": setting_bool(defaults["maintenance_mode"]),
+        "maintenanceMessage": defaults["maintenance_message"],
+        "registrationEnabled": setting_bool(defaults["registration_enabled"], True),
+        "groupCreationEnabled": setting_bool(defaults["group_creation_enabled"], True),
+        "pushNotificationsEnabled": setting_bool(defaults["push_notifications_enabled"], True),
+        "emailNotificationsEnabled": setting_bool(defaults["email_notifications_enabled"], True),
+    }
+    _platform_settings_cache.update(checked_at=now, value=value)
+    return value
 
 
 @app.middleware("http")
@@ -905,7 +947,9 @@ class VerifyOtpDevDto(BaseModel):
 
 
 class VerifyInstitutionOtpDto(BaseModel):
-    phone: str
+    # `phone` is optional for compatibility with released APKs, which send the
+    # registered value as `identifier` after OTP start.
+    phone: Optional[str] = None
     code: str
     identifier: Optional[str] = None
     platform: Optional[str] = None
@@ -937,11 +981,7 @@ def user_has_institution_access(user_row: Optional[dict[str, Any]]) -> bool:
     )
     if admin_rows:
         return True
-    requests = safe_get(
-        "institution_verification_requests",
-        {"submitted_by": f"eq.{user_row.get('id')}", "select": "id,status", "order": "created_at.desc", "limit": "1"},
-    )
-    return bool(requests)
+    return False
 
 
 def ensure_user_login_allowed(user_row: Optional[dict[str, Any]]) -> None:
@@ -984,16 +1024,19 @@ def find_institution_login(identifier: str) -> dict[str, Any]:
         hashed_phone = phone_hash(phone)
         users = safe_get("users", {"phone_hash": f"eq.{hashed_phone}", "select": "*", "limit": "1"})
         user_row = users[0] if users else None
-        phone_without_country_code = re.sub(r"^\+91", "", phone)
-        request_filters = [
-            {"phone": f"eq.{phone}", "select": "*", "order": "created_at.desc", "limit": "1"},
-            {"phone": f"eq.{phone_without_country_code}", "select": "*", "order": "created_at.desc", "limit": "1"},
-        ]
-        for filters in request_filters:
-            requests = safe_get("institution_verification_requests", filters)
-            if requests:
-                request_row = requests[0]
-                break
+        # Active institution users already have an authoritative phone hash;
+        # avoid two extra verification-request round trips on every login.
+        if not user_has_institution_access(user_row):
+            phone_without_country_code = re.sub(r"^\+91", "", phone)
+            request_filters = [
+                {"phone": f"eq.{phone}", "select": "*", "order": "created_at.desc", "limit": "1"},
+                {"phone": f"eq.{phone_without_country_code}", "select": "*", "order": "created_at.desc", "limit": "1"},
+            ]
+            for filters in request_filters:
+                requests = safe_get("institution_verification_requests", filters)
+                if requests:
+                    request_row = requests[0]
+                    break
 
     if not user_row and request_row and request_row.get("submitted_by"):
         users = safe_get("users", {"id": f"eq.{request_row.get('submitted_by')}", "select": "*", "limit": "1"})
@@ -1078,24 +1121,55 @@ def issue_refresh_token(user_id: str, device_id: str, family: Optional[str] = No
 
 def create_auth_session_for_user(user: dict[str, Any], is_new_user: bool, platform: Optional[str], x_device_id: Optional[str]) -> dict[str, Any]:
     device_id = x_device_id or str(uuid.uuid4())
-    existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id,user_id"})
-    device_data = {
-        "user_id": user["id"],
-        "platform": platform or "unknown",
-        "trusted": True,
-        "last_seen_at": now_iso(),
-    }
-    if existing_device:
-        if existing_device[0].get("user_id") != user["id"]:
-            raise HTTPException(status_code=409, detail="Device identifier is already registered")
-        db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
-    else:
-        db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
-    
+    refresh = secrets.token_urlsafe(48)
+    refresh_id = str(uuid.uuid4())
+    refresh_family = str(uuid.uuid4())
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_TTL_DAYS)).isoformat()
+    try:
+        db.rpc(
+            "oncampus_create_auth_session",
+            {
+                "p_user_id": user["id"],
+                "p_device_id": device_id,
+                "p_platform": platform or "unknown",
+                "p_refresh_id": refresh_id,
+                "p_token_hash": sha256(refresh),
+                "p_family": refresh_family,
+                "p_expires_at": expires_at,
+            },
+        )
+    except HTTPException:
+        # Safe fallback while a deployment is rolling or if the database
+        # migration has not reached a development environment yet.
+        existing_device = db.get("user_devices", {"id": f"eq.{device_id}", "select": "id,user_id"})
+        device_data = {
+            "user_id": user["id"],
+            "platform": platform or "unknown",
+            "trusted": True,
+            "last_seen_at": now_iso(),
+        }
+        if existing_device:
+            if existing_device[0].get("user_id") != user["id"]:
+                raise HTTPException(status_code=409, detail="Device identifier is already registered")
+            db.patch("user_devices", {"id": f"eq.{device_id}"}, device_data)
+        else:
+            db.post("user_devices", {"id": device_id, "user_id": user["id"], **device_data})
+        db.post(
+            "refresh_tokens",
+            {
+                "id": refresh_id,
+                "user_id": user["id"],
+                "device_id": device_id,
+                "token_hash": sha256(refresh),
+                "family": refresh_family,
+                "expires_at": expires_at,
+                "created_at": now_iso(),
+            },
+        )
+
     role = user.get("account_type") or "normal_user"
     access = create_access_token(user["id"], role)
-    refresh = issue_refresh_token(user["id"], device_id)
-    
+
     return {
         "accessToken": access,
         "refreshToken": refresh,
@@ -1274,14 +1348,16 @@ def verify_otp_code_login(payload: VerifyOtpDevDto, x_device_id: Optional[str] =
 
 @app.post("/v1/auth/institution/otp/verify")
 def verify_institution_otp(payload: VerifyInstitutionOtpDto, x_device_id: Optional[str] = Header(default=None)) -> dict[str, Any]:
-    phone = normalized_login_phone(payload.phone)
     code = payload.code.strip()
-    login = find_institution_login(payload.identifier or phone)
+    identifier = (payload.identifier or payload.phone or "").strip()
+    login = find_institution_login(identifier)
+    registered_phone = normalized_login_phone(login["phone"])
+    supplied_phone = normalized_login_phone(payload.phone or registered_phone)
 
-    if normalized_login_phone(login["phone"]) != phone:
+    if supplied_phone != registered_phone:
         raise HTTPException(status_code=400, detail="This OTP does not match the registered institution account.")
 
-    verify_phone_otp_code(phone, code)
+    verify_phone_otp_code(registered_phone, code)
     user = login["user"]
     if user.get("account_type") != "institution_admin":
         patched = db.patch(
@@ -1840,6 +1916,20 @@ def feed(
     limit: int = Query(default=30, ge=1, le=100),
     user: CurrentUser = Depends(current_user),
 ) -> dict[str, Any]:
+    cache_key = f"feed:{user.id}:{page}:{limit}"
+    cached = response_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        fast_feed = db.rpc(
+            "oncampus_fast_feed",
+            {"p_user_id": user.id, "p_page": page, "p_limit": limit},
+        )
+        if isinstance(fast_feed, dict) and isinstance(fast_feed.get("feed"), list):
+            return response_cache_set(cache_key, fast_feed, 5)
+    except HTTPException as exc:
+        logger.warning(f"Fast feed RPC unavailable; using REST fallback: {exc.status_code}")
+
     offset = (page - 1) * limit
     blocked_ids = blocked_relationship_ids(user.id)
     post_filters: dict[str, Any] = {
@@ -1911,7 +2001,7 @@ def feed(
         liked_ids = {row["post_id"] for row in liked_rows}
         saved_rows = feed_data.get("saved", [])
         saved_ids = {row["post_id"] for row in saved_rows}
-    return {
+    result = {
         "feed": [
             {
                 "id": post["id"],
@@ -1943,6 +2033,7 @@ def feed(
         "hasMore": len(posts) == limit,
         "page": page,
     }
+    return response_cache_set(cache_key, result, 5)
 
 
 @app.get("/v1/posts/{post_id}")
@@ -2386,10 +2477,21 @@ def repost_post(post_id: str, user: CurrentUser = Depends(current_user)) -> dict
 
 @app.get("/v1/groups")
 def my_groups(user: CurrentUser = Depends(current_user)) -> Any:
+    cache_key = f"groups:{user.id}"
+    cached = response_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        fast_groups = db.rpc("oncampus_my_groups", {"p_user_id": user.id})
+        if isinstance(fast_groups, list):
+            return response_cache_set(cache_key, fast_groups, 10)
+    except HTTPException as exc:
+        logger.warning(f"Fast groups RPC unavailable; using REST fallback: {exc.status_code}")
+
     memberships = db.get("group_members", {"user_id": f"eq.{user.id}", "status": "eq.active", "select": "group_id,role,pinned,muted,muted_at,last_read_at"})
     group_ids = [row["group_id"] for row in memberships]
     if not group_ids:
-        return []
+        return response_cache_set(cache_key, [], 10)
     groups = db.get(
         "groups",
         {
@@ -2400,7 +2502,7 @@ def my_groups(user: CurrentUser = Depends(current_user)) -> Any:
     )
     membership_by_group = {row["group_id"]: row for row in memberships}
     member_counts = group_member_counts(group_ids)
-    return [
+    result = [
         serialize_group(
             {
                 **group,
@@ -2411,6 +2513,7 @@ def my_groups(user: CurrentUser = Depends(current_user)) -> Any:
         )
         for group in groups
     ]
+    return response_cache_set(cache_key, result, 10)
 
 
 @app.post("/v1/groups")
@@ -2452,6 +2555,26 @@ def discover_groups(
     category: Optional[str] = None,
     official: Optional[bool] = None,
 ) -> dict[str, Any]:
+    cache_key = f"discovery:{q or ''}:{city or ''}:{category or ''}:{official}"
+    cached = response_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        fast_discovery = db.rpc(
+            "oncampus_discovery_groups",
+            {
+                "p_q": q,
+                "p_city": city,
+                "p_category": category,
+                "p_official": official,
+                "p_limit": 50,
+            },
+        )
+        if isinstance(fast_discovery, dict) and isinstance(fast_discovery.get("groups"), list):
+            return response_cache_set(cache_key, fast_discovery, 30)
+    except HTTPException as exc:
+        logger.warning(f"Fast discovery RPC unavailable; using REST fallback: {exc.status_code}")
+
     params = {
         "deleted_at": "is.null",
         "visibility": "eq.public",
@@ -2479,12 +2602,13 @@ def discover_groups(
         ))
 
     member_counts = group_member_counts([row["id"] for row in rows])
-    return {
+    result = {
         "groups": [
             serialize_group({**row, "member_count": member_counts.get(row["id"], 0)})
             for row in rows
         ]
     }
+    return response_cache_set(cache_key, result, 30)
 
 
 @app.get("/v1/groups/{group_id}")
