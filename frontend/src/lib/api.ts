@@ -276,7 +276,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
-    const detail = typeof data?.detail === "string" ? data.detail : data?.detail?.message;
+    const detail = typeof data?.detail === "string"
+      ? data.detail
+      : Array.isArray(data?.detail)
+        ? data.detail.find((item: any) => typeof item?.msg === "string")?.msg
+        : data?.detail?.message;
     const message = detail || data?.message || data?.error?.message || fallbackForStatus(response.status);
     const requestId = response.headers.get("x-request-id") || data?.requestId || data?.request_id;
     throw new ApiError(
@@ -548,7 +552,12 @@ export const api = {
         }>("/auth/institution/otp/verify", {
           method: "POST",
           auth: false,
-          body: { identifier, code, platform: Platform.OS },
+          body: {
+            identifier,
+            ...(identifier.includes("@") ? {} : { phone: identifier }),
+            code,
+            platform: Platform.OS,
+          },
         })
       ),
 
