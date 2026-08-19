@@ -67,7 +67,10 @@ jobs:
       - id: runtime
         name: Read runtime version
         working-directory: frontend
-        run: echo "runtime=$(node -e \"process.stdout.write(String(require('./app.json').expo.runtimeVersion))\")" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          VERSION=$(node -e "process.stdout.write(String(require('./app.json').expo.runtimeVersion))")
+          echo "runtime=$VERSION" >> "$GITHUB_OUTPUT"
 
   package:
     needs: classify
