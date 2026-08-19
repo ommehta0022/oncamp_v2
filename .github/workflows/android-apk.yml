@@ -40,10 +40,13 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install JavaScript dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Build signed release APK
+      - name: Build release APK
         run: |
           chmod +x android/gradlew
           cd android
