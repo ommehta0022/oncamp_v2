@@ -52,7 +52,9 @@ jobs:
 
       - name: Read app version
         id: app_version
-        run: echo "version=$(node -p \"require('./app.json').expo.version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION=$(node -e "process.stdout.write(require('./app.json').expo.version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install JavaScript dependencies
         run: npm ci --legacy-peer-deps
