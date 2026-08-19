@@ -3,10 +3,15 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.1.0"
-def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "2").toInteger()
+def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.2.0"
+def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "3").toInteger()
 
 react {
+    // Keep the native JS engine consistent between embedded and OTA updates.
+    ext {
+        hermesEnabled = (findProperty('expo.jsEngine') ?: "hermes") == "hermes"
+    }
+
     entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
     reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
     hermesCommand = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
