@@ -15,7 +15,38 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-android-1.2.0-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  announce:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Record running release
+        run: |
+          mkdir -p .github
+          cat > .github/release-android-1.2.0-status.json <<EOF
+          {
+            "run_id": "${{ github.run_id }}",
+            "run_number": "${{ github.run_number }}",
+            "head_sha": "${{ github.sha }}",
+            "build": "running",
+            "publish": "pending"
+          }
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/release-android-1.2.0-status.json
+          git diff --cached --quiet || git commit -m "Record running Android 1.2.0 release"
+          git push
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 40
