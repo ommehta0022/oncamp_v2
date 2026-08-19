@@ -15,7 +15,6 @@
     android:icon="@drawable/oncampus_app_icon"
     android:roundIcon="@drawable/oncampus_app_icon"
     android:allowBackup="false"
-    android:fullBackupContent="false"
     android:usesCleartextTraffic="false"
     android:theme="@style/AppTheme"
     android:supportsRtl="true"
