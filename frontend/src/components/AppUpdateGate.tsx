@@ -1,14 +1,18 @@
 import React, { useEffect } from "react";
 import { Alert, AppState, Linking, Platform } from "react-native";
 import Constants from "expo-constants";
+import * as Updates from "expo-updates";
 
 const RELEASE_API = "https://api.github.com/repos/ommehta0022/oncamp_v2/releases/latest";
 const TRUSTED_DOWNLOAD_PREFIX = "https://github.com/ommehta0022/oncamp_v2/releases/download/";
 const APK_NAME = "OnCampus.apk";
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const OTA_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 
 let lastAutomaticCheckAt = 0;
+let lastOtaCheckAt = 0;
 let activeCheck: Promise<void> | null = null;
+let activeOtaCheck: Promise<boolean> | null = null;
 
 type ReleaseAsset = {
   name?: string;
@@ -72,11 +76,55 @@ function isTrustedApkUrl(url?: string) {
   );
 }
 
+async function checkForOtaUpdate(manual = false): Promise<boolean> {
+  if (Platform.OS !== "android" || !Updates.isEnabled) return false;
+
+  const now = Date.now();
+  if (!manual && now - lastOtaCheckAt < OTA_CHECK_INTERVAL_MS) return false;
+  if (activeOtaCheck) return activeOtaCheck;
+  if (!manual) lastOtaCheckAt = now;
+
+  activeOtaCheck = (async () => {
+    try {
+      const result = await Updates.checkForUpdateAsync();
+      if (!result.isAvailable) return false;
+
+      await Updates.fetchUpdateAsync();
+      Alert.alert(
+        "OnCampus update ready",
+        "A new secure app update has been downloaded. Restart OnCampus to apply it now.",
+        [
+          { text: "Later", style: "cancel" },
+          {
+            text: "Restart now",
+            onPress: () => {
+              void Updates.reloadAsync();
+            },
+          },
+        ]
+      );
+      return true;
+    } catch {
+      // The embedded build remains usable if the OTA service is unavailable.
+      return false;
+    }
+  })();
+
+  try {
+    return await activeOtaCheck;
+  } finally {
+    activeOtaCheck = null;
+  }
+}
+
 export async function checkForAppUpdate(manual = false) {
   if (Platform.OS !== "android") {
     if (manual) Alert.alert("Updates", "App update checks are currently available on Android.");
     return;
   }
+
+  const otaReady = await checkForOtaUpdate(manual);
+  if (otaReady) return;
 
   const now = Date.now();
   if (!manual && now - lastAutomaticCheckAt < CHECK_INTERVAL_MS) return;
@@ -103,14 +151,17 @@ export async function checkForAppUpdate(manual = false) {
       const latestVersion = normalizeVersion(release.tag_name || release.name);
 
       if (!latestVersion || compareVersions(latestVersion, currentVersion) <= 0) {
-        if (manual) Alert.alert("You're up to date", `OnCampus ${currentVersion} is the latest version.`);
+        if (manual) {
+          const runtime = Updates.runtimeVersion || currentVersion;
+          Alert.alert("You're up to date", `OnCampus ${currentVersion} (runtime ${runtime}) is up to date.`);
+        }
         return;
       }
 
       const apk = release.assets?.find((asset) => asset.name === APK_NAME);
       const downloadUrl = apk?.browser_download_url;
       if (!isTrustedApkUrl(downloadUrl)) {
-        if (manual) Alert.alert("Updates", "The latest release is not ready for Android installation yet.");
+        if (manual) Alert.alert("Updates", "The latest native release is not ready for Android installation yet.");
         return;
       }
 
@@ -126,7 +177,7 @@ export async function checkForAppUpdate(manual = false) {
       };
 
       Alert.alert(
-        forceUpdate ? "Update required" : "Update available",
+        forceUpdate ? "Native update required" : "Native update available",
         message,
         forceUpdate
           ? [{ text: "Update now", onPress: install }]
