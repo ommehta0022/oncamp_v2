@@ -149,7 +149,7 @@ export default function Profile() {
             )}
           </View>
           <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: 2 }}>
-            {(user as any)?.handle ? @ : (user as any)?.email || ""}
+            {(user as any)?.handle ? `@${(user as any).handle}` : (user as any)?.email || ""}
           </Text>
 
           {!!(user as any)?.bio && (
