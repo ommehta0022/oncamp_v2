@@ -14,6 +14,7 @@ import { NotificationProvider } from "@/src/context/NotificationProvider";
 import { PushNotificationProvider } from "@/src/context/PushNotificationProvider";
 import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
 import { ToastProvider } from "@/src/components/Toast";
+import AppUpdateGate from "@/src/components/AppUpdateGate";
 import { api } from "@/src/lib/api";
 
 // Temporarily disabled per current QA requirement.
@@ -109,6 +110,7 @@ export default function RootLayout() {
                   <PushNotificationProvider>
                     <ToastProvider>
                       <ThemedStack />
+                      <AppUpdateGate />
                       {/* SessionExpiredModal temporarily disabled. */}
                     </ToastProvider>
                   </PushNotificationProvider>
