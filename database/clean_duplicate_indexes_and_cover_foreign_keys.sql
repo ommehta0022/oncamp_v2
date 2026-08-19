@@ -1,0 +1,43 @@
+BEGIN;
+
+DROP INDEX IF EXISTS public.idx_admin_sessions_expires_at;
+DROP INDEX IF EXISTS public.idx_admin_users_is_active;
+DROP INDEX IF EXISTS public.idx_audit_logs_created_at;
+DROP INDEX IF EXISTS public.idx_blocked_ips_ip_address;
+DROP INDEX IF EXISTS public.idx_content_reports_created_at;
+DROP INDEX IF EXISTS public.idx_error_logs_created_at;
+DROP INDEX IF EXISTS public.idx_failed_logins_created_at;
+DROP INDEX IF EXISTS public.idx_feature_flags_flag_key;
+DROP INDEX IF EXISTS public.idx_group_members_role;
+DROP INDEX IF EXISTS public.idx_group_members_status;
+DROP INDEX IF EXISTS public.idx_group_members_user_id;
+DROP INDEX IF EXISTS public.idx_group_post_requests_institution_id;
+DROP INDEX IF EXISTS public.idx_group_post_requests_requester;
+DROP INDEX IF EXISTS public.idx_groups_category;
+DROP INDEX IF EXISTS public.idx_groups_city;
+DROP INDEX IF EXISTS public.idx_groups_creator;
+DROP INDEX IF EXISTS public.idx_groups_institution_id;
+DROP INDEX IF EXISTS public.idx_groups_visibility;
+DROP INDEX IF EXISTS public.idx_messages_sender_id;
+DROP INDEX IF EXISTS public.idx_rate_limit_endpoint;
+DROP INDEX IF EXISTS public.idx_reports_group_id;
+DROP INDEX IF EXISTS public.idx_reports_status;
+DROP INDEX IF EXISTS public.idx_saved_posts_post_id;
+DROP INDEX IF EXISTS public.idx_user_blocks_blocked_user_id;
+DROP INDEX IF EXISTS public.idx_user_devices_user_id;
+DROP INDEX IF EXISTS public.idx_user_follows_following_id;
+DROP INDEX IF EXISTS public.idx_users_city;
+DROP INDEX IF EXISTS public.idx_users_phone_hash;
+DROP INDEX IF EXISTS public.idx_users_verified;
+
+CREATE INDEX IF NOT EXISTS idx_blocked_ips_blocked_by ON public.blocked_ips(blocked_by);
+CREATE INDEX IF NOT EXISTS idx_blocked_keywords_added_by ON public.blocked_keywords(added_by);
+CREATE INDEX IF NOT EXISTS idx_content_reports_resolved_by ON public.content_reports(resolved_by);
+CREATE INDEX IF NOT EXISTS idx_error_logs_resolved_by ON public.error_logs(resolved_by);
+CREATE INDEX IF NOT EXISTS idx_group_member_bans_banned_by ON public.group_member_bans(banned_by);
+CREATE INDEX IF NOT EXISTS idx_group_member_mutes_muted_by ON public.group_member_mutes(muted_by);
+CREATE INDEX IF NOT EXISTS idx_institutions_created_by ON public.institutions(created_by);
+CREATE INDEX IF NOT EXISTS idx_system_settings_updated_by ON public.system_settings(updated_by);
+CREATE INDEX IF NOT EXISTS idx_user_pinned_groups_group_id ON public.user_pinned_groups(group_id);
+
+COMMIT;
