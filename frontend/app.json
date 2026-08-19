@@ -7,6 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "oncampus",
+    "backgroundColor": "#2E5C4E",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "updates": {
@@ -50,7 +51,7 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#071A3D"
+          "backgroundColor": "#2E5C4E"
         }
       ],
       [
