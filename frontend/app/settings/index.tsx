@@ -11,6 +11,7 @@ import Header from "@/src/components/Header";
 import SettingsRow from "@/src/components/SettingsRow";
 import Avatar from "@/src/components/Avatar";
 import Button from "@/src/components/Button";
+import { checkForAppUpdate } from "@/src/components/AppUpdateGate";
 import { useRole } from "@/src/context/RoleProvider";
 import { clearSession } from "@/src/lib/api";
 
@@ -19,11 +20,10 @@ export default function Settings() {
   const { user } = useRole();
   const router = useRouter();
   const version = Constants.expoConfig?.version || "1.0.0";
-  
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const logout = async () => {
-    if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS === "ios") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await clearSession(false);
     router.replace("/(auth)/welcome");
   };
@@ -32,16 +32,15 @@ export default function Settings() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.surface }} edges={["top"]} testID="settings-screen">
       <Header title="Settings" onBack={() => router.back()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
-        
         <Pressable
           onPress={() => router.push("/settings/edit-profile")}
           onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start()}
           onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
         >
           <Animated.View style={[
-            styles.profileCard, 
-            { 
-              backgroundColor: colors.surfaceSecondary || colors.surface, 
+            styles.profileCard,
+            {
+              backgroundColor: colors.surfaceSecondary || colors.surface,
               borderColor: colors.border,
               transform: [{ scale: scaleAnim }],
               shadowColor: "#000",
@@ -49,11 +48,11 @@ export default function Settings() {
               shadowOpacity: 0.05,
               shadowRadius: 10,
               elevation: 2,
-            }
+            },
           ]}>
             <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={64} verified={user?.verified} />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 18, fontWeight: "700", letterSpacing: 0 }}>
+              <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 18, fontWeight: "700" }}>
                 {user?.name || "Complete your profile"}
               </Text>
               <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4, fontWeight: "500" }}>
@@ -75,18 +74,15 @@ export default function Settings() {
         </Section>
 
         <Section title="Preferences">
-          <SettingsRow
-            icon="color-palette"
-            title="Appearance"
-            value={mode === "system" ? "Auto" : mode === "dark" ? "Dark" : "Light"}
-            onPress={() => router.push("/settings/theme")}
-          />
+          <SettingsRow icon="color-palette" title="Appearance" value={mode === "system" ? "Auto" : mode === "dark" ? "Dark" : "Light"} onPress={() => router.push("/settings/theme")} />
           <Divider />
           <SettingsRow icon="notifications" title="Notifications" onPress={() => router.push("/settings/notifications")} />
           <Divider />
           <SettingsRow icon="cloud-download" title="Storage & Data" onPress={() => router.push("/settings/storage")} />
           <Divider />
           <SettingsRow icon="language" title="Language" value="English" onPress={() => router.push("/settings/language")} />
+          <Divider />
+          <SettingsRow icon="download-outline" title="Check for Updates" value={`v${version}`} onPress={() => void checkForAppUpdate(true)} />
         </Section>
 
         <Section title="Community">
@@ -104,9 +100,9 @@ export default function Settings() {
         </Section>
 
         <View style={{ padding: spacing.xl, marginTop: spacing.lg }}>
-          <Button 
-            label="Log Out" 
-            variant="outline" 
+          <Button
+            label="Log Out"
+            variant="outline"
             onPress={logout}
             style={{ borderColor: colors.error || "#ef4444" }}
             textStyle={{ color: colors.error || "#ef4444" }}
@@ -126,26 +122,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   const { colors } = useTheme();
   return (
     <View style={{ marginTop: spacing.md }}>
-      <Text style={{ 
-        color: colors.textSecondary || colors.onSurfaceTertiary, 
-        fontSize: 12, 
-        fontWeight: "700", 
-        paddingHorizontal: spacing.xl, 
-        marginTop: spacing.md, 
-        marginBottom: spacing.sm, 
-        textTransform: "uppercase", 
-        letterSpacing: 1 
-      }}>
+      <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 12, fontWeight: "700", paddingHorizontal: spacing.xl, marginTop: spacing.md, marginBottom: spacing.sm, textTransform: "uppercase", letterSpacing: 1 }}>
         {title}
       </Text>
-      <View style={[
-        styles.section, 
-        { 
-          backgroundColor: colors.surfaceSecondary || colors.surface, 
-        }
-      ]}>
-        {children}
-      </View>
+      <View style={[styles.section, { backgroundColor: colors.surfaceSecondary || colors.surface }]}>{children}</View>
     </View>
   );
 }
@@ -161,11 +141,6 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.xl, marginTop: spacing.lg, marginBottom: spacing.sm,
     padding: spacing.md, borderRadius: radius.lg, borderWidth: 1,
   },
-  editIcon: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: "center", justifyContent: "center",
-  },
-  section: {
-    marginHorizontal: spacing.xl, borderRadius: radius.lg, overflow: "hidden",
-  },
+  editIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  section: { marginHorizontal: spacing.xl, borderRadius: radius.lg, overflow: "hidden" },
 });
