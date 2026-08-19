@@ -1,8 +1,9 @@
 import { useEffect } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Dimensions } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, spacing } from "@/src/theme/colors";
@@ -10,7 +11,6 @@ import { font, spacing } from "@/src/theme/colors";
 export default function Splash() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { height } = Dimensions.get("window");
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -22,9 +22,12 @@ export default function Splash() {
   }, [router]);
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.brandPrimary, height }]} testID="splash-screen">
+    <View style={styles.root} testID="splash-screen">
+      <StatusBar hidden animated={false} />
       <LinearGradient
-        colors={[colors.brandPrimary, "#1B382F"]}
+        colors={[colors.brandPrimary, colors.gradientEnd || "#1B382F"]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
       <View style={styles.center}>
@@ -33,19 +36,48 @@ export default function Splash() {
         </View>
         <Text style={styles.brand}>OnCampus</Text>
         <Text style={styles.tagline}>Your campus, connected.</Text>
-        <ActivityIndicator color="#ffffffaa" style={{ marginTop: spacing["2xl"] }} />
+        <ActivityIndicator color="#ffffffaa" style={styles.loader} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  root: {
+    flex: 1,
+    width: "100%",
+    alignSelf: "stretch",
+    overflow: "hidden",
+    backgroundColor: "#2E5C4E",
+  },
+  center: {
+    flex: 1,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+  },
   logoWrap: {
-    width: 88, height: 88, borderRadius: 24,
-    alignItems: "center", justifyContent: "center",
+    width: 88,
+    height: 88,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
   },
-  brand: { color: "#fff", fontSize: 32, fontWeight: "500", marginTop: spacing.lg, letterSpacing: 0 },
-  tagline: { color: "#ffffffcc", fontSize: font.base, marginTop: spacing.xs },
+  brand: {
+    color: "#fff",
+    fontSize: 32,
+    fontWeight: "500",
+    marginTop: spacing.lg,
+    letterSpacing: 0,
+    textAlign: "center",
+  },
+  tagline: {
+    color: "#ffffffcc",
+    fontSize: font.base,
+    marginTop: spacing.xs,
+    textAlign: "center",
+  },
+  loader: { marginTop: spacing["2xl"] },
 });
