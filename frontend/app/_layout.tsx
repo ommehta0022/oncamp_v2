@@ -16,7 +16,8 @@ import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
 import { ToastProvider } from "@/src/components/Toast";
 import { api } from "@/src/lib/api";
 
-import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
+// Temporarily disabled per current QA requirement.
+// import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
 
 LogBox.ignoreAllLogs(true);
 
@@ -108,7 +109,7 @@ export default function RootLayout() {
                   <PushNotificationProvider>
                     <ToastProvider>
                       <ThemedStack />
-                      <SessionExpiredModal />
+                      {/* SessionExpiredModal temporarily disabled. */}
                     </ToastProvider>
                   </PushNotificationProvider>
                 </NotificationProvider>
