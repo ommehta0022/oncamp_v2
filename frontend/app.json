@@ -2,12 +2,24 @@
   "expo": {
     "name": "OnCampus",
     "slug": "oncampus",
-    "version": "1.1.0",
+    "version": "1.2.0",
+    "runtimeVersion": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "oncampus",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "updates": {
+      "enabled": true,
+      "url": "https://oncampus-backend-production.up.railway.app/v1/updates/manifest",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "codeSigningCertificate": "./certs/ota-certificate.pem",
+      "codeSigningMetadata": {
+        "keyid": "oncampus-main",
+        "alg": "rsa-v1_5-sha256"
+      }
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.oncampus.app",
@@ -53,7 +65,9 @@
       "typedRoutes": false
     },
     "extra": {
-      "apiBaseUrl": "https://oncampus-backend-production.up.railway.app/v1"
+      "apiBaseUrl": "https://oncampus-backend-production.up.railway.app/v1",
+      "otaRuntimeVersion": "1.2.0",
+      "otaChannel": "production"
     }
   }
 }
