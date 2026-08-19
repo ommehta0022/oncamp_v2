@@ -111,3 +111,31 @@ jobs:
           files: |
             release/OnCampus.apk
             release/OnCampus.apk.sha256
+
+  report:
+    needs: [build, publish]
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Record release run status
+        run: |
+          mkdir -p .github
+          cat > .github/release-android-1.2.0-status.json <<EOF
+          {
+            "run_id": "${{ github.run_id }}",
+            "run_number": "${{ github.run_number }}",
+            "head_sha": "${{ github.sha }}",
+            "build": "${{ needs.build.result }}",
+            "publish": "${{ needs.publish.result }}"
+          }
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/release-android-1.2.0-status.json
+          git diff --cached --quiet || git commit -m "Record Android 1.2.0 release status"
+          git push
