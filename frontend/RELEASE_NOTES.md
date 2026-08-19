@@ -1,6 +1,6 @@
 <!-- min-version:1.0.0 -->
 <!-- force-update:false -->
-<!-- ci-verification:android-1.1.0 -->
+<!-- ci-verification:android-1.1.0-r2 -->
 
 ## OnCampus 1.1.0
 
