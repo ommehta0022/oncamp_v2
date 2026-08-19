@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import * as SystemUI from "expo-system-ui";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, LogBox, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -20,8 +21,10 @@ import { api } from "@/src/lib/api";
 // Temporarily disabled per current QA requirement.
 // import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
 
-LogBox.ignoreAllLogs(true);
+const STARTUP_BACKGROUND = "#2E5C4E";
 
+LogBox.ignoreAllLogs(true);
+void SystemUI.setBackgroundColorAsync(STARTUP_BACKGROUND).catch(() => undefined);
 SplashScreen.preventAutoHideAsync();
 
 function ThemedStack() {
@@ -53,8 +56,9 @@ function ThemedStack() {
 
   if (checkingSettings) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface }}>
-        <ActivityIndicator color={colors.brandPrimary} />
+      <View style={{ flex: 1, width: "100%", alignItems: "center", justifyContent: "center", backgroundColor: STARTUP_BACKGROUND }}>
+        <StatusBar hidden animated={false} />
+        <ActivityIndicator color="#FFFFFF" />
       </View>
     );
   }
@@ -77,12 +81,12 @@ function ThemedStack() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+    <View style={{ flex: 1, width: "100%", backgroundColor: colors.surface }}>
       <StatusBar style={isDark ? "light" : "dark"} translucent backgroundColor="transparent" />
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: colors.surface },
+          contentStyle: { flex: 1, backgroundColor: colors.surface },
           animation: "slide_from_right",
         }}
       />
@@ -100,7 +104,7 @@ export default function RootLayout() {
   if (!loaded && !error) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, width: "100%", backgroundColor: STARTUP_BACKGROUND }}>
       <SafeAreaProvider>
         <ActionSheetProvider>
           <ThemeProvider>
