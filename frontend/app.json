@@ -2,7 +2,7 @@
   "expo": {
     "name": "OnCampus",
     "slug": "oncampus",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "oncampus",
@@ -19,11 +19,11 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#071A3D"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.oncampus.app",
-      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "VIBRATE"]
+      "permissions": ["CAMERA", "VIBRATE"]
     },
     "web": {
       "bundler": "metro",
@@ -38,7 +38,7 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#071A3D"
         }
       ],
       [
@@ -53,7 +53,7 @@
       "typedRoutes": false
     },
     "extra": {
-      "apiBaseUrl": "https://perpetual-motivation-production-be1a.up.railway.app/v1"
+      "apiBaseUrl": "https://oncampus-backend-production.up.railway.app/v1"
     }
   }
 }
