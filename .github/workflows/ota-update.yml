@@ -5,13 +5,17 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "frontend/**"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: oncampus-ota-production
+  group: oncampus-ota-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - id: scope
         name: Classify update safety
@@ -35,13 +39,16 @@ jobs:
             exit 0
           fi
 
-          BEFORE="${{ github.event.before }}"
-          AFTER="${{ github.sha }}"
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            BEFORE="${AFTER}^"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --name-only "origin/${{ github.base_ref }}...HEAD" > /tmp/changed.txt
+          else
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.sha }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              BEFORE="${AFTER}^"
+            fi
+            git diff --name-only "$BEFORE" "$AFTER" > /tmp/changed.txt
           fi
-
-          git diff --name-only "$BEFORE" "$AFTER" > /tmp/changed.txt
           cat /tmp/changed.txt
 
           if grep -Eq '^frontend/(android/|ios/|package\.json$|package-lock\.json$|app\.json$|babel\.config\.|metro\.config\.|plugins/|certs/)' /tmp/changed.txt; then
@@ -62,7 +69,7 @@ jobs:
         working-directory: frontend
         run: echo "runtime=$(node -e \"process.stdout.write(String(require('./app.json').expo.runtimeVersion))\")" >> "$GITHUB_OUTPUT"
 
-  publish:
+  package:
     needs: classify
     if: needs.classify.outputs.publish == 'true'
     runs-on: ubuntu-latest
@@ -94,7 +101,17 @@ jobs:
         working-directory: frontend
         run: node scripts/prepare-ota-release.mjs ota-dist ota-release
 
+      - name: Upload verification artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnCampus-OTA-${{ needs.classify.outputs.runtime }}-verify
+          path: frontend/ota-release/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Publish production OTA pointer and immutable assets
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ota-runtime-${{ needs.classify.outputs.runtime }}
