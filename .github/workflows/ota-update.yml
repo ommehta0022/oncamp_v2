@@ -1,0 +1,108 @@
+name: Publish OnCampus OTA Update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: oncampus-ota-production
+  cancel-in-progress: true
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.scope.outputs.publish }}
+      runtime: ${{ steps.runtime.outputs.runtime }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: scope
+        name: Classify update safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            BEFORE="${AFTER}^"
+          fi
+
+          git diff --name-only "$BEFORE" "$AFTER" > /tmp/changed.txt
+          cat /tmp/changed.txt
+
+          if grep -Eq '^frontend/(android/|ios/|package\.json$|package-lock\.json$|app\.json$|babel\.config\.|metro\.config\.|plugins/|certs/)' /tmp/changed.txt; then
+            echo "Native/runtime-sensitive change detected; OTA intentionally skipped."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if grep -Eq '^frontend/(app/|src/|assets/|components/|constants/|hooks/|lib/|utils/)' /tmp/changed.txt; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No OTA-deliverable app change detected."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: runtime
+        name: Read runtime version
+        working-directory: frontend
+        run: echo "runtime=$(node -e \"process.stdout.write(String(require('./app.json').expo.runtimeVersion))\")" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: classify
+    if: needs.classify.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Export Android JS and assets
+        working-directory: frontend
+        run: |
+          rm -rf ota-dist ota-release
+          npx expo export --platform android --output-dir ota-dist
+          npx expo config --type public --json > ota-dist/expoConfig.json
+
+      - name: Package content-addressed OTA release
+        working-directory: frontend
+        run: node scripts/prepare-ota-release.mjs ota-dist ota-release
+
+      - name: Publish production OTA pointer and immutable assets
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ota-runtime-${{ needs.classify.outputs.runtime }}
+          name: OnCampus OTA Runtime ${{ needs.classify.outputs.runtime }}
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          body: |
+            Signed production OTA channel for OnCampus runtime ${{ needs.classify.outputs.runtime }}.
+            This release is consumed by the in-app updater and is not a native APK release.
+          files: frontend/ota-release/*
