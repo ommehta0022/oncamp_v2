@@ -161,7 +161,7 @@ export default function Profile() {
           <View style={{ flexDirection: "row", gap: spacing.lg, marginTop: spacing.md, flexWrap: "wrap" }}>
             {(user as any)?.course && <MetaRow icon="school-outline" text={(user as any).course} />}
             {(user as any)?.city && <MetaRow icon="location-outline" text={(user as any).city} />}
-            {streakCount > 0 && <MetaRow icon="flame" text={${streakCount} day streak} color="#FF6B35" />}
+            {streakCount > 0 && <MetaRow icon="flame" text={`${streakCount} day streak`} color="#FF6B35" />}
           </View>
 
           {/* Stats Row: Groups / Posts / Streak */}
@@ -218,7 +218,7 @@ export default function Profile() {
               {myGroups.map((g) => (
                 <Pressable
                   key={g.id}
-                  onPress={() => router.push(/group/)}
+                  onPress={() => router.push(`/group/${g.id}`)}
                   style={[styles.groupTile, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
                 >
                   {g.avatarUrl || g.image ? (

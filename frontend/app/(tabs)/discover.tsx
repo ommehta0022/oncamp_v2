@@ -73,7 +73,7 @@ export default function Discover() {
     let list = discoverCards;
     if (category !== "Trending") {
       list = list.filter((card) => {
-        const haystack = ${card.category || ""}  .toLowerCase();
+        const haystack = `${card.category || ""}`.toLowerCase();
         if (category === "Institution") return card.official || card.verified || categoryAliases.Institution.some((alias) => haystack.includes(alias));
         return (categoryAliases[category] || [category]).some((alias) => haystack.includes(alias.toLowerCase()));
       });
@@ -81,7 +81,7 @@ export default function Discover() {
     // City filter
     if (selectedCity) {
       list = list.filter((card) => {
-        const cityHaystack = ${card.city || ""}  .toLowerCase();
+        const cityHaystack = `${card.city || ""}`.toLowerCase();
         return cityHaystack.includes(selectedCity.toLowerCase());
       });
     }
@@ -111,7 +111,7 @@ export default function Discover() {
   const trendingLabel = category !== "Trending"
     ? category.toUpperCase()
     : selectedCity
-    ? TRENDING IN 
+    ? `TRENDING IN ${selectedCity.toUpperCase()}`
     : "TRENDING";
 
   return (
@@ -166,7 +166,7 @@ export default function Discover() {
                     borderColor: active ? "#111414" : colors.borderStrong,
                   },
                 ]}
-                testID={discover-chip-}
+                testID={`discover-chip-${item.toLowerCase()}`}
               >
                 <Text style={{ color: active ? "#fff" : colors.onSurface, fontSize: font.base, fontWeight: "500" }}>
                   {item}
@@ -196,7 +196,7 @@ export default function Discover() {
               width={cardWidth}
               joining={joiningId === card.id}
               onJoin={() => joinGroup(card.id)}
-              onPress={() => router.push(/group/info/)}
+              onPress={() => router.push(`/group/info/${card.id}`)}
               onInstitutionRequest={card.institutionId ? () => router.push({
                 pathname: "/institution/post-request/[id]",
                 params: { id: card.institutionId, name: card.institution || card.city || card.name },
@@ -223,7 +223,7 @@ export default function Discover() {
           <View style={{ padding: spacing["2xl"], alignItems: "center" }}>
             <Ionicons name="search" size={32} color={colors.muted} />
             <Text style={{ color: colors.onSurfaceTertiary, marginTop: spacing.md, fontSize: font.base }}>
-              {query ? No matches for "" : selectedCity ? No groups found in  : "No groups found"}
+              {query ? `No matches for "${query}"` : selectedCity ? `No groups found in ${selectedCity}` : "No groups found"}
             </Text>
           </View>
         )}
@@ -290,11 +290,11 @@ function DiscoverCardTile({
 }) {
   const { colors } = useTheme();
   const title = card.title || card.name || "Group";
-  const members = card.membersText || ${Number(card.members || card.memberCount || 0).toLocaleString()} members;
+  const members = card.membersText || `${Number(card.members || card.memberCount || 0).toLocaleString()} members`;
   const location = [card.city, card.institution].filter(Boolean).join(" - ");
 
   return (
-    <Pressable onPress={onPress} style={[styles.card, { width, height: width * 1.35 }]} testID={discover-card-}>
+    <Pressable onPress={onPress} style={[styles.card, { width, height: width * 1.35 }]} testID={`discover-card-${card.id}`}>
       {card.image ? (
         <Image source={{ uri: card.image }} style={StyleSheet.absoluteFill} contentFit="cover" />
       ) : (
@@ -324,7 +324,7 @@ function DiscoverCardTile({
           )}
         </View>
         <Text style={styles.cardMeta} numberOfLines={1}>
-          {members}{location ?  -  : ""}
+          {members}{location ? ` - ${location}` : ""}
         </Text>
         <Pressable
           style={[styles.joinBtn, { opacity: joining ? 0.75 : 1 }]}
@@ -333,7 +333,7 @@ function DiscoverCardTile({
             onJoin();
           }}
           disabled={joining}
-          testID={join-}
+          testID={`join-${card.id}`}
         >
           {joining ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.joinBtnText}>Request to join</Text>}
         </Pressable>
@@ -344,7 +344,7 @@ function DiscoverCardTile({
               event.stopPropagation();
               onInstitutionRequest();
             }}
-            testID={institution-request-}
+            testID={`institution-request-${card.id}`}
           >
             <Text style={styles.institutionRequestText}>Send post request</Text>
           </Pressable>
