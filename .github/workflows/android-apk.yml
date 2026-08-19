@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build and Release Android APK
 
 on:
   workflow_dispatch:
@@ -9,12 +9,12 @@ on:
       - ".github/workflows/android-apk.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: frontend
@@ -43,6 +43,10 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Read app version
+        id: app_version
+        run: echo "version=$(node -p \"require('./app.json').expo.version\")" >> "$GITHUB_OUTPUT"
+
       - name: Install JavaScript dependencies
         run: npm ci --legacy-peer-deps
 
@@ -50,6 +54,9 @@ jobs:
         run: npx expo export --platform android --output-dir /tmp/oncampus-expo-bundle
 
       - name: Build release APK
+        env:
+          APP_VERSION_NAME: ${{ steps.app_version.outputs.version }}
+          APP_VERSION_CODE: ${{ github.run_number }}
         run: |
           chmod +x android/gradlew
           cd android
@@ -58,10 +65,31 @@ jobs:
       - name: Verify APK exists
         run: test -s android/app/build/outputs/apk/release/app-release.apk
 
-      - name: Upload APK
+      - name: Prepare release APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk OnCampus.apk
+
+      - name: Generate SHA-256
+        run: sha256sum OnCampus.apk | tee OnCampus.apk.sha256
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OnCampus-Android-institution-login-speed-fix
-          path: frontend/android/app/build/outputs/apk/release/app-release.apk
+          name: OnCampus-${{ steps.app_version.outputs.version }}-Android
+          path: |
+            frontend/OnCampus.apk
+            frontend/OnCampus.apk.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish latest app release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.app_version.outputs.version }}
+          name: OnCampus ${{ steps.app_version.outputs.version }}
+          body_path: frontend/RELEASE_NOTES.md
+          make_latest: true
+          overwrite_files: true
+          files: |
+            frontend/OnCampus.apk
+            frontend/OnCampus.apk.sha256
