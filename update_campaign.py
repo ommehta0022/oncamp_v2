@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+import time
 from typing import Any, Literal, Optional
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 import ota_updates
@@ -15,6 +18,11 @@ import server
 router = APIRouter(tags=["update-control"])
 AUTO_CAMPAIGN_INTERVAL_SECONDS = max(15, int(os.getenv("OTA_AUTO_CAMPAIGN_INTERVAL_SECONDS", "30")))
 _install_rate: dict[str, tuple[float, int]] = {}
+
+NATIVE_RELEASE_API = "https://api.github.com/repos/ommehta0022/oncamp_v2/releases/latest"
+NATIVE_RELEASE_PREFIX = "https://github.com/ommehta0022/oncamp_v2/releases/download/"
+PUBLIC_API_BASE = os.getenv("PUBLIC_API_BASE_URL", "https://oncampus-backend-production.up.railway.app").rstrip("/")
+_native_release_cache: tuple[float, Optional[dict[str, Any]]] = (0.0, None)
 
 
 class InstallationDto(BaseModel):
@@ -29,7 +37,7 @@ class InstallationDto(BaseModel):
 
 
 class TriggerCampaignDto(BaseModel):
-    runtimeVersion: str = Field(default="1.3.0", min_length=1, max_length=40)
+    runtimeVersion: str = Field(default="1.4.0", min_length=1, max_length=40)
     title: str = Field(default="OnCampus update available", min_length=1, max_length=160)
     message: str = Field(default="A new OnCampus update is ready to install.", min_length=1, max_length=500)
     forceUpdate: bool = False
@@ -49,9 +57,74 @@ def _latest_campaign(runtime_version: str) -> Optional[dict[str, Any]]:
     return rows[0] if rows else None
 
 
+def _release_flag(body: str, name: str) -> Optional[str]:
+    match = re.search(rf"<!--\s*{re.escape(name)}\s*:\s*([^>]+?)\s*-->", body or "", flags=re.IGNORECASE)
+    return match.group(1).strip() if match else None
+
+
+def _clean_release_notes(body: str) -> str:
+    cleaned = re.sub(r"<!--[\s\S]*?-->", "", body or "")
+    cleaned = re.sub(r"^#+\s*", "", cleaned, flags=re.MULTILINE)
+    return cleaned.replace("\r", "").strip()[:1200]
+
+
+def _fetch_native_release(force: bool = False) -> Optional[dict[str, Any]]:
+    global _native_release_cache
+    now = time.monotonic()
+    cached_at, cached = _native_release_cache
+    if not force and now - cached_at < 60:
+        return cached
+
+    release: Optional[dict[str, Any]] = None
+    try:
+        response = requests.get(
+            NATIVE_RELEASE_API,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "OnCampus-Native-Updater/1.0",
+            },
+            timeout=8,
+        )
+        if response.ok:
+            raw = response.json()
+            tag = str(raw.get("tag_name") or "").strip()
+            if re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+                prefix = f"{NATIVE_RELEASE_PREFIX}{tag}/"
+                assets = raw.get("assets") if isinstance(raw.get("assets"), list) else []
+                apk = next((a for a in assets if a.get("name") == "OnCampus.apk"), None)
+                checksum_asset = next((a for a in assets if a.get("name") == "OnCampus.apk.sha256"), None)
+                apk_url = str((apk or {}).get("browser_download_url") or "")
+                checksum_url = str((checksum_asset or {}).get("browser_download_url") or "")
+                if apk_url == f"{prefix}OnCampus.apk" and checksum_url == f"{prefix}OnCampus.apk.sha256":
+                    checksum_response = requests.get(
+                        checksum_url,
+                        headers={"Accept": "text/plain", "User-Agent": "OnCampus-Native-Updater/1.0"},
+                        timeout=8,
+                    )
+                    checksum_match = re.search(r"\b([A-Fa-f0-9]{64})\b", checksum_response.text if checksum_response.ok else "")
+                    if checksum_match:
+                        body = str(raw.get("body") or "")
+                        version = tag[1:]
+                        release = {
+                            "version": version,
+                            "tag": tag,
+                            "name": str(raw.get("name") or f"OnCampus {version}")[:160],
+                            "notes": _clean_release_notes(body),
+                            "minVersion": _release_flag(body, "min-version") or "0.0.0",
+                            "forceUpdate": str(_release_flag(body, "force-update") or "false").lower() == "true",
+                            "sha256": checksum_match.group(1).lower(),
+                            "size": int((apk or {}).get("size") or 0),
+                            "githubApkUrl": apk_url,
+                        }
+    except Exception as exc:
+        server.logger.warning("Native release metadata unavailable: %s", type(exc).__name__)
+
+    _native_release_cache = (now, release)
+    return release
+
+
 def _secure_firebase_info() -> Optional[dict[str, Any]]:
-    # Server signing credentials are accepted only from protected Railway env.
-    # Never fall back to a repository service-account file.
     raw = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
     if not raw:
         return None
@@ -132,7 +205,6 @@ def _broadcast_fcm(campaign: dict[str, Any]) -> dict[str, Any]:
                 sent += 1
             else:
                 failed += 1
-                # FCM returns 404 for many permanently invalid/unregistered tokens.
                 if response.status_code == 404 and row.get("installation_id"):
                     invalid_installations.append(str(row["installation_id"]))
         except Exception:
@@ -181,7 +253,6 @@ def _create_campaign(
 
 
 def ensure_latest_campaign(runtime_version: str) -> Optional[dict[str, Any]]:
-    """Turn every newly published signed OTA into a server-side campaign exactly once."""
     source = ota_updates.fetch_latest_source(runtime_version)
     if not source:
         return None
@@ -235,7 +306,6 @@ def ensure_latest_campaign(runtime_version: str) -> Optional[dict[str, Any]]:
 
 
 async def auto_campaign_loop() -> None:
-    """Continuously discovers a newly published OTA and triggers client delivery."""
     while True:
         try:
             for runtime in sorted(ota_updates.supported_runtime_versions()):
@@ -248,9 +318,6 @@ async def auto_campaign_loop() -> None:
 
 
 def _allow_install_registration(request: Request) -> None:
-    """Small in-process abuse guard for the unauthenticated device-registration endpoint."""
-    import time
-
     forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
     key = forwarded or (request.client.host if request.client else "unknown")
     now = time.monotonic()
@@ -352,6 +419,39 @@ def get_update_campaign(
         "publishedAt": source.get("createdAt"),
         "pollAfterSeconds": 15,
     }
+
+
+@router.get("/v1/updates/native/latest")
+def get_latest_native_release() -> dict[str, Any]:
+    release = _fetch_native_release()
+    if not release:
+        raise HTTPException(status_code=503, detail="Native release metadata is temporarily unavailable")
+    version = str(release["version"])
+    return {
+        "available": True,
+        "version": version,
+        "name": release["name"],
+        "notes": release["notes"],
+        "minVersion": release["minVersion"],
+        "forceUpdate": release["forceUpdate"],
+        "sha256": release["sha256"],
+        "size": release["size"],
+        "apkUrl": f"{PUBLIC_API_BASE}/v1/updates/native/apk?version={version}",
+    }
+
+
+@router.get("/v1/updates/native/apk")
+def download_latest_native_apk(version: str = Query(..., pattern=r"^\d+\.\d+\.\d+$")) -> RedirectResponse:
+    release = _fetch_native_release()
+    if not release:
+        raise HTTPException(status_code=503, detail="Native release is temporarily unavailable")
+    if str(release["version"]) != version:
+        raise HTTPException(status_code=409, detail="A newer native release is available; refresh update metadata")
+    return RedirectResponse(
+        url=str(release["githubApkUrl"]),
+        status_code=307,
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post("/v1/admin/updates/trigger")
