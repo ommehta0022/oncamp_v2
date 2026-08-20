@@ -3,29 +3,31 @@ from __future__ import annotations
 import logging
 import os
 import re
+from typing import Optional
 
 import uvicorn
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
-import server
 import ota_updates
+import server
 from institution_content_workflow import router as institution_content_router
+from update_campaign import router as update_campaign_router
 
 app = server.app
 app.include_router(institution_content_router)
+app.include_router(update_campaign_router)
 logger = logging.getLogger("oncampus")
 
-# Register OTA endpoints explicitly on the production app so Railway always
-# exposes the updater regardless of router-import behavior.
+
 @app.get("/v1/updates/manifest", include_in_schema=False)
 def production_ota_manifest(request: Request) -> Response:
     return ota_updates.expo_updates_manifest(request)
 
 
 @app.get("/v1/updates/status", include_in_schema=False)
-def production_ota_status() -> dict:
-    return ota_updates.expo_updates_status()
+def production_ota_status(runtimeVersion: Optional[str] = None) -> dict:
+    return ota_updates.expo_updates_status(runtimeVersion)
 
 
 @app.on_event("startup")
@@ -34,6 +36,9 @@ async def verify_production_routes() -> None:
     required = {
         "/v1/updates/manifest",
         "/v1/updates/status",
+        "/v1/updates/installations",
+        "/v1/updates/campaign",
+        "/v1/admin/updates/trigger",
         "/v1/institutions/me/content/overview",
     }
     missing = sorted(path for path in required if path not in route_paths)
