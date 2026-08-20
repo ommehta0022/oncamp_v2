@@ -68,6 +68,13 @@ def _clean_release_notes(body: str) -> str:
     return cleaned.replace("\r", "").strip()[:1200]
 
 
+def _version_tuple(value: Optional[str]) -> tuple[int, int, int]:
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", str(value or "").strip())
+    if not match:
+        return (0, 0, 0)
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
 def _fetch_native_release(force: bool = False) -> Optional[dict[str, Any]]:
     global _native_release_cache
     now = time.monotonic()
@@ -381,13 +388,26 @@ def get_update_campaign(
     runtimeVersion: str = Query(..., min_length=1, max_length=40),
     currentUpdateId: Optional[str] = Query(default=None, max_length=160),
     installationId: Optional[str] = Query(default=None, max_length=160),
+    nativeVersion: Optional[str] = Query(default=None, max_length=40),
 ) -> dict[str, Any]:
+    native_release = _fetch_native_release()
+    native_release_version = str((native_release or {}).get("version") or "")
+    native_update_available = bool(
+        native_release_version
+        and nativeVersion
+        and _version_tuple(native_release_version) > _version_tuple(nativeVersion)
+    )
+    native_fields = {
+        "nativeUpdateAvailable": native_update_available,
+        "nativeReleaseVersion": native_release_version or None,
+    }
+
     if runtimeVersion not in ota_updates.supported_runtime_versions():
-        return {"available": False, "runtimeVersion": runtimeVersion, "pollAfterSeconds": 15}
+        return {"available": False, "runtimeVersion": runtimeVersion, "pollAfterSeconds": 15, **native_fields}
 
     source = ota_updates.fetch_latest_source(runtimeVersion)
     if not source:
-        return {"available": False, "runtimeVersion": runtimeVersion, "pollAfterSeconds": 15}
+        return {"available": False, "runtimeVersion": runtimeVersion, "pollAfterSeconds": 15, **native_fields}
 
     campaign = _latest_campaign(runtimeVersion)
     source_id = str(source.get("id"))
@@ -400,6 +420,7 @@ def get_update_campaign(
                 {"installation_id": f"eq.{installationId}"},
                 {
                     "runtime_version": runtimeVersion,
+                    "native_version": nativeVersion,
                     "current_update_id": currentUpdateId,
                     "last_seen_at": server.now_iso(),
                     "updated_at": server.now_iso(),
@@ -418,6 +439,7 @@ def get_update_campaign(
         "forceUpdate": bool((campaign or {}).get("force_update", False)),
         "publishedAt": source.get("createdAt"),
         "pollAfterSeconds": 15,
+        **native_fields,
     }
 
 
