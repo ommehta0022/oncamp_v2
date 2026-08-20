@@ -1,19 +1,47 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 
 import uvicorn
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 import server
+import ota_updates
 from institution_content_workflow import router as institution_content_router
-from ota_updates import router as ota_router
 
 app = server.app
-app.include_router(ota_router)
 app.include_router(institution_content_router)
+logger = logging.getLogger("oncampus")
+
+# Register the OTA endpoints explicitly on the production app instead of relying
+# on router inclusion. This removes ambiguity in the Railway entrypoint and gives
+# us a startup assertion that fails loudly if either endpoint ever disappears.
+@app.get("/v1/updates/manifest", include_in_schema=False)
+def production_ota_manifest(request: Request) -> Response:
+    return ota_updates.expo_updates_manifest(request)
+
+
+@app.get("/v1/updates/status", include_in_schema=False)
+def production_ota_status() -> dict:
+    return ota_updates.expo_updates_status()
+
+
+@app.on_event("startup")
+async def verify_production_routes() -> None:
+    route_paths = {getattr(route, "path", "") for route in app.routes}
+    required = {
+        "/v1/updates/manifest",
+        "/v1/updates/status",
+        "/v1/institution/content/overview",
+    }
+    missing = sorted(path for path in required if path not in route_paths)
+    if missing:
+        logger.critical("Production route registration failure: %s", ", ".join(missing))
+        raise RuntimeError(f"Required production routes missing: {', '.join(missing)}")
+    logger.info("Production OTA/content routes verified")
 
 
 def institution_admin_or_error(request: Request):
