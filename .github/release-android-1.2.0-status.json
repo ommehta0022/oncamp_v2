@@ -2,6 +2,6 @@
   "run_id": "32339820047",
   "run_number": "15",
   "head_sha": "caaa662855cc6367aa0fbd3098eb0e6e4951cfac",
-  "build": "running",
-  "publish": "pending"
+  "build": "cancelled",
+  "publish": "cancelled"
 }
