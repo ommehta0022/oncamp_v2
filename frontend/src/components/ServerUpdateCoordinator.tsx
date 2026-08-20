@@ -14,6 +14,7 @@ const FALLBACK_POLL_MS = 15_000;
 
 let inFlight = false;
 let currentCampaignInMemory: string | null = null;
+let currentNativeReleaseInMemory: string | null = null;
 
 function makeInstallationId() {
   return `install-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
@@ -87,7 +88,7 @@ async function registerInstallation() {
       body: JSON.stringify(payload),
     });
   } catch {
-    // Registration is best effort. OTA polling still works without push.
+    // Registration is best effort. Campaign polling still works without push.
   }
   return id;
 }
@@ -99,11 +100,13 @@ async function checkServerCampaign(force = false) {
   try {
     const id = await installationId();
     const runtime = String(Updates.runtimeVersion || Constants.expoConfig?.runtimeVersion || "");
+    const nativeVersion = String(Constants.expoConfig?.version || "0.0.0");
     const currentUpdateId = Updates.updateId || "embedded";
     if (!runtime) return;
 
     const url = new URL(`${API_BASE}/updates/campaign`);
     url.searchParams.set("runtimeVersion", runtime);
+    url.searchParams.set("nativeVersion", nativeVersion);
     url.searchParams.set("currentUpdateId", currentUpdateId);
     url.searchParams.set("installationId", id);
 
@@ -116,7 +119,18 @@ async function checkServerCampaign(force = false) {
       available?: boolean;
       campaignId?: string;
       forceUpdate?: boolean;
+      nativeUpdateAvailable?: boolean;
+      nativeReleaseVersion?: string | null;
     };
+
+    if (campaign.nativeUpdateAvailable && campaign.nativeReleaseVersion) {
+      if (force || campaign.nativeReleaseVersion !== currentNativeReleaseInMemory) {
+        currentNativeReleaseInMemory = campaign.nativeReleaseVersion;
+        await checkForAppUpdate(false, true);
+      }
+      return;
+    }
+
     if (!campaign.available || !campaign.campaignId) return;
     if (campaign.campaignId === currentCampaignInMemory && !force) return;
 
@@ -144,12 +158,12 @@ export default function ServerUpdateCoordinator() {
 
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as Record<string, unknown>;
-      if (data?.type === "ota_update") void checkServerCampaign(true);
+      if (data?.type === "ota_update" || data?.type === "native_update") void checkServerCampaign(true);
     });
 
     const tapped = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as Record<string, unknown>;
-      if (data?.type === "ota_update") void checkServerCampaign(true);
+      if (data?.type === "ota_update" || data?.type === "native_update") void checkServerCampaign(true);
     });
 
     const appState = AppState.addEventListener("change", (state) => {
