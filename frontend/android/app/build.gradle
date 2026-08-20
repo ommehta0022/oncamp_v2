@@ -42,6 +42,9 @@ android {
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
 
+    // The currently distributed QA APKs use this signing identity. Keeping it
+    // here preserves Android upgrade compatibility for this testing channel.
+    // Production store distribution should migrate to a private Play App Signing key.
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -79,7 +82,7 @@ android {
 }
 
 ["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
-    def options = (findProperty("android.packagingOptions.$prop)" ?: "").split(",");
+    def options = (findProperty("android.packagingOptions.$prop") ?: "").split(",");
     for (i in 0..<options.size()) options[i] = options[i].trim();
     options -= ""
     if (options.length > 0) {
