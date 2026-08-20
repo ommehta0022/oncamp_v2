@@ -33,14 +33,10 @@ class OnCampusApkInstallerModule(
   override fun getName(): String = "OnCampusApkInstaller"
 
   @ReactMethod
-  fun addListener(eventName: String) {
-    // Required by React Native's NativeEventEmitter contract.
-  }
+  fun addListener(eventName: String) = Unit
 
   @ReactMethod
-  fun removeListeners(count: Int) {
-    // Required by React Native's NativeEventEmitter contract.
-  }
+  fun removeListeners(count: Int) = Unit
 
   @ReactMethod
   fun startInstall(url: String, sha256: String, promise: Promise) {
@@ -80,7 +76,9 @@ class OnCampusApkInstallerModule(
       Intent(Settings.ACTION_SECURITY_SETTINGS)
     }
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    reactContext.startActivity(intent)
+    reactContext.runOnUiQueueThread {
+      reactContext.startActivity(intent)
+    }
   }
 
   private fun isTrustedApiUrl(value: String): Boolean {
@@ -88,7 +86,8 @@ class OnCampusApkInstallerModule(
       val uri = Uri.parse(value)
       uri.scheme == "https" &&
         uri.host == "oncampus-backend-production.up.railway.app" &&
-        uri.path == "/v1/updates/native/apk"
+        uri.path == "/v1/updates/native/apk" &&
+        !uri.getQueryParameter("version").isNullOrBlank()
     } catch (_: Exception) {
       false
     }
@@ -103,12 +102,13 @@ class OnCampusApkInstallerModule(
     thread(name = "oncampus-apk-update") {
       val updateDir = File(reactContext.cacheDir, "updates")
       val apkFile = File(updateDir, "OnCampus-update.apk")
+      var connection: HttpURLConnection? = null
       try {
         updateDir.mkdirs()
         if (apkFile.exists()) apkFile.delete()
 
         emit("downloading", 1, "Downloading OnCampus update", "Downloading securely inside the app…")
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        connection = (URL(url).openConnection() as HttpURLConnection).apply {
           connectTimeout = 15_000
           readTimeout = 45_000
           instanceFollowRedirects = true
@@ -136,14 +136,13 @@ class OnCampusApkInstallerModule(
                 val progress = ((received * 82L) / total).toInt().coerceIn(1, 82)
                 if (progress != lastProgress) {
                   lastProgress = progress
-                  emit("downloading", progress, "Downloading OnCampus update", "${progress}% downloaded securely inside the app")
+                  emit("downloading", progress, "Downloading OnCampus update", "$progress% downloaded securely inside the app")
                 }
               }
             }
             output.flush()
           }
         }
-        connection.disconnect()
 
         if (!apkFile.exists() || apkFile.length() < 1024L * 1024L) {
           throw IllegalStateException("Downloaded APK is incomplete")
@@ -162,6 +161,7 @@ class OnCampusApkInstallerModule(
         if (apkFile.exists()) apkFile.delete()
         emit("error", 0, "Update installation failed", error.message ?: "Unable to install the update")
       } finally {
+        connection?.disconnect()
         downloading = false
       }
     }
@@ -191,19 +191,23 @@ class OnCampusApkInstallerModule(
       addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
       addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    reactContext.startActivity(intent)
+    reactContext.runOnUiQueueThread {
+      reactContext.startActivity(intent)
+    }
   }
 
   private fun emit(phase: String, progress: Int, message: String, detail: String) {
-    val event = Arguments.createMap().apply {
-      putString("phase", phase)
-      putInt("progress", progress)
-      putString("message", message)
-      putString("detail", detail)
+    reactContext.runOnUiQueueThread {
+      val event = Arguments.createMap().apply {
+        putString("phase", phase)
+        putInt("progress", progress)
+        putString("message", message)
+        putString("detail", detail)
+      }
+      reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("OnCampusApkInstall", event)
     }
-    reactContext
-      .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-      .emit("OnCampusApkInstall", event)
   }
 
   override fun onHostResume() {
