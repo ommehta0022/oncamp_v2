@@ -16,9 +16,8 @@ app = server.app
 app.include_router(institution_content_router)
 logger = logging.getLogger("oncampus")
 
-# Register the OTA endpoints explicitly on the production app instead of relying
-# on router inclusion. This removes ambiguity in the Railway entrypoint and gives
-# us a startup assertion that fails loudly if either endpoint ever disappears.
+# Register OTA endpoints explicitly on the production app so Railway always
+# exposes the updater regardless of router-import behavior.
 @app.get("/v1/updates/manifest", include_in_schema=False)
 def production_ota_manifest(request: Request) -> Response:
     return ota_updates.expo_updates_manifest(request)
@@ -35,7 +34,7 @@ async def verify_production_routes() -> None:
     required = {
         "/v1/updates/manifest",
         "/v1/updates/status",
-        "/v1/institution/content/overview",
+        "/v1/institutions/me/content/overview",
     }
     missing = sorted(path for path in required if path not in route_paths)
     if missing:
