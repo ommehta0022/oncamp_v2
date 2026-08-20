@@ -1,7 +1,7 @@
 {
-  "run_id": "32340031560",
-  "run_number": "18",
-  "head_sha": "c4d195feb75cd6cf6fed73eafce732ff20d83d44",
-  "build": "cancelled",
-  "publish": "cancelled"
+  "run_id": "32340071401",
+  "run_number": "19",
+  "head_sha": "6294a74ce681075b8ae80bb81c9fe40e129d0a8a",
+  "build": "running",
+  "publish": "pending"
 }
