@@ -4,10 +4,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { font, radius, spacing } from "@/src/theme/colors";
-import Avatar from "@/src/components/Avatar";
+import { font, spacing } from "@/src/theme/colors";
 import PostCard from "@/src/components/PostCard";
-import { useRole } from "@/src/context/RoleProvider";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
 import { normalizePost } from "@/src/lib/mappers";
@@ -21,7 +19,6 @@ const PAGE_SIZE = 20;
 export default function Feed() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { canCreatePosts } = useRole();
   const { showToast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [posts, setPosts] = useState<any[]>([]);
@@ -36,13 +33,11 @@ export default function Feed() {
     else if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
-
     try {
       if (pageToLoad === 1 && !isRefresh) {
         const cached = await cache.get<any[]>("feed_posts");
         if (cached?.length) setPosts(cached.map(normalizePost));
       }
-
       const response = await api.feed.list(pageToLoad, PAGE_SIZE);
       const rows = (response.posts || response.feed || []).map(normalizePost);
       setPosts((current) => {
@@ -64,23 +59,10 @@ export default function Feed() {
     }
   }, [showToast]);
 
-  useEffect(() => {
-    void loadPosts();
-  }, [loadPosts]);
-
-  const onRefresh = () => void loadPosts(1, true);
-
+  useEffect(() => { void loadPosts(); }, [loadPosts]);
   const loadMore = () => {
     if (!hasMore || loading || loadingMore || refreshing || posts.length === 0) return;
     void loadPosts(page + 1);
-  };
-
-  const updatePost = (updated: any) => {
-    setPosts((current) => current.map((post) => post.id === updated.id ? updated : post));
-  };
-
-  const removePost = (postId: string) => {
-    setPosts((current) => current.filter((post) => post.id !== postId));
   };
 
   return (
@@ -88,45 +70,23 @@ export default function Feed() {
       <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
         <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => router.push("/search")} style={styles.iconBtn} testID="feed-search-btn">
-            <Ionicons name="search" size={22} color={colors.onSurface} />
-          </Pressable>
-          <Pressable onPress={() => router.push("/saved")} style={styles.iconBtn} testID="feed-saved-btn">
-            <Ionicons name="bookmark-outline" size={22} color={colors.onSurface} />
-          </Pressable>
+          <Pressable onPress={() => router.push("/search")} style={styles.iconBtn} testID="feed-search-btn"><Ionicons name="search" size={22} color={colors.onSurface} /></Pressable>
+          <Pressable onPress={() => router.push("/saved")} style={styles.iconBtn} testID="feed-saved-btn"><Ionicons name="bookmark-outline" size={22} color={colors.onSurface} /></Pressable>
         </View>
       </View>
 
-      {loading && posts.length === 0 ? (
-        <SkeletonLoader type="post" count={3} />
-      ) : error && posts.length === 0 ? (
+      {loading && posts.length === 0 ? <SkeletonLoader type="post" count={3} /> : error && posts.length === 0 ? (
         <NetworkError onRetry={() => void loadPosts()} message={error} />
       ) : (
         <FlatList
           showsVerticalScrollIndicator={false}
           data={posts}
           keyExtractor={(p) => p.id}
-          contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
-          ListHeaderComponent={canCreatePosts ? <Composer /> : <View style={{ height: spacing.md }} />}
-          ListEmptyComponent={
-            <EmptyState
-              icon="newspaper-outline"
-              title="No posts available"
-              message="There are no posts in your feed yet. Pull to refresh or create the first post."
-              actionLabel={canCreatePosts ? "Create post" : "Refresh"}
-              onAction={() => canCreatePosts ? router.push("/create-post") : loadPosts(1, true)}
-            />
-          }
+          contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: 120, flexGrow: 1 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.brandPrimary} />}
+          ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here." actionLabel="Refresh" onAction={() => void loadPosts(1, true)} />}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.brandPrimary} style={{ paddingVertical: spacing.lg }} /> : null}
-          renderItem={({ item }) => (
-            <PostCard
-              post={item}
-              onChange={updatePost}
-              onDeleted={removePost}
-              style={{ marginHorizontal: spacing.lg }}
-            />
-          )}
+          renderItem={({ item }) => <PostCard post={item} onChange={(updated) => setPosts((current) => current.map((post) => post.id === updated.id ? updated : post))} onDeleted={(id) => setPosts((current) => current.filter((post) => post.id !== id))} style={{ marginHorizontal: spacing.lg }} />}
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
@@ -136,41 +96,9 @@ export default function Feed() {
   );
 }
 
-function Composer() {
-  const { colors } = useTheme();
-  const router = useRouter();
-  const { user } = useRole();
-  return (
-    <Pressable
-      onPress={() => router.push("/create-post")}
-      style={[styles.composer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-      testID="composer-btn"
-    >
-      <Avatar uri={(user as any)?.avatar || user?.avatarUrl} name={user?.name || "User"} size={40} />
-      <View style={[styles.composerInput, { backgroundColor: colors.surfaceTertiary }]}>
-        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>Share something with your campus...</Text>
-      </View>
-      <Ionicons name="image-outline" size={22} color={colors.brandPrimary} />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 56,
-  },
-  brand: { fontSize: 22, fontWeight: "500", letterSpacing: 0 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 56 },
+  brand: { fontSize: 22, fontWeight: "500" },
   headerActions: { flexDirection: "row", gap: spacing.sm },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 },
-  composer: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    marginHorizontal: spacing.lg, marginTop: spacing.md,
-    padding: spacing.md, borderRadius: radius.md, borderWidth: 1,
-  },
-  composerInput: {
-    flex: 1, height: 40, borderRadius: radius.pill,
-    paddingHorizontal: spacing.md, justifyContent: "center",
-  },
 });
