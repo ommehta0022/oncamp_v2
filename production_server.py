@@ -42,6 +42,8 @@ async def verify_production_routes() -> None:
         "/v1/updates/status",
         "/v1/updates/installations",
         "/v1/updates/campaign",
+        "/v1/updates/native/latest",
+        "/v1/updates/native/apk",
         "/v1/admin/updates/trigger",
         "/v1/institutions/me/content/overview",
     }
@@ -51,7 +53,7 @@ async def verify_production_routes() -> None:
         raise RuntimeError(f"Required production routes missing: {', '.join(missing)}")
     if _auto_campaign_task is None or _auto_campaign_task.done():
         _auto_campaign_task = asyncio.create_task(update_campaign.auto_campaign_loop())
-    logger.info("Production OTA/content routes verified; auto campaign broadcaster started")
+    logger.info("Production OTA/native update/content routes verified; auto campaign broadcaster started")
 
 
 @app.on_event("shutdown")
