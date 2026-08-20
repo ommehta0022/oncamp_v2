@@ -235,7 +235,7 @@ async function startNativeInstall(release: NativeRelease) {
   }
 }
 
-export async function checkForAppUpdate(manual = false) {
+export async function checkForAppUpdate(manual = false, bypassNativeThrottle = false) {
   if (Platform.OS !== "android") {
     if (manual) Alert.alert("Updates", "In-app update checks are currently available on Android.");
     return;
@@ -245,9 +245,9 @@ export async function checkForAppUpdate(manual = false) {
   if (otaReady) return;
 
   const now = Date.now();
-  if (!manual && now - lastAutomaticCheckAt < CHECK_INTERVAL_MS) return;
+  if (!manual && !bypassNativeThrottle && now - lastAutomaticCheckAt < CHECK_INTERVAL_MS) return;
   if (activeCheck) return activeCheck;
-  if (!manual) lastAutomaticCheckAt = now;
+  if (!manual && !bypassNativeThrottle) lastAutomaticCheckAt = now;
 
   activeCheck = (async () => {
     try {
