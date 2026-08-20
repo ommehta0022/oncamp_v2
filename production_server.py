@@ -7,20 +7,17 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 import server
+from institution_content_workflow import router as institution_content_router
 from ota_updates import router as ota_router
 
 app = server.app
 app.include_router(ota_router)
+app.include_router(institution_content_router)
 
 
 @app.middleware("http")
 async def protect_institution_branding_uploads(request: Request, call_next):
-    """Require a live institution-admin session for institution branding uploads.
-
-    The legacy logo endpoint previously accepted unauthenticated requests. This
-    wrapper protects the route without changing its response contract, and uses
-    the same token/session/account checks as the rest of the API.
-    """
+    """Require a live institution-admin session for institution branding uploads."""
     protected_paths = {
         "/v1/upload/institution-logo",
         "/v1/upload/institution-cover",
