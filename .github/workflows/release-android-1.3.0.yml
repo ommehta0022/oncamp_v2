@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-android-1.3.0
@@ -26,6 +26,22 @@ jobs:
       EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Record build started
+        working-directory: .
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+          cat > .github/release-android-1.3.0-status.json <<EOF
+          {"run_id":"${GITHUB_RUN_ID}","run_number":"${GITHUB_RUN_NUMBER}","head_sha":"${GITHUB_SHA}","build":"running","publish":"pending"}
+          EOF
+          git add .github/release-android-1.3.0-status.json
+          git commit -m "Record running Android 1.3.0 release" || true
+          git push origin HEAD:main || true
 
       - uses: actions/setup-node@v4
         with:
@@ -78,7 +94,6 @@ jobs:
           cd android
           ./gradlew --stop || true
           if ! timeout 36m ./gradlew assembleRelease --no-daemon --no-parallel --max-workers=2 --build-cache --stacktrace --console=plain -PreactNativeArchitectures=armeabi-v7a,arm64-v8a 2>&1 | tee /tmp/oncampus-1.3.0-gradle.log; then
-            echo "Gradle release build failed or timed out. Diagnostics:"
             tail -n 300 /tmp/oncampus-1.3.0-gradle.log || true
             df -h || true
             free -h || true
@@ -103,13 +118,32 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Record build result
+        if: always()
+        working-directory: .
+        run: |
+          set -euo pipefail
+          RESULT="${{ job.status }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+          cat > .github/release-android-1.3.0-status.json <<EOF
+          {"run_id":"${GITHUB_RUN_ID}","run_number":"${GITHUB_RUN_NUMBER}","head_sha":"${GITHUB_SHA}","build":"${RESULT}","publish":"pending"}
+          EOF
+          git add .github/release-android-1.3.0-status.json
+          git commit -m "Record Android 1.3.0 build result" || true
+          git push origin HEAD:main || true
+
   publish:
     needs: build
+    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           name: OnCampus-1.3.0-Server-Update-Baseline
@@ -125,3 +159,19 @@ jobs:
           files: |
             release/OnCampus.apk
             release/OnCampus.apk.sha256
+
+      - name: Record publish success
+        working-directory: .
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+          cat > .github/release-android-1.3.0-status.json <<EOF
+          {"run_id":"${GITHUB_RUN_ID}","run_number":"${GITHUB_RUN_NUMBER}","head_sha":"${GITHUB_SHA}","build":"success","publish":"success"}
+          EOF
+          git add .github/release-android-1.3.0-status.json
+          git commit -m "Record Android 1.3.0 release status" || true
+          git push origin HEAD:main || true
