@@ -3,8 +3,8 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.3.0"
-def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "4").toInteger()
+def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.4.0"
+def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "140").toInteger()
 
 react {
     // Keep the native JS engine consistent between embedded and OTA updates.
