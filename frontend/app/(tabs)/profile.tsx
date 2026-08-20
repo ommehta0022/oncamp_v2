@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -8,352 +8,102 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
+import ImageViewer from "@/src/components/ImageViewer";
 import { useRole } from "@/src/context/RoleProvider";
 import { api } from "@/src/lib/api";
-import { normalizeGroup, normalizePost } from "@/src/lib/mappers";
+import { normalizeGroup } from "@/src/lib/mappers";
 import InstitutionDashboard from "../institution/dashboard";
-import ImageViewer from "@/src/components/ImageViewer";
-import PostCard from "@/src/components/PostCard";
 
-interface UserStats {
-  groups: number;
-  posts: number;
-  followers: number;
-  following: number;
-  streak: number;
-  daysSinceJoin: number;
-}
-
-interface Achievement {
-  id: string;
-  label: string;
-  icon: string;
-  color: string;
-  earned: boolean;
-  description: string;
-}
+type UserStats = { groups?: number; streak?: number; daysSinceJoin?: number; followers?: number; following?: number };
+type Achievement = { id: string; label: string; icon: string; color: string; earned: boolean; description: string };
 
 export default function Profile() {
   const { colors } = useTheme();
   const router = useRouter();
   const { user, canManageInstitution } = useRole();
-  const [myGroups, setMyGroups] = useState<any[]>([]);
-  const [stats, setStats] = useState<UserStats | null>(null);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [stats, setStats] = useState<UserStats>({});
   const [achievements, setAchievements] = useState<Achievement[]>([]);
-  const [recentPosts, setRecentPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewImage, setViewImage] = useState<string | null>(null);
 
-  const loadProfileData = useCallback(async () => {
+  const load = useCallback(async () => {
+    if (canManageInstitution) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      const [groupsRes, statsRes, achievementsRes, postsRes] = await Promise.all([
+      const [groupsResult, statsResult, achievementsResult] = await Promise.all([
         api.groups.listMine().catch(() => ({ groups: [] })),
-        api.users.stats().catch(() => ({ groups: 0, posts: 0, followers: 0, following: 0, streak: 0, daysSinceJoin: 0 })),
+        api.users.stats().catch(() => ({ groups: 0, streak: 0, daysSinceJoin: 0 })),
         api.users.achievements().catch(() => []),
-        (user?.id ? api.users.posts(user.id).catch(() => []) : Promise.resolve([])),
       ]);
+      setGroups((((groupsResult as any)?.groups || groupsResult || []) as any[]).map(normalizeGroup).slice(0, 6));
+      setStats((statsResult || {}) as UserStats);
+      setAchievements((achievementsResult || []) as Achievement[]);
+    } finally { setLoading(false); }
+  }, [canManageInstitution]);
 
-      setMyGroups(((groupsRes as any).groups || groupsRes || []).map(normalizeGroup).slice(0, 4));
-      setStats(statsRes as UserStats);
-      setAchievements(achievementsRes as Achievement[]);
-      const rawPosts = (postsRes as any)?.posts || postsRes || [];
-      setRecentPosts(rawPosts.map(normalizePost).slice(0, 3));
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
+  useEffect(() => { void load(); }, [load]);
+  if (canManageInstitution) return <InstitutionDashboard embedded />;
 
-  useEffect(() => {
-    if (canManageInstitution) {
-      setLoading(false);
-      return;
-    }
-    void loadProfileData();
-  }, [canManageInstitution, loadProfileData]);
-
-  if (canManageInstitution) {
-    return <InstitutionDashboard embedded />;
-  }
-
-  const streakCount = stats?.streak || 0;
+  const avatar = (user as any)?.avatarUrl || (user as any)?.avatar;
+  const cover = (user as any)?.coverUrl;
+  const streak = Number(stats.streak || 0);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="profile-screen">
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
-        {/* Cover + Top Bar */}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         <View style={{ position: "relative" }}>
-          <Pressable onPress={() => { if ((user as any)?.coverUrl) setViewImage((user as any).coverUrl); }}>
-            {(user as any)?.coverUrl ? (
-              <Image source={{ uri: (user as any).coverUrl }} style={styles.cover} contentFit="cover" />
-            ) : (
-              <LinearGradient colors={[colors.brandPrimary, colors.brandSecondary || colors.brandPrimary + "aa"]} style={styles.cover} />
-            )}
-            <LinearGradient colors={["transparent", "rgba(0,0,0,0.6)"]} style={styles.coverScrim} />
+          <Pressable onPress={() => cover && setViewImage(cover)}>
+            {cover ? <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" cachePolicy="memory-disk" /> : <LinearGradient colors={[colors.brandPrimary, colors.brandSecondary || colors.brandPrimary]} style={styles.cover} />}
+            <LinearGradient colors={["transparent", "rgba(0,0,0,.55)"]} style={styles.coverScrim} />
           </Pressable>
-
-          <View style={styles.topBar}>
-            <View />
-            <Pressable
-              onPress={() => router.push("/settings")}
-              style={[styles.iconBtn, { backgroundColor: "#00000055" }]}
-              testID="profile-settings-btn"
-            >
-              <Ionicons name="settings-outline" size={20} color="#fff" />
-            </Pressable>
-          </View>
+          <View style={styles.topBar}><View /><Pressable onPress={() => router.push("/settings")} style={[styles.iconBtn, { backgroundColor: "#00000055" }]} testID="profile-settings-btn"><Ionicons name="settings-outline" size={20} color="#fff" /></Pressable></View>
         </View>
 
-        {/* Avatar + Edit / Share */}
         <View style={styles.profileHeader}>
-          <View style={{ marginTop: -50, alignSelf: "flex-start" }}>
-            <Avatar
-              uri={(user as any)?.avatarUrl || (user as any)?.avatar}
-              name={user?.name || "User"}
-              size={100}
-              verified={(user as any)?.verified}
-              withBorder={true}
-              onPress={() => {
-                const img = (user as any)?.avatarUrl || (user as any)?.avatar;
-                if (img) setViewImage(img);
-              }}
-            />
-          </View>
-          <View style={{ flex: 1, marginTop: spacing.md, flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm }}>
-            <Pressable
-              onPress={() => router.push("/settings/edit-profile")}
-              style={[styles.outlineBtn, { borderColor: colors.borderStrong }]}
-              testID="edit-profile-btn"
-            >
-              <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }}>Edit profile</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/settings/invite")}
-              style={[styles.filledBtn, { backgroundColor: colors.brandPrimary }]}
-            >
-              <Ionicons name="share-outline" size={16} color={colors.onBrandPrimary} />
-            </Pressable>
-          </View>
+          <View style={{ marginTop: -50 }}><Avatar uri={avatar} name={user?.name || "User"} size={100} verified={(user as any)?.verified} withBorder onPress={() => avatar && setViewImage(avatar)} /></View>
+          <Pressable onPress={() => router.push("/settings/edit-profile")} style={[styles.editBtn, { borderColor: colors.borderStrong }]}><Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "600" }}>Edit profile</Text></Pressable>
         </View>
 
-        {/* Name, Handle, Bio, Meta */}
         <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "500", letterSpacing: 0 }}>
-              {user?.name || "User"}
-            </Text>
-            {(user as any)?.verified && (
-              <View style={[styles.badgeChip, { backgroundColor: colors.brandTertiary }]}>
-                <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "500" }}>VERIFIED</Text>
-              </View>
-            )}
-          </View>
-          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: 2 }}>
-            {(user as any)?.handle ? `@${(user as any).handle}` : (user as any)?.email || ""}
-          </Text>
-
-          {!!(user as any)?.bio && (
-            <Text style={{ color: colors.onSurface, fontSize: font.base, marginTop: spacing.md, lineHeight: 22 }}>
-              {(user as any).bio}
-            </Text>
-          )}
-
-          <View style={{ flexDirection: "row", gap: spacing.lg, marginTop: spacing.md, flexWrap: "wrap" }}>
-            {(user as any)?.course && <MetaRow icon="school-outline" text={(user as any).course} />}
-            {(user as any)?.city && <MetaRow icon="location-outline" text={(user as any).city} />}
-            {streakCount > 0 && <MetaRow icon="flame" text={`${streakCount} day streak`} color="#FF6B35" />}
-          </View>
-
-          {/* Stats Row: Groups / Posts / Streak */}
-          {loading ? (
-            <View style={{ alignItems: "center", paddingVertical: spacing.xl }}>
-              <ActivityIndicator size="small" color={colors.onSurfaceTertiary} />
-            </View>
-          ) : (
-            <View style={[styles.statsRow, { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]}>
-              <Stat label="Groups" value={stats?.groups?.toString() || "0"} />
-              <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
-              <Stat label="Posts" value={stats?.posts?.toString() || "0"} />
-              <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
-              <Stat label="Day Streak" value={streakCount.toString()} highlight={streakCount > 0} />
-            </View>
-          )}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "600" }}>{user?.name || "User"}</Text>{(user as any)?.verified && <Ionicons name="checkmark-circle" size={19} color={colors.brandPrimary} />}</View>
+          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: 2 }}>{(user as any)?.handle ? `@${(user as any).handle}` : (user as any)?.email || ""}</Text>
+          {!!(user as any)?.bio && <Text style={{ color: colors.onSurface, fontSize: font.base, marginTop: spacing.md, lineHeight: 22 }}>{(user as any).bio}</Text>}
+          <View style={styles.metaWrap}>{(user as any)?.course && <Meta icon="school-outline" text={(user as any).course} />}{(user as any)?.city && <Meta icon="location-outline" text={(user as any).city} />}{streak > 0 && <Meta icon="flame" text={`${streak} day streak`} color="#FF6B35" />}</View>
+          {loading ? <ActivityIndicator color={colors.brandPrimary} style={{ marginVertical: spacing.xl }} /> : <View style={[styles.stats, { borderColor: colors.border }]}><Stat label="Groups" value={String(stats.groups || 0)} /><Divider /><Stat label="Day streak" value={String(streak)} highlight={streak > 0} /><Divider /><Stat label="Days here" value={String(stats.daysSinceJoin || 0)} /></View>}
         </View>
 
-        {/* Achievements */}
-        {achievements.length > 0 && (
-          <View style={{ marginTop: spacing.xl }}>
-            <Text style={[styles.sectionHeaderTitle, { color: colors.onSurface }]}>Achievements</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.md }}>
-              {achievements.map((a) => (
-                <View
-                  key={a.id}
-                  style={[styles.achievement, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                >
-                  <View style={[styles.achIcon, { backgroundColor: a.color + "22" }]}>
-                    <Ionicons name={a.icon as any} size={22} color={a.color} />
-                  </View>
-                  <Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "500", marginTop: spacing.sm, textAlign: "center" }}>
-                    {a.label}
-                  </Text>
-                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 2, textAlign: "center" }} numberOfLines={2}>
-                    {a.description}
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        )}
+        {achievements.length > 0 && <Section title="Achievements"><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md }}>{achievements.map((achievement) => <View key={achievement.id} style={[styles.achievement, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, opacity: achievement.earned === false ? .55 : 1 }]}><View style={[styles.achievementIcon, { backgroundColor: achievement.color + "22" }]}><Ionicons name={achievement.icon as any} size={22} color={achievement.color} /></View><Text style={{ color: colors.onSurface, fontSize: font.sm, fontWeight: "600", textAlign: "center", marginTop: spacing.sm }}>{achievement.label}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, textAlign: "center", marginTop: 2 }} numberOfLines={2}>{achievement.description}</Text></View>)}</ScrollView></Section>}
 
-        {/* Your Groups */}
-        {myGroups.length > 0 && (
-          <View style={{ marginTop: spacing.xl }}>
-            <View style={styles.sectionHeader}>
-              <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>Your groups</Text>
-              <Pressable onPress={() => router.push("/(tabs)/groups")}>
-                <Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "500" }}>See all</Text>
-              </Pressable>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.md }}>
-              {myGroups.map((g) => (
-                <Pressable
-                  key={g.id}
-                  onPress={() => router.push(`/group/${g.id}`)}
-                  style={[styles.groupTile, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                >
-                  {g.avatarUrl || g.image ? (
-                    <Image source={{ uri: g.avatarUrl || g.image }} style={styles.groupTileImg} contentFit="cover" />
-                  ) : (
-                    <View style={[styles.groupTileImg, { alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceTertiary }]}>
-                      <Ionicons name="people" size={28} color={colors.onSurfaceTertiary} />
-                    </View>
-                  )}
-                  <View style={{ padding: spacing.md }}>
-                    <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500" }} numberOfLines={1}>
-                      {g.name}
-                    </Text>
-                    <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>
-                      {(g.memberCount || g.members || 0).toLocaleString()} members
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        )}
+        <Section title="Your groups" action="See all" onAction={() => router.push("/(tabs)/groups")}>
+          {groups.length === 0 ? <View style={[styles.emptyBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}><Ionicons name="people-outline" size={24} color={colors.onSurfaceTertiary} /><Text style={{ color: colors.onSurfaceTertiary }}>Joined campus groups will appear here.</Text></View> : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md }}>{groups.map((group) => <Pressable key={group.id} onPress={() => router.push(`/group/${group.id}`)} style={[styles.groupCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>{group.avatarUrl || group.image ? <Image source={{ uri: group.avatarUrl || group.image }} style={styles.groupImage} contentFit="cover" cachePolicy="memory-disk" /> : <View style={[styles.groupImage, { backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" }]}><Ionicons name="people" size={28} color={colors.onSurfaceTertiary} /></View>}<View style={{ padding: spacing.md }}><Text style={{ color: colors.onSurface, fontWeight: "600" }} numberOfLines={1}>{group.name}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{Number(group.memberCount || group.members || 0).toLocaleString()} members</Text></View></Pressable>)}</ScrollView>}
+        </Section>
 
-        {/* Activity */}
-        <View style={{ marginTop: spacing.xl }}>
-          <View style={styles.sectionHeader}>
-            <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>Your activity</Text>
-          </View>
+        <Section title="Your activity">
           <View style={[styles.workspace, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <WorkspaceAction icon="clipboard-outline" label="My post requests" onPress={() => router.push("/(tabs)/profile/my-requests" as any)} />
-            <WorkspaceAction icon="bookmark-outline" label="Saved posts" onPress={() => router.push("/saved")} />
-            <WorkspaceAction icon="time-outline" label="Activity log" onPress={() => router.push("/settings/activity")} />
-            <WorkspaceAction icon="people-outline" label="My groups" onPress={() => router.push("/(tabs)/groups")} />
+            <Action icon="bookmark-outline" label="Saved posts" onPress={() => router.push("/saved")} />
+            <Action icon="time-outline" label="Activity log" onPress={() => router.push("/settings/activity")} />
+            <Action icon="people-outline" label="My groups" onPress={() => router.push("/(tabs)/groups")} />
+            <Action icon="person-circle-outline" label="Account settings" onPress={() => router.push("/settings")} />
           </View>
-        </View>
-
-        {/* Recent Posts */}
-        {recentPosts.length > 0 && (
-          <View style={{ marginTop: spacing.xl }}>
-            <View style={styles.sectionHeader}>
-              <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }}>Recent posts</Text>
-            </View>
-            <View style={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}>
-              {recentPosts.map((post) => (
-                <PostCard
-                  key={post.id}
-                  post={post}
-                  onChange={(updated) => setRecentPosts((prev) => prev.map((p) => p.id === updated.id ? updated : p))}
-                  onDeleted={(id) => setRecentPosts((prev) => prev.filter((p) => p.id !== id))}
-                />
-              ))}
-            </View>
-          </View>
-        )}
-
-        <View style={{ height: 40 }} />
+        </Section>
       </ScrollView>
-
-      <ImageViewer
-        visible={!!viewImage}
-        imageUrl={viewImage || ""}
-        onClose={() => setViewImage(null)}
-      />
+      <ImageViewer visible={!!viewImage} imageUrl={viewImage || ""} onClose={() => setViewImage(null)} />
     </SafeAreaView>
   );
 }
 
-function MetaRow({ icon, text, color }: { icon: any; text: string; color?: string }) {
-  const { colors } = useTheme();
-  const c = color || colors.onSurfaceTertiary;
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-      <Ionicons name={icon} size={15} color={c} />
-      <Text style={{ color: c, fontSize: font.base }}>{text}</Text>
-    </View>
-  );
-}
-
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  const { colors } = useTheme();
-  return (
-    <View style={{ flex: 1, alignItems: "center" }}>
-      <Text style={{ color: highlight ? "#FF6B35" : colors.onSurface, fontSize: font.xl, fontWeight: "500" }}>{value}</Text>
-      <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{label}</Text>
-    </View>
-  );
-}
-
-function WorkspaceAction({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
-  const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={{ minHeight: 46, flexDirection: "row", alignItems: "center", gap: spacing.md }}><Ionicons name={icon} size={18} color={colors.onSurfaceTertiary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.base }}>{label}</Text><Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} /></Pressable>;
-}
+function Section({ title, children, action, onAction }: { title: string; children: React.ReactNode; action?: string; onAction?: () => void }) { const { colors } = useTheme(); return <View style={{ marginTop: spacing.xl, paddingHorizontal: spacing.lg }}><View style={styles.sectionHeader}><Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "600" }}>{title}</Text>{action && onAction && <Pressable onPress={onAction}><Text style={{ color: colors.brandPrimary, fontSize: font.base, fontWeight: "600" }}>{action}</Text></Pressable>}</View>{children}</View>; }
+function Meta({ icon, text, color }: { icon: any; text: string; color?: string }) { const { colors } = useTheme(); const c = color || colors.onSurfaceTertiary; return <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}><Ionicons name={icon} size={15} color={c} /><Text style={{ color: c, fontSize: font.base }}>{text}</Text></View>; }
+function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) { const { colors } = useTheme(); return <View style={{ flex: 1, alignItems: "center" }}><Text style={{ color: highlight ? "#FF6B35" : colors.onSurface, fontSize: font.xl, fontWeight: "600" }}>{value}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{label}</Text></View>; }
+function Divider() { const { colors } = useTheme(); return <View style={{ width: StyleSheet.hairlineWidth, height: 32, backgroundColor: colors.border }} />; }
+function Action({ icon, label, onPress }: { icon: any; label: string; onPress: () => void }) { const { colors } = useTheme(); return <Pressable onPress={onPress} style={styles.action}><Ionicons name={icon} size={18} color={colors.onSurfaceTertiary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.base }}>{label}</Text><Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} /></Pressable>; }
 
 const styles = StyleSheet.create({
-  cover: { width: "100%", height: 180 },
-  coverScrim: { position: "absolute", left: 0, right: 0, top: 0, height: 180 },
-  topBar: {
-    position: "absolute", top: 0, left: 0, right: 0,
-    flexDirection: "row", justifyContent: "space-between",
-    padding: spacing.md,
-  },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  profileHeader: {
-    flexDirection: "row", alignItems: "flex-start",
-    paddingHorizontal: spacing.lg,
-  },
-  outlineBtn: {
-    paddingHorizontal: spacing.lg, height: 40, borderRadius: radius.pill,
-    borderWidth: 1, alignItems: "center", justifyContent: "center",
-  },
-  filledBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: "center", justifyContent: "center",
-  },
-  badgeChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 4 },
-  statsRow: {
-    flexDirection: "row", alignItems: "center",
-    marginTop: spacing.xl, paddingVertical: spacing.md,
-  },
-  statDiv: { width: 1, height: 30 },
-  sectionHeader: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: spacing.lg, marginBottom: spacing.md,
-  },
-  sectionHeaderTitle: {
-    fontSize: font.lg, fontWeight: "500", paddingHorizontal: spacing.lg, marginBottom: spacing.md,
-  },
-  groupTile: {
-    width: 200, borderRadius: radius.md, borderWidth: 1, overflow: "hidden",
-  },
-  groupTileImg: { width: "100%", height: 100 },
-  workspace: { marginHorizontal: spacing.lg, padding: spacing.md, borderRadius: radius.md, borderWidth: 1 },
-  achievement: {
-    width: 130, borderRadius: radius.md, borderWidth: 1,
-    padding: spacing.md, alignItems: "center",
-  },
-  achIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  cover: { width: "100%", height: 180 }, coverScrim: { position: "absolute", left: 0, right: 0, top: 0, height: 180 }, topBar: { position: "absolute", top: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", padding: spacing.md }, iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  profileHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingHorizontal: spacing.lg }, editBtn: { marginTop: spacing.md, paddingHorizontal: spacing.lg, height: 40, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center" }, metaWrap: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.md, flexWrap: "wrap" },
+  stats: { flexDirection: "row", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: spacing.lg, marginTop: spacing.lg }, sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.md },
+  achievement: { width: 130, borderWidth: 1, borderRadius: radius.md, padding: spacing.md, alignItems: "center" }, achievementIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  groupCard: { width: 180, borderWidth: 1, borderRadius: radius.md, overflow: "hidden" }, groupImage: { width: "100%", height: 92 }, emptyBox: { borderWidth: 1, borderRadius: radius.md, padding: spacing.xl, alignItems: "center", gap: spacing.sm },
+  workspace: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.lg }, action: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(128,128,128,.15)" },
 });
