@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import uvicorn
 from fastapi import HTTPException, Request
@@ -15,6 +16,33 @@ app.include_router(ota_router)
 app.include_router(institution_content_router)
 
 
+def institution_admin_or_error(request: Request):
+    user = server.current_user(request.headers.get("authorization"))
+    server.require_institution_admin(user)
+    return user
+
+
+@app.middleware("http")
+async def institution_only_publishing(request: Request, call_next):
+    """Students may consume content, but institution publishing/collaboration is admin-only."""
+    path = request.url.path
+    method = request.method.upper()
+    protected = (
+        (method == "POST" and path == "/v1/posts")
+        or (method == "POST" and re.fullmatch(r"/v1/posts/[^/]+/(repost|share)", path) is not None)
+        or (re.fullmatch(r"/v1/groups/[^/]+/post-requests(?:/[^/]+/(?:approve|reject))?", path) is not None)
+        or (method == "GET" and path == "/v1/users/me/post-requests")
+    )
+    if protected:
+        try:
+            institution_admin_or_error(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": "Institution admin access required"})
+        except Exception:
+            return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def protect_institution_branding_uploads(request: Request, call_next):
     """Require a live institution-admin session for institution branding uploads."""
@@ -24,8 +52,7 @@ async def protect_institution_branding_uploads(request: Request, call_next):
     }
     if request.method == "POST" and request.url.path in protected_paths:
         try:
-            user = server.current_user(request.headers.get("authorization"))
-            server.require_institution_admin(user)
+            institution_admin_or_error(request)
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         except Exception:
