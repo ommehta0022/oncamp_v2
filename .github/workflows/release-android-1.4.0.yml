@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-android-1.4.0
@@ -26,6 +26,22 @@ jobs:
       EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Record build started
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STATUS=$(printf '{"run_id":"%s","run_number":"%s","head_sha":"%s","build":"running","publish":"pending"}' "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA")
+          FILE=.github/release-android-1.4.0-status.json
+          CONTENT=$(printf '%s' "$STATUS" | base64 -w0)
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE" --jq .sha 2>/dev/null || true)
+          if [ -n "$SHA" ]; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="Record running Android 1.4.0 release" -f content="$CONTENT" -f sha="$SHA" -f branch=main >/dev/null
+          else
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="Record running Android 1.4.0 release" -f content="$CONTENT" -f branch=main >/dev/null
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -99,6 +115,20 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Record build result
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          STATUS=$(printf '{"run_id":"%s","run_number":"%s","head_sha":"%s","build":"%s","publish":"%s"}' "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "$BUILD_STATUS" "$([ "$BUILD_STATUS" = success ] && echo pending || echo skipped)")
+          FILE=.github/release-android-1.4.0-status.json
+          CONTENT=$(printf '%s' "$STATUS" | base64 -w0)
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE" --jq .sha)
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="Record Android 1.4.0 build result" -f content="$CONTENT" -f sha="$SHA" -f branch=main >/dev/null
+
   publish:
     needs: build
     runs-on: ubuntu-latest
@@ -121,3 +151,19 @@ jobs:
           files: |
             release/OnCampus.apk
             release/OnCampus.apk.sha256
+
+      - name: Record publish result
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          FILE=.github/release-android-1.4.0-status.json
+          CURRENT=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE" --jq .content | tr -d '\n' | base64 -d)
+          BUILD=$(printf '%s' "$CURRENT" | python -c 'import json,sys; print(json.load(sys.stdin).get("build","success"))')
+          STATUS=$(printf '{"run_id":"%s","run_number":"%s","head_sha":"%s","build":"%s","publish":"%s"}' "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "$BUILD" "$PUBLISH_STATUS")
+          CONTENT=$(printf '%s' "$STATUS" | base64 -w0)
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE" --jq .sha)
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="Record Android 1.4.0 publish result" -f content="$CONTENT" -f sha="$SHA" -f branch=main >/dev/null
