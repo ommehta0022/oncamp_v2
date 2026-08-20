@@ -3,8 +3,9 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
-  Linking,
   Modal,
+  NativeEventEmitter,
+  NativeModules,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,9 +15,9 @@ import {
 import Constants from "expo-constants";
 import * as Updates from "expo-updates";
 
-const RELEASE_API = "https://api.github.com/repos/ommehta0022/oncamp_v2/releases/latest";
-const TRUSTED_DOWNLOAD_PREFIX = "https://github.com/ommehta0022/oncamp_v2/releases/download/";
-const APK_NAME = "OnCampus.apk";
+const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
+const NATIVE_RELEASE_API = `${API_BASE}/updates/native/latest`;
+const TRUSTED_NATIVE_APK_PREFIX = `${API_BASE}/updates/native/apk?version=`;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const OTA_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -25,37 +26,51 @@ let lastOtaCheckAt = 0;
 let activeCheck: Promise<void> | null = null;
 let activeOtaCheck: Promise<boolean> | null = null;
 
-type ReleaseAsset = {
+type NativeRelease = {
+  available?: boolean;
+  version?: string;
   name?: string;
-  browser_download_url?: string;
+  notes?: string;
+  minVersion?: string;
+  forceUpdate?: boolean;
+  sha256?: string;
+  size?: number;
+  apkUrl?: string;
 };
 
-type LatestRelease = {
-  tag_name?: string;
-  name?: string;
-  body?: string | null;
-  assets?: ReleaseAsset[];
+type NativeInstallerResult = {
+  status?: "permission_required" | "downloading" | string;
 };
 
-type OtaPhase = "hidden" | "downloading" | "verifying" | "ready" | "error";
+type NativeInstaller = {
+  startInstall: (url: string, sha256: string) => Promise<NativeInstallerResult>;
+  addListener: (eventName: string) => void;
+  removeListeners: (count: number) => void;
+};
 
-type OtaUiState = {
-  phase: OtaPhase;
+type UpdateKind = "ota" | "apk";
+type UpdatePhase = "hidden" | "permission" | "downloading" | "verifying" | "installing" | "ready" | "error";
+
+type UpdateUiState = {
+  kind: UpdateKind;
+  phase: UpdatePhase;
   progress: number;
   message: string;
   detail?: string;
 };
 
-const INITIAL_UI: OtaUiState = {
+const INITIAL_UI: UpdateUiState = {
+  kind: "ota",
   phase: "hidden",
   progress: 0,
   message: "",
 };
 
-let otaUiListener: ((state: OtaUiState) => void) | null = null;
+const nativeInstaller = NativeModules.OnCampusApkInstaller as NativeInstaller | undefined;
+let updateUiListener: ((state: UpdateUiState) => void) | null = null;
 
-function emitOtaUi(state: OtaUiState) {
-  otaUiListener?.(state);
+function emitUpdateUi(state: UpdateUiState) {
+  updateUiListener?.(state);
 }
 
 function normalizeVersion(value?: string | null) {
@@ -85,26 +100,11 @@ function compareVersions(left: string, right: string) {
   return 0;
 }
 
-function releaseFlag(body: string, name: string) {
-  const match = body.match(new RegExp(`<!--\\s*${name}\\s*:\\s*([^>]+?)\\s*-->`, "i"));
-  return match?.[1]?.trim();
-}
-
-function cleanReleaseNotes(body: string) {
-  return body
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/^#+\s*/gm, "")
-    .replace(/\r/g, "")
-    .trim()
-    .slice(0, 700);
-}
-
-function isTrustedApkUrl(url?: string) {
+function isTrustedNativeRelease(release: NativeRelease) {
   return Boolean(
-    url &&
-      url.startsWith(TRUSTED_DOWNLOAD_PREFIX) &&
-      url.endsWith(`/${APK_NAME}`) &&
-      !url.includes("?")
+    release.apkUrl?.startsWith(TRUSTED_NATIVE_APK_PREFIX) &&
+      release.sha256?.match(/^[a-fA-F0-9]{64}$/) &&
+      release.version?.match(/^\d+\.\d+\.\d+$/)
   );
 }
 
@@ -126,19 +126,18 @@ async function checkForOtaUpdate(manual = false): Promise<boolean> {
       if (!result.isAvailable) return false;
 
       uiWasShown = true;
-      emitOtaUi({
+      emitUpdateUi({
+        kind: "ota",
         phase: "downloading",
         progress: currentProgress,
         message: "Installing OnCampus update",
         detail: "Downloading signed app files securely…",
       });
 
-      // expo-updates intentionally does not expose byte-level transfer progress.
-      // Keep the indicator honest by showing phase progress and never reaching
-      // completion until fetchUpdateAsync actually resolves.
       progressTimer = setInterval(() => {
         currentProgress = Math.min(currentProgress + 4, 74);
-        emitOtaUi({
+        emitUpdateUi({
+          kind: "ota",
           phase: "downloading",
           progress: currentProgress,
           message: "Installing OnCampus update",
@@ -153,11 +152,12 @@ async function checkForOtaUpdate(manual = false): Promise<boolean> {
       }
 
       if (!fetched.isNew) {
-        emitOtaUi(INITIAL_UI);
+        emitUpdateUi(INITIAL_UI);
         return false;
       }
 
-      emitOtaUi({
+      emitUpdateUi({
+        kind: "ota",
         phase: "verifying",
         progress: 90,
         message: "Verifying update",
@@ -166,17 +166,19 @@ async function checkForOtaUpdate(manual = false): Promise<boolean> {
 
       await new Promise((resolve) => setTimeout(resolve, 450));
 
-      emitOtaUi({
+      emitUpdateUi({
+        kind: "ota",
         phase: "ready",
         progress: 100,
         message: "Update installed",
         detail: "The new OnCampus files are ready. Restart once to apply them.",
       });
       return true;
-    } catch (error) {
+    } catch {
       if (progressTimer) clearInterval(progressTimer);
       if (uiWasShown || manual) {
-        emitOtaUi({
+        emitUpdateUi({
+          kind: "ota",
           phase: "error",
           progress: 0,
           message: "Update could not be installed",
@@ -194,6 +196,45 @@ async function checkForOtaUpdate(manual = false): Promise<boolean> {
   }
 }
 
+async function startNativeInstall(release: NativeRelease) {
+  if (!nativeInstaller || !release.apkUrl || !release.sha256) {
+    Alert.alert(
+      "New APK required",
+      "This installed OnCampus version does not yet include the direct Android installer. Install the 1.4.0 baseline once; future APK updates will install directly inside OnCampus."
+    );
+    return;
+  }
+
+  emitUpdateUi({
+    kind: "apk",
+    phase: "downloading",
+    progress: 1,
+    message: "Preparing Android update",
+    detail: "Starting secure download from the OnCampus update API…",
+  });
+
+  try {
+    const result = await nativeInstaller.startInstall(release.apkUrl, release.sha256);
+    if (result?.status === "permission_required") {
+      emitUpdateUi({
+        kind: "apk",
+        phase: "permission",
+        progress: 0,
+        message: "Allow OnCampus to install updates",
+        detail: "Enable Allow from this source, then return to OnCampus. The APK download starts automatically.",
+      });
+    }
+  } catch {
+    emitUpdateUi({
+      kind: "apk",
+      phase: "error",
+      progress: 0,
+      message: "Direct install could not start",
+      detail: "The current app remains unchanged. Please try the update again.",
+    });
+  }
+}
+
 export async function checkForAppUpdate(manual = false) {
   if (Platform.OS !== "android") {
     if (manual) Alert.alert("Updates", "In-app update checks are currently available on Android.");
@@ -206,28 +247,23 @@ export async function checkForAppUpdate(manual = false) {
   const now = Date.now();
   if (!manual && now - lastAutomaticCheckAt < CHECK_INTERVAL_MS) return;
   if (activeCheck) return activeCheck;
-
   if (!manual) lastAutomaticCheckAt = now;
 
   activeCheck = (async () => {
     try {
-      const response = await fetch(RELEASE_API, {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
+      const response = await fetch(NATIVE_RELEASE_API, {
+        headers: { Accept: "application/json", "Cache-Control": "no-cache" },
       });
-
       if (!response.ok) {
         if (manual) Alert.alert("Updates", "Could not check for native updates right now.");
         return;
       }
 
-      const release = (await response.json()) as LatestRelease;
+      const release = (await response.json()) as NativeRelease;
       const currentVersion = normalizeVersion(Constants.expoConfig?.version);
-      const latestVersion = normalizeVersion(release.tag_name || release.name);
+      const latestVersion = normalizeVersion(release.version);
 
-      if (!latestVersion || compareVersions(latestVersion, currentVersion) <= 0) {
+      if (!release.available || !latestVersion || compareVersions(latestVersion, currentVersion) <= 0) {
         if (manual) {
           const runtime = Updates.runtimeVersion || currentVersion;
           Alert.alert("You're up to date", `OnCampus ${currentVersion} (runtime ${runtime}) is up to date.`);
@@ -235,32 +271,29 @@ export async function checkForAppUpdate(manual = false) {
         return;
       }
 
-      const apk = release.assets?.find((asset) => asset.name === APK_NAME);
-      const downloadUrl = apk?.browser_download_url;
-      if (!isTrustedApkUrl(downloadUrl)) {
-        if (manual) Alert.alert("Updates", "The latest native Android release is not ready yet.");
+      if (!isTrustedNativeRelease(release)) {
+        if (manual) Alert.alert("Updates", "The latest Android release did not pass update metadata validation.");
         return;
       }
 
-      const body = release.body || "";
-      const minSupportedVersion = normalizeVersion(releaseFlag(body, "min-version"));
-      const forceFlag = String(releaseFlag(body, "force-update") || "false").toLowerCase() === "true";
-      const forceUpdate = forceFlag || compareVersions(currentVersion, minSupportedVersion) < 0;
-      const notes = cleanReleaseNotes(body);
-      const message = `OnCampus ${latestVersion} is available.${notes ? `\n\n${notes}` : ""}`;
+      const minSupportedVersion = normalizeVersion(release.minVersion);
+      const forceUpdate = Boolean(release.forceUpdate) || compareVersions(currentVersion, minSupportedVersion) < 0;
+      const notes = String(release.notes || "").trim().slice(0, 700);
+      const sizeMb = release.size && release.size > 0 ? `\n\nDownload size: ${(release.size / 1024 / 1024).toFixed(1)} MB` : "";
+      const message = `OnCampus ${latestVersion} is available.${notes ? `\n\n${notes}` : ""}${sizeMb}`;
 
       const install = () => {
-        if (downloadUrl) void Linking.openURL(downloadUrl);
+        void startNativeInstall(release);
       };
 
       Alert.alert(
-        forceUpdate ? "Native update required" : "Native update available",
+        forceUpdate ? "Android update required" : "Android update available",
         message,
         forceUpdate
-          ? [{ text: "Update now", onPress: install }]
+          ? [{ text: "Install now", onPress: install }]
           : [
               { text: "Later", style: "cancel" },
-              { text: "Update now", onPress: install },
+              { text: "Install now", onPress: install },
             ],
         { cancelable: !forceUpdate }
       );
@@ -276,15 +309,19 @@ export async function checkForAppUpdate(manual = false) {
   }
 }
 
-function OtaUpdateModal({ state, onClose, onRetry }: { state: OtaUiState; onClose: () => void; onRetry: () => void }) {
+function UpdateModal({ state, onClose, onRetry }: { state: UpdateUiState; onClose: () => void; onRetry: () => void }) {
   const visible = state.phase !== "hidden";
   const busy = state.phase === "downloading" || state.phase === "verifying";
-  const ready = state.phase === "ready";
+  const otaReady = state.kind === "ota" && state.phase === "ready";
+  const apkInstallerOpen = state.kind === "apk" && state.phase === "installing";
+  const permission = state.kind === "apk" && state.phase === "permission";
   const error = state.phase === "error";
 
   const phaseLabel = useMemo(() => {
+    if (state.phase === "permission") return "PERMISSION";
     if (state.phase === "downloading") return "DOWNLOADING";
     if (state.phase === "verifying") return "VERIFYING";
+    if (state.phase === "installing") return "ANDROID INSTALLER";
     if (state.phase === "ready") return "READY";
     if (state.phase === "error") return "RETRY NEEDED";
     return "";
@@ -306,7 +343,7 @@ function OtaUpdateModal({ state, onClose, onRetry }: { state: OtaUiState; onClos
           <Text style={styles.title}>{state.message}</Text>
           {!!state.detail && <Text style={styles.detail}>{state.detail}</Text>}
 
-          {!error && (
+          {!error && state.phase !== "permission" && (
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${Math.max(0, Math.min(100, state.progress))}%` }]} />
             </View>
@@ -314,16 +351,28 @@ function OtaUpdateModal({ state, onClose, onRetry }: { state: OtaUiState; onClos
 
           <View style={styles.securityRow}>
             <Text style={styles.lock}>✓</Text>
-            <Text style={styles.securityText}>Signed update • runtime verified • in-app installation</Text>
+            <Text style={styles.securityText}>
+              {state.kind === "apk"
+                ? "OnCampus API • SHA-256 verified • Android package installer"
+                : "Signed update • runtime verified • in-app installation"}
+            </Text>
           </View>
 
-          {ready && (
+          {otaReady && (
             <View style={styles.actions}>
               <Pressable style={styles.secondaryButton} onPress={onClose}>
                 <Text style={styles.secondaryText}>Later</Text>
               </Pressable>
               <Pressable style={styles.primaryButton} onPress={() => { void Updates.reloadAsync(); }}>
                 <Text style={styles.primaryText}>Restart & Apply</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {(permission || apkInstallerOpen) && (
+            <View style={styles.actions}>
+              <Pressable style={styles.primaryButton} onPress={onClose}>
+                <Text style={styles.primaryText}>{permission ? "I’ll return after allowing" : "Close"}</Text>
               </Pressable>
             </View>
           )}
@@ -347,13 +396,34 @@ function OtaUpdateModal({ state, onClose, onRetry }: { state: OtaUiState; onClos
 }
 
 export default function AppUpdateGate() {
-  const [otaUi, setOtaUi] = useState<OtaUiState>(INITIAL_UI);
+  const [updateUi, setUpdateUi] = useState<UpdateUiState>(INITIAL_UI);
 
   useEffect(() => {
-    otaUiListener = setOtaUi;
+    updateUiListener = setUpdateUi;
     return () => {
-      if (otaUiListener === setOtaUi) otaUiListener = null;
+      if (updateUiListener === setUpdateUi) updateUiListener = null;
     };
+  }, []);
+
+  useEffect(() => {
+    if (!nativeInstaller) return;
+    const emitter = new NativeEventEmitter(nativeInstaller as never);
+    const subscription = emitter.addListener("OnCampusApkInstall", (event: {
+      phase?: UpdatePhase;
+      progress?: number;
+      message?: string;
+      detail?: string;
+    }) => {
+      const phase = event.phase || "error";
+      setUpdateUi({
+        kind: "apk",
+        phase,
+        progress: Number.isFinite(event.progress) ? Number(event.progress) : 0,
+        message: event.message || "Android update",
+        detail: event.detail,
+      });
+    });
+    return () => subscription.remove();
   }, []);
 
   useEffect(() => {
@@ -372,10 +442,10 @@ export default function AppUpdateGate() {
   }, []);
 
   return (
-    <OtaUpdateModal
-      state={otaUi}
-      onClose={() => setOtaUi(INITIAL_UI)}
-      onRetry={() => { setOtaUi(INITIAL_UI); void checkForAppUpdate(true); }}
+    <UpdateModal
+      state={updateUi}
+      onClose={() => setUpdateUi(INITIAL_UI)}
+      onRetry={() => { setUpdateUi(INITIAL_UI); void checkForAppUpdate(true); }}
     />
   );
 }
