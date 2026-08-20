@@ -10,7 +10,7 @@ import { checkForAppUpdate } from "./AppUpdateGate";
 
 const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
 const INSTALLATION_KEY = "oncampus.update.installation_id";
-const FALLBACK_POLL_MS = 45_000;
+const FALLBACK_POLL_MS = 15_000;
 
 let inFlight = false;
 let currentCampaignInMemory: string | null = null;
