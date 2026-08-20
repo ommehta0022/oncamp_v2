@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -11,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 
 import ota_updates
 import server
+import update_campaign
 from institution_content_workflow import router as institution_content_router
 from update_campaign import router as update_campaign_router
 
@@ -18,6 +20,7 @@ app = server.app
 app.include_router(institution_content_router)
 app.include_router(update_campaign_router)
 logger = logging.getLogger("oncampus")
+_auto_campaign_task: Optional[asyncio.Task] = None
 
 
 @app.get("/v1/updates/manifest", include_in_schema=False)
@@ -32,6 +35,7 @@ def production_ota_status(runtimeVersion: Optional[str] = None) -> dict:
 
 @app.on_event("startup")
 async def verify_production_routes() -> None:
+    global _auto_campaign_task
     route_paths = {getattr(route, "path", "") for route in app.routes}
     required = {
         "/v1/updates/manifest",
@@ -45,7 +49,21 @@ async def verify_production_routes() -> None:
     if missing:
         logger.critical("Production route registration failure: %s", ", ".join(missing))
         raise RuntimeError(f"Required production routes missing: {', '.join(missing)}")
-    logger.info("Production OTA/content routes verified")
+    if _auto_campaign_task is None or _auto_campaign_task.done():
+        _auto_campaign_task = asyncio.create_task(update_campaign.auto_campaign_loop())
+    logger.info("Production OTA/content routes verified; auto campaign broadcaster started")
+
+
+@app.on_event("shutdown")
+async def stop_auto_campaign_broadcaster() -> None:
+    global _auto_campaign_task
+    if _auto_campaign_task and not _auto_campaign_task.done():
+        _auto_campaign_task.cancel()
+        try:
+            await _auto_campaign_task
+        except asyncio.CancelledError:
+            pass
+    _auto_campaign_task = None
 
 
 def institution_admin_or_error(request: Request):
