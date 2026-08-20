@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-from pathlib import Path
 from typing import Any, Literal, Optional
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 import ota_updates
 import server
 
 router = APIRouter(tags=["update-control"])
+AUTO_CAMPAIGN_INTERVAL_SECONDS = max(15, int(os.getenv("OTA_AUTO_CAMPAIGN_INTERVAL_SECONDS", "30")))
+_install_rate: dict[str, tuple[float, int]] = {}
 
 
 class InstallationDto(BaseModel):
-    installationId: str = Field(..., min_length=12, max_length=160)
+    installationId: str = Field(..., min_length=12, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$")
     platform: Literal["android", "ios"]
     pushToken: Optional[str] = Field(default=None, max_length=4096)
     notificationPermission: Literal["unknown", "granted", "denied"] = "unknown"
@@ -48,9 +50,8 @@ def _latest_campaign(runtime_version: str) -> Optional[dict[str, Any]]:
 
 
 def _secure_firebase_info() -> Optional[dict[str, Any]]:
-    # Deliberately use only the protected runtime variable. Do not fall back to
-    # a repository service-account file because a server signing key must never
-    # be trusted from source control.
+    # Server signing credentials are accepted only from protected Railway env.
+    # Never fall back to a repository service-account file.
     raw = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
     if not raw:
         return None
@@ -102,6 +103,8 @@ def _broadcast_fcm(campaign: dict[str, Any]) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     sent = 0
     failed = 0
+    invalid_installations: list[str] = []
+
     for row in rows:
         token = row.get("push_token")
         if not token:
@@ -129,13 +132,144 @@ def _broadcast_fcm(campaign: dict[str, Any]) -> dict[str, Any]:
                 sent += 1
             else:
                 failed += 1
+                # FCM returns 404 for many permanently invalid/unregistered tokens.
+                if response.status_code == 404 and row.get("installation_id"):
+                    invalid_installations.append(str(row["installation_id"]))
         except Exception:
             failed += 1
+
+    for installation_id in invalid_installations:
+        try:
+            server.db.patch(
+                "app_installations",
+                {"installation_id": f"eq.{installation_id}"},
+                {"push_token": None, "updated_at": server.now_iso()},
+            )
+        except Exception:
+            pass
+
     return {"enabled": True, "sent": sent, "failed": failed}
 
 
+def _create_campaign(
+    runtime_version: str,
+    source: dict[str, Any],
+    *,
+    title: str,
+    message: str,
+    force_update: bool,
+    created_by: Optional[str] = None,
+) -> dict[str, Any]:
+    server.db.patch(
+        "ota_update_campaigns",
+        {"runtime_version": f"eq.{runtime_version}", "active": "eq.true"},
+        {"active": False},
+    )
+    return server.db.post(
+        "ota_update_campaigns",
+        {
+            "update_id": source["id"],
+            "runtime_version": runtime_version,
+            "title": title,
+            "message": message,
+            "force_update": force_update,
+            "active": True,
+            "created_by": created_by,
+            "created_at": server.now_iso(),
+        },
+    )[0]
+
+
+def ensure_latest_campaign(runtime_version: str) -> Optional[dict[str, Any]]:
+    """Turn every newly published signed OTA into a server-side campaign exactly once."""
+    source = ota_updates.fetch_latest_source(runtime_version)
+    if not source:
+        return None
+
+    active = _latest_campaign(runtime_version)
+    if active and str(active.get("update_id")) == str(source.get("id")):
+        return active
+
+    existing = server.db.get(
+        "ota_update_campaigns",
+        {
+            "runtime_version": f"eq.{runtime_version}",
+            "update_id": f"eq.{source['id']}",
+            "order": "created_at.desc",
+            "limit": "1",
+            "select": "id,update_id,runtime_version,title,message,force_update,active,created_at,expires_at",
+        },
+    ) or []
+    if existing:
+        campaign = existing[0]
+        if not campaign.get("active"):
+            server.db.patch(
+                "ota_update_campaigns",
+                {"runtime_version": f"eq.{runtime_version}", "active": "eq.true"},
+                {"active": False},
+            )
+            campaign = server.db.patch(
+                "ota_update_campaigns",
+                {"id": f"eq.{campaign['id']}"},
+                {"active": True},
+            )[0]
+        return campaign
+
+    campaign = _create_campaign(
+        runtime_version,
+        source,
+        title="OnCampus update available",
+        message="A new secure OnCampus update is ready. Open the app to install it now.",
+        force_update=False,
+    )
+    push = _broadcast_fcm(campaign)
+    server.logger.info(
+        "Auto OTA campaign created runtime=%s update=%s push_enabled=%s sent=%s failed=%s",
+        runtime_version,
+        source.get("id"),
+        push.get("enabled"),
+        push.get("sent"),
+        push.get("failed"),
+    )
+    return campaign
+
+
+async def auto_campaign_loop() -> None:
+    """Continuously discovers a newly published OTA and triggers client delivery."""
+    while True:
+        try:
+            for runtime in sorted(ota_updates.supported_runtime_versions()):
+                await asyncio.to_thread(ensure_latest_campaign, runtime)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            server.logger.warning("OTA auto campaign check failed: %s", type(exc).__name__)
+        await asyncio.sleep(AUTO_CAMPAIGN_INTERVAL_SECONDS)
+
+
+def _allow_install_registration(request: Request) -> None:
+    """Small in-process abuse guard for the unauthenticated device-registration endpoint."""
+    import time
+
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    key = forwarded or (request.client.host if request.client else "unknown")
+    now = time.monotonic()
+    window_start, count = _install_rate.get(key, (now, 0))
+    if now - window_start >= 60:
+        window_start, count = now, 0
+    count += 1
+    _install_rate[key] = (window_start, count)
+    if count > 30:
+        raise HTTPException(status_code=429, detail="Too many installation registration requests")
+    if len(_install_rate) > 5000:
+        stale = [ip for ip, (started, _) in _install_rate.items() if now - started > 120]
+        for ip in stale[:2500]:
+            _install_rate.pop(ip, None)
+
+
 @router.post("/v1/updates/installations")
-def register_installation(payload: InstallationDto) -> dict[str, Any]:
+def register_installation(payload: InstallationDto, request: Request) -> dict[str, Any]:
+    _allow_install_registration(request)
     values = {
         "platform": payload.platform,
         "push_token": payload.pushToken or None,
@@ -182,11 +316,11 @@ def get_update_campaign(
     installationId: Optional[str] = Query(default=None, max_length=160),
 ) -> dict[str, Any]:
     if runtimeVersion not in ota_updates.supported_runtime_versions():
-        return {"available": False, "runtimeVersion": runtimeVersion, "pollAfterSeconds": 45}
+        return {"available": False, "runtimeVersion": runtimeVersion, "pollAfterSeconds": 15}
 
     source = ota_updates.fetch_latest_source(runtimeVersion)
     if not source:
-        return {"available": False, "runtimeVersion": runtimeVersion, "pollAfterSeconds": 45}
+        return {"available": False, "runtimeVersion": runtimeVersion, "pollAfterSeconds": 15}
 
     campaign = _latest_campaign(runtimeVersion)
     source_id = str(source.get("id"))
@@ -216,7 +350,7 @@ def get_update_campaign(
         "message": (campaign or {}).get("message") or "A new secure OnCampus update is ready.",
         "forceUpdate": bool((campaign or {}).get("force_update", False)),
         "publishedAt": source.get("createdAt"),
-        "pollAfterSeconds": 45,
+        "pollAfterSeconds": 15,
     }
 
 
@@ -232,24 +366,14 @@ def trigger_update_campaign(
     if not source:
         raise HTTPException(status_code=409, detail="No published OTA exists for this runtime")
 
-    server.db.patch(
-        "ota_update_campaigns",
-        {"runtime_version": f"eq.{payload.runtimeVersion}", "active": "eq.true"},
-        {"active": False},
+    campaign = _create_campaign(
+        payload.runtimeVersion,
+        source,
+        title=payload.title,
+        message=payload.message,
+        force_update=payload.forceUpdate,
+        created_by=user.id,
     )
-    campaign = server.db.post(
-        "ota_update_campaigns",
-        {
-            "update_id": source["id"],
-            "runtime_version": payload.runtimeVersion,
-            "title": payload.title,
-            "message": payload.message,
-            "force_update": payload.forceUpdate,
-            "active": True,
-            "created_by": user.id,
-            "created_at": server.now_iso(),
-        },
-    )[0]
     push = _broadcast_fcm(campaign)
     return {
         "triggered": True,
