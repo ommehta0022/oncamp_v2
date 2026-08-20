@@ -10,17 +10,21 @@ import uvicorn
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+import campus_platform
 import ota_updates
 import server
 import update_campaign
+from campus_platform import router as campus_platform_router
 from institution_content_workflow import router as institution_content_router
 from update_campaign import router as update_campaign_router
 
 app = server.app
 app.include_router(institution_content_router)
 app.include_router(update_campaign_router)
+app.include_router(campus_platform_router)
 logger = logging.getLogger("oncampus")
 _auto_campaign_task: Optional[asyncio.Task] = None
+_campus_scheduler_task: Optional[asyncio.Task] = None
 
 
 @app.get("/v1/updates/manifest", include_in_schema=False)
@@ -35,7 +39,7 @@ def production_ota_status(runtimeVersion: Optional[str] = None) -> dict:
 
 @app.on_event("startup")
 async def verify_production_routes() -> None:
-    global _auto_campaign_task
+    global _auto_campaign_task, _campus_scheduler_task
     route_paths = {getattr(route, "path", "") for route in app.routes}
     required = {
         "/v1/updates/manifest",
@@ -46,6 +50,13 @@ async def verify_production_routes() -> None:
         "/v1/updates/native/apk",
         "/v1/admin/updates/trigger",
         "/v1/institutions/me/content/overview",
+        "/v1/campus/hub",
+        "/v1/campus/search",
+        "/v1/campus/institution/overview",
+        "/v1/campus/institution/student-approvals",
+        "/v1/campus/institution/events",
+        "/v1/campus/institution/broadcasts",
+        "/v1/campus/institution/moderation",
     }
     missing = sorted(path for path in required if path not in route_paths)
     if missing:
@@ -53,19 +64,26 @@ async def verify_production_routes() -> None:
         raise RuntimeError(f"Required production routes missing: {', '.join(missing)}")
     if _auto_campaign_task is None or _auto_campaign_task.done():
         _auto_campaign_task = asyncio.create_task(update_campaign.auto_campaign_loop())
-    logger.info("Production OTA/native update/content routes verified; auto campaign broadcaster started")
+    if _campus_scheduler_task is None or _campus_scheduler_task.done():
+        _campus_scheduler_task = asyncio.create_task(campus_platform.scheduler_loop())
+    logger.info("Production OTA/native/content/campus routes verified; campaign and campus schedulers started")
 
 
 @app.on_event("shutdown")
-async def stop_auto_campaign_broadcaster() -> None:
-    global _auto_campaign_task
-    if _auto_campaign_task and not _auto_campaign_task.done():
-        _auto_campaign_task.cancel()
-        try:
-            await _auto_campaign_task
-        except asyncio.CancelledError:
-            pass
+async def stop_background_tasks() -> None:
+    global _auto_campaign_task, _campus_scheduler_task
+    tasks = [_auto_campaign_task, _campus_scheduler_task]
+    for task in tasks:
+        if task and not task.done():
+            task.cancel()
+    for task in tasks:
+        if task:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     _auto_campaign_task = None
+    _campus_scheduler_task = None
 
 
 def institution_admin_or_error(request: Request):
