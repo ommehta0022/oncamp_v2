@@ -1,0 +1,123 @@
+name: Release OnCampus Android 1.4.0 Direct Installer Baseline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/release-android-1.4.0-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-android-1.4.0
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Verify 1.4.0 native installer identity
+        run: |
+          set -euo pipefail
+          VERSION=$(node -e 'process.stdout.write(String(require("./app.json").expo.version))')
+          RUNTIME=$(node -e 'process.stdout.write(String(require("./app.json").expo.runtimeVersion))')
+          test "$VERSION" = "1.4.0"
+          test "$RUNTIME" = "1.4.0"
+          grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' android/app/src/main/AndroidManifest.xml
+          grep -q 'apkprovider' android/app/src/main/AndroidManifest.xml
+          grep -q '>1.4.0<' android/app/src/main/res/values/strings.xml
+          test -s android/app/src/main/res/xml/apk_file_paths.xml
+          test -s android/app/src/main/java/com/oncampus/app/OnCampusApkInstallerModule.kt
+          test -s android/app/src/main/java/com/oncampus/app/OnCampusApkInstallerPackage.kt
+          grep -q 'OnCampusApkInstallerPackage' android/app/src/main/java/com/oncampus/app/MainApplication.kt
+          grep -q '/updates/native/latest' src/components/AppUpdateGate.tsx
+          grep -q 'OnCampusApkInstaller' src/components/AppUpdateGate.tsx
+          grep -q 'expo.modules.updates.CODE_SIGNING_CERTIFICATE' android/app/src/main/AndroidManifest.xml
+          test -s android/app/google-services.json
+
+      - name: Install locked dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Production dependency critical audit
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Validate Expo Android export
+        run: npx expo export --platform android --output-dir /tmp/oncampus-1.4.0-export
+
+      - name: Build release APK safely
+        timeout-minutes: 40
+        env:
+          APP_VERSION_NAME: "1.4.0"
+          APP_VERSION_CODE: "140"
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx4096m"
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --stop || true
+          timeout 38m ./gradlew assembleRelease --no-daemon --no-parallel --max-workers=2 --build-cache --stacktrace --console=plain -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
+
+      - name: Verify APK and checksum
+        run: |
+          set -euo pipefail
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          cp android/app/build/outputs/apk/release/app-release.apk OnCampus.apk
+          sha256sum OnCampus.apk | tee OnCampus.apk.sha256
+          test -s OnCampus.apk.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OnCampus-1.4.0-Direct-Installer-Baseline
+          path: |
+            frontend/OnCampus.apk
+            frontend/OnCampus.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: OnCampus-1.4.0-Direct-Installer-Baseline
+          path: release
+      - name: Publish OnCampus 1.4.0
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v1.4.0
+          name: OnCampus 1.4.0
+          body_path: frontend/RELEASE_NOTES.md
+          make_latest: true
+          overwrite_files: true
+          files: |
+            release/OnCampus.apk
+            release/OnCampus.apk.sha256
