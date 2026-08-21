@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Alert, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
+import { Alert, Pressable, Share, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -83,6 +83,20 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     } finally { setBusyAction(null); }
   };
 
+  const shareExternally = async () => {
+    try {
+      const title = String(item.title || "OnCampus post").trim();
+      const content = String(item.content || "").trim();
+      const deepLink = `oncampus://post/${encodeURIComponent(String(item.id))}`;
+      await Share.share({
+        title,
+        message: [title !== "OnCampus post" ? title : "", content, deepLink].filter(Boolean).join("\n\n"),
+      });
+    } catch {
+      showToast({ message: "Could not open the share sheet.", variant: "error" });
+    }
+  };
+
   const deletePost = () => {
     Alert.alert("Delete post?", "This post will be removed from OnCampus.", [
       { text: "Cancel", style: "cancel" },
@@ -137,9 +151,10 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
         {!!item.mediaUrl && item.mediaType !== "document" && <Image source={{ uri: item.mediaUrl }} style={styles.postImage} contentFit="cover" transition={180} cachePolicy="memory-disk" />}
         {!!item.mediaUrl && item.mediaType === "document" && <View style={[styles.document, { borderColor: colors.border, backgroundColor: colors.surfaceTertiary }]}><Ionicons name="document-text-outline" size={22} color={colors.brandPrimary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.sm }} numberOfLines={1}>Attached document</Text></View>}
         <View style={[styles.actions, { borderTopColor: colors.border }]}>
-          <ActionBtn emoji={reactionEmoji || undefined} icon={reactionEmoji ? undefined : "happy-outline"} label={String(item.counts?.reactions || 0)} color={item.userReaction ? colors.brandPrimary : colors.onSurfaceTertiary} onPress={() => setReactionMenuVisible(true)} />
-          <ActionBtn icon="reader-outline" label={String(item.counts?.comments || item.comments || 0)} color={colors.onSurfaceTertiary} onPress={() => router.push(`/post/${item.id}`)} />
-          <ActionBtn icon={item.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={item.bookmarked ? colors.brandSecondary : colors.onSurfaceTertiary} onPress={toggleBookmark} />
+          <ActionBtn emoji={reactionEmoji || undefined} icon={reactionEmoji ? undefined : "happy-outline"} label={String(item.counts?.reactions || 0)} color={item.userReaction ? colors.brandPrimary : colors.onSurfaceTertiary} onPress={() => setReactionMenuVisible(true)} accessibilityLabel="React to post" />
+          <ActionBtn icon="reader-outline" label={String(item.counts?.comments || item.comments || 0)} color={colors.onSurfaceTertiary} onPress={() => router.push(`/post/${item.id}`)} accessibilityLabel="Open comments" />
+          <ActionBtn icon={item.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={item.bookmarked ? colors.brandSecondary : colors.onSurfaceTertiary} onPress={toggleBookmark} accessibilityLabel={item.bookmarked ? "Remove bookmark" : "Save post"} />
+          <ActionBtn icon="share-social-outline" label="" color={colors.onSurfaceTertiary} onPress={() => void shareExternally()} accessibilityLabel="Share to another app" />
         </View>
       </Pressable>
       <OptionsMenu visible={menuVisible} onClose={() => setMenuVisible(false)} options={options} title="Post options" />
@@ -149,8 +164,8 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
   );
 }
 
-function ActionBtn({ icon, emoji, label, color, onPress }: { icon?: keyof typeof Ionicons.glyphMap; emoji?: string; label: string; color: string; onPress: () => void }) {
-  return <Pressable onPress={onPress} style={styles.actionBtn} hitSlop={8}>{emoji ? <Text style={{ fontSize: 19 }}>{emoji}</Text> : icon ? <Ionicons name={icon} size={20} color={color} /> : null}{!!label && <Text style={{ color, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>}</Pressable>;
+function ActionBtn({ icon, emoji, label, color, onPress, accessibilityLabel }: { icon?: keyof typeof Ionicons.glyphMap; emoji?: string; label: string; color: string; onPress: () => void; accessibilityLabel: string }) {
+  return <Pressable onPress={onPress} style={styles.actionBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel={accessibilityLabel}>{emoji ? <Text style={{ fontSize: 19 }}>{emoji}</Text> : icon ? <Ionicons name={icon} size={20} color={color} /> : null}{!!label && <Text style={{ color, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>}</Pressable>;
 }
 
 const styles = StyleSheet.create({
@@ -163,6 +178,6 @@ const styles = StyleSheet.create({
   postImage: { width: "100%", aspectRatio: 16 / 10, borderRadius: radius.md, marginTop: spacing.md },
   document: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md },
   actions: { flexDirection: "row", justifyContent: "space-around", borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.md, paddingTop: spacing.md },
-  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4, paddingHorizontal: 10 },
+  actionBtn: { minWidth: 44, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 4, paddingHorizontal: 10 },
   pinned: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginBottom: spacing.sm },
 });
