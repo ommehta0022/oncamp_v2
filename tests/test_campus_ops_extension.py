@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OPS = (ROOT / "campus_ops_extension.py").read_text(encoding="utf-8")
+AI = (ROOT / "campus_ai.py").read_text(encoding="utf-8")
 PRODUCTION = (ROOT / "production_server.py").read_text(encoding="utf-8")
 SETTINGS = (ROOT / "frontend" / "app" / "institution" / "settings.tsx").read_text(encoding="utf-8")
 GOVERNANCE = (ROOT / "frontend" / "app" / "institution" / "governance.tsx").read_text(encoding="utf-8")
@@ -50,17 +51,36 @@ class GovernanceUiTests(unittest.TestCase):
 
 class InviteQrUiTests(unittest.TestCase):
     def test_join_screen_has_real_qr_scanner_and_live_api_validation(self):
-        self.assertIn('CameraView', JOIN)
-        self.assertIn('barcodeTypes: ["qr"]', JOIN)
-        self.assertIn('campusApi.student.invite', JOIN)
-        self.assertIn('campusApi.student.acceptInvite', JOIN)
-        self.assertIn('extractInviteCode', JOIN)
+        self.assertIn("CameraView", JOIN)
+        self.assertIn('barcodeTypes={{ barcodeTypes: ["qr"] }}'.replace('{{', '{').replace('}}', '}'), JOIN)
+        self.assertIn("campusApi.student.invite", JOIN)
+        self.assertIn("campusApi.student.acceptInvite", JOIN)
+        self.assertIn("extractInviteCode", JOIN)
 
     def test_existing_native_baseline_already_has_camera_and_deep_link_support(self):
         self.assertIn('"scheme": "oncampus"', APP_CONFIG)
         self.assertIn('"CAMERA"', APP_CONFIG)
         self.assertIn('"version": "1.4.0"', APP_CONFIG)
         self.assertIn('"runtimeVersion": "1.4.0"', APP_CONFIG)
+
+
+class AiProviderSafetyTests(unittest.TestCase):
+    def test_ai_requires_real_external_provider_configuration(self):
+        self.assertIn("ONCAMPUS_AI_API_URL", AI)
+        self.assertIn("ONCAMPUS_AI_API_KEY", AI)
+        self.assertIn("ONCAMPUS_AI_MODEL", AI)
+        self.assertIn("AI provider is not configured", AI)
+        self.assertIn('"fabricatedFallback": False', AI)
+
+    def test_ai_output_is_schema_validated_and_rate_limited(self):
+        self.assertIn("_normalized_result", AI)
+        self.assertIn("numeric score", AI)
+        self.assertIn('@server.limiter.limit("20/minute")', AI)
+        self.assertIn('require_operator("moderation.review")', AI)
+
+    def test_ai_routes_are_required_at_startup(self):
+        self.assertIn('"/v1/campus/ai/status"', PRODUCTION)
+        self.assertIn('"/v1/campus/institution/ai/analyze"', PRODUCTION)
 
 
 if __name__ == "__main__":
