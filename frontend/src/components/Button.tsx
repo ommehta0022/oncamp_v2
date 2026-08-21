@@ -20,11 +20,12 @@ export type ButtonProps = {
   testID?: string;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  accessibilityHint?: string;
 };
 
 export default function Button({
   label, onPress, variant = "primary", loading, disabled, fullWidth,
-  size = "md", style, textStyle, testID, leftIcon, rightIcon,
+  size = "md", style, textStyle, testID, leftIcon, rightIcon, accessibilityHint,
 }: ButtonProps) {
   const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -45,32 +46,18 @@ export default function Button({
     danger: colors.onError,
     link: colors.link || colors.brandPrimary,
   };
-  
   const border = variant === "outline" ? (colors.borderStrong || colors.border) : "transparent";
-  
   const heights: Record<Size, number> = { sm: 36, md: 44, lg: 52, xl: 60 };
   const fontSizes: Record<Size, number> = { sm: font.sm, md: font.base, lg: font.lg, xl: font.xl };
   const px: Record<Size, number> = { sm: spacing.md, md: spacing.lg, lg: spacing.xl, xl: spacing["2xl"] };
 
   const handlePressIn = () => {
     if (disabled || loading) return;
-    Animated.timing(scaleAnim, {
-      toValue: 0.96,
-      duration: 100,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(scaleAnim, { toValue: 0.96, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
   };
-
   const handlePressOut = () => {
-    Animated.timing(scaleAnim, {
-      toValue: 1,
-      duration: 100,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(scaleAnim, { toValue: 1, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
   };
-
   const handlePress = () => {
     if (disabled || loading) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -81,14 +68,18 @@ export default function Button({
     <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, fullWidth && { width: "100%" }]}>
       <Pressable
         testID={testID}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityHint={accessibilityHint}
+        accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         onPress={handlePress}
         disabled={disabled || loading}
         style={({ pressed }) => [
           {
-            height: variant === "link" ? undefined : heights[size],
-            paddingHorizontal: variant === "link" ? 0 : px[size],
+            minHeight: variant === "link" ? 44 : heights[size],
+            paddingHorizontal: variant === "link" ? spacing.sm : px[size],
             paddingVertical: variant === "link" ? spacing.sm : 0,
             borderRadius: radius.pill,
             backgroundColor: disabled && variant !== "link" && variant !== "ghost" ? colors.surfaceTertiary : bg[variant],
@@ -104,24 +95,22 @@ export default function Button({
           style,
         ]}
       >
-        {loading ? (
-          <ActivityIndicator color={fg[variant]} />
-        ) : (
+        {loading ? <ActivityIndicator color={fg[variant]} accessibilityLabel={`${label} in progress`} /> : (
           <>
             {leftIcon}
-            <Text 
+            <Text
+              allowFontScaling
+              maxFontSizeMultiplier={1.6}
               style={[
-                { 
-                  color: disabled ? (colors.textDisabled || colors.muted) : fg[variant], 
-                  fontSize: fontSizes[size], 
+                {
+                  color: disabled ? (colors.textDisabled || colors.muted) : fg[variant],
+                  fontSize: fontSizes[size],
                   fontWeight: variant === "link" ? "600" : "500",
-                  textDecorationLine: variant === "link" ? "underline" : "none"
-                }, 
-                textStyle
+                  textDecorationLine: variant === "link" ? "underline" : "none",
+                },
+                textStyle,
               ]}
-            >
-              {label}
-            </Text>
+            >{label}</Text>
             {rightIcon}
           </>
         )}
