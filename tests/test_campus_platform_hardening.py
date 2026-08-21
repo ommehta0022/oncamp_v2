@@ -7,6 +7,9 @@ PRODUCTION = (ROOT / "production_server.py").read_text(encoding="utf-8")
 POST_REQUEST = (ROOT / "frontend" / "app" / "group" / "post-request" / "[id].tsx").read_text(encoding="utf-8")
 SHARE_MODAL = (ROOT / "frontend" / "src" / "components" / "SharePostModal.tsx").read_text(encoding="utf-8")
 VOICE_NOTE = (ROOT / "frontend" / "src" / "components" / "VoiceNoteRecorder.tsx").read_text(encoding="utf-8")
+GROUP_CHAT = (ROOT / "frontend" / "app" / "group" / "[id].tsx").read_text(encoding="utf-8")
+POST_CARD = (ROOT / "frontend" / "src" / "components" / "PostCard.tsx").read_text(encoding="utf-8")
+VOICE_BACKEND = (ROOT / "campus_voice.py").read_text(encoding="utf-8")
 
 
 class CampusTenantIsolationTests(unittest.TestCase):
@@ -56,10 +59,20 @@ class ProductScopeRegressionTests(unittest.TestCase):
         self.assertNotIn("api.institutions.postRequest", SHARE_MODAL)
         self.assertIn("return null", SHARE_MODAL)
 
-    def test_voice_notes_are_not_exposed(self):
-        self.assertNotIn("expo-audio", VOICE_NOTE)
-        self.assertNotIn("requestRecordingPermissionsAsync", VOICE_NOTE)
-        self.assertIn("return null", VOICE_NOTE)
+    def test_external_share_does_not_reintroduce_in_app_repost(self):
+        self.assertIn("Share.share", POST_CARD)
+        self.assertIn("oncampus://post/", POST_CARD)
+        self.assertNotIn("postRequest", POST_CARD)
+        self.assertNotIn("api.posts.share", POST_CARD)
+
+    def test_group_voice_notes_are_real_and_bounded(self):
+        self.assertIn("expo-audio", VOICE_NOTE)
+        self.assertIn("requestRecordingPermissionsAsync", VOICE_NOTE)
+        self.assertIn("GroupVoiceNoteButton", GROUP_CHAT)
+        self.assertIn('msg.type === "audio"', GROUP_CHAT)
+        self.assertIn("require_group_member", VOICE_BACKEND)
+        self.assertIn("MAX_VOICE_NOTE_BYTES", VOICE_BACKEND)
+        self.assertIn('"/groups/{group_id}/voice-note"', VOICE_BACKEND)
 
 
 if __name__ == "__main__":

@@ -5,11 +5,13 @@ import { BlurView } from "expo-blur";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useTabBadges } from "@/src/hooks/useTabBadges";
 import { useRole } from "@/src/context/RoleProvider";
+import { useLanguage } from "@/src/context/LanguageProvider";
 
 export default function TabsLayout() {
   const { colors, isDark } = useTheme();
   const { groupsUnread, notificationsUnread } = useTabBadges();
   const { canManageInstitution } = useRole();
+  const { t } = useLanguage();
 
   return (
     <Tabs
@@ -30,11 +32,11 @@ export default function TabsLayout() {
         tabBarBackground: () => Platform.OS === "ios" ? <BlurView intensity={80} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} /> : null,
       }}
     >
-      <Tabs.Screen name="feed" options={{ title: "Feed", tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? "home" : "home-outline"} size={24} color={color} /> }} />
-      <Tabs.Screen name="groups" options={{ title: "Groups", tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? "people-circle" : "people-circle-outline"} size={25} color={color} />, tabBarBadge: groupsUnread > 0 ? groupsUnread : undefined, tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: "#fff", fontSize: 10, fontWeight: "500" } }} />
-      <Tabs.Screen name="discover" options={{ title: "Campus", tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? "school" : "school-outline"} size={25} color={color} /> }} />
-      <Tabs.Screen name="notifications" options={{ title: "Alerts", tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? "notifications" : "notifications-outline"} size={24} color={color} />, tabBarBadge: notificationsUnread > 0 ? notificationsUnread : undefined, tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: "#fff", fontSize: 10, fontWeight: "500" } }} />
-      <Tabs.Screen name="profile" options={{ title: canManageInstitution ? "Dashboard" : "Profile", tabBarIcon: ({ color, focused }) => <Ionicons name={canManageInstitution ? (focused ? "business" : "business-outline") : (focused ? "person" : "person-outline")} size={24} color={color} /> }} />
+      <Tabs.Screen name="feed" options={{ title: t("nav.feed"), tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? "home" : "home-outline"} size={24} color={color} /> }} />
+      <Tabs.Screen name="groups" options={{ title: t("nav.groups"), tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? "people-circle" : "people-circle-outline"} size={25} color={color} />, tabBarBadge: groupsUnread > 0 ? groupsUnread : undefined, tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: "#fff", fontSize: 10, fontWeight: "500" } }} />
+      <Tabs.Screen name="discover" options={{ title: t("nav.campus"), tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? "school" : "school-outline"} size={25} color={color} /> }} />
+      <Tabs.Screen name="notifications" options={{ title: t("nav.alerts"), tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? "notifications" : "notifications-outline"} size={24} color={color} />, tabBarBadge: notificationsUnread > 0 ? notificationsUnread : undefined, tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: "#fff", fontSize: 10, fontWeight: "500" } }} />
+      <Tabs.Screen name="profile" options={{ title: canManageInstitution ? t("nav.dashboard") : t("nav.profile"), tabBarIcon: ({ color, focused }) => <Ionicons name={canManageInstitution ? (focused ? "business" : "business-outline") : (focused ? "person" : "person-outline")} size={24} color={color} /> }} />
       <Tabs.Screen name="profile/my-requests" options={{ href: null }} />
     </Tabs>
   );

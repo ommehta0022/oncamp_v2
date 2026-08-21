@@ -11,6 +11,7 @@ import { ActionSheetProvider } from "@expo/react-native-action-sheet";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider, useTheme } from "@/src/theme/ThemeProvider";
 import { RoleProvider } from "@/src/context/RoleProvider";
+import { LanguageProvider } from "@/src/context/LanguageProvider";
 import { NotificationProvider } from "@/src/context/NotificationProvider";
 import { PushNotificationProvider } from "@/src/context/PushNotificationProvider";
 import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
@@ -86,20 +87,22 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ActionSheetProvider>
           <ThemeProvider>
-            <RoleProvider>
-              <FeatureFlagsProvider>
-                <NotificationProvider>
-                  <PushNotificationProvider>
-                    <ToastProvider>
-                      <ThemedStack />
-                      <AppUpdateGate />
-                      <ServerUpdateCoordinator />
-                      <SessionExpiredModal />
-                    </ToastProvider>
-                  </PushNotificationProvider>
-                </NotificationProvider>
-              </FeatureFlagsProvider>
-            </RoleProvider>
+            <LanguageProvider>
+              <RoleProvider>
+                <FeatureFlagsProvider>
+                  <NotificationProvider>
+                    <PushNotificationProvider>
+                      <ToastProvider>
+                        <ThemedStack />
+                        <AppUpdateGate />
+                        <ServerUpdateCoordinator />
+                        <SessionExpiredModal />
+                      </ToastProvider>
+                    </PushNotificationProvider>
+                  </NotificationProvider>
+                </FeatureFlagsProvider>
+              </RoleProvider>
+            </LanguageProvider>
           </ThemeProvider>
         </ActionSheetProvider>
       </SafeAreaProvider>

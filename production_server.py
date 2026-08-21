@@ -18,6 +18,7 @@ import campus_ops_extension
 import campus_platform
 import campus_platform_hardening
 import campus_semantics
+import campus_voice
 import ota_updates
 import server
 import update_campaign
@@ -27,6 +28,7 @@ from campus_ops_extension import router as campus_ops_router
 from campus_platform import router as campus_platform_router
 from campus_platform_hardening import router as campus_platform_hardening_router
 from campus_semantics import router as campus_semantics_router
+from campus_voice import router as campus_voice_router
 from institution_content_workflow import router as institution_content_router
 from update_campaign import router as update_campaign_router
 
@@ -41,6 +43,7 @@ app.include_router(campus_ai_router)
 app.include_router(campus_platform_router)
 app.include_router(campus_semantics_router)
 app.include_router(campus_media_router)
+app.include_router(campus_voice_router)
 logger = logging.getLogger("oncampus")
 _auto_campaign_task: Optional[asyncio.Task] = None
 _campus_scheduler_task: Optional[asyncio.Task] = None
@@ -112,6 +115,7 @@ async def verify_production_routes() -> None:
         "/v1/campus/posts/{post_id}/versions",
         "/v1/campus/posts/{post_id}/semantics",
         "/v1/campus/groups/{group_id}/media",
+        "/v1/campus/groups/{group_id}/voice-note",
     }
     missing = sorted(path for path in required if path not in route_paths)
     if missing:
@@ -123,7 +127,7 @@ async def verify_production_routes() -> None:
         _campus_scheduler_task = asyncio.create_task(campus_platform.scheduler_loop())
     if _semantics_task is None or _semantics_task.done():
         _semantics_task = asyncio.create_task(campus_semantics.semantics_loop())
-    logger.info("Production OTA/native/content/campus/security/governance/AI/semantic/media routes verified; background workers started")
+    logger.info("Production OTA/native/content/campus/security/governance/AI/semantic/media/voice routes verified; background workers started")
 
 
 @app.on_event("shutdown")

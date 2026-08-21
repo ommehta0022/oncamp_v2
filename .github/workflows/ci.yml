@@ -33,7 +33,7 @@ jobs:
         run: python -m pytest -q
 
       - name: Compile production backend
-        run: python -m compileall -q server.py production_server.py institution_content_workflow.py campus_platform.py campus_platform_hardening.py campus_ops_extension.py campus_ai.py campus_semantics.py campus_media.py ota_updates.py update_campaign.py
+        run: python -m compileall -q server.py production_server.py institution_content_workflow.py campus_platform.py campus_platform_hardening.py campus_ops_extension.py campus_ai.py campus_semantics.py campus_media.py campus_voice.py ota_updates.py update_campaign.py
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -57,6 +57,14 @@ jobs:
       - name: Validate production iOS JS bundle
         working-directory: frontend
         run: npx expo export --platform ios --output-dir /tmp/oncampus-ci-ios
+
+      - name: Validate web/PWA production export
+        working-directory: frontend
+        run: |
+          npx expo export --platform web --output-dir /tmp/oncampus-ci-web
+          test -s /tmp/oncampus-ci-web/manifest.webmanifest
+          test -s /tmp/oncampus-ci-web/sw.js
+          test -s /tmp/oncampus-ci-web/oncampus-icon.svg
 
       - name: Install admin panel dependencies
         working-directory: admin-panel

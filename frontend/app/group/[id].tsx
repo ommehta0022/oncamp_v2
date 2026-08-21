@@ -1,8 +1,17 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, FlatList, TextInput, Pressable,
-  KeyboardAvoidingView, Platform, TouchableOpacity, ActivityIndicator, Alert,
+  ActivityIndicator,
+  Alert,
   Animated,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,19 +20,22 @@ import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
 import { useActionSheet } from "@expo/react-native-action-sheet";
+import { LinearGradient } from "expo-linear-gradient";
+
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
+import { typography } from "@/src/theme/typography";
 import Avatar from "@/src/components/Avatar";
 import EmptyState from "@/src/components/EmptyState";
 import ImageViewer from "@/src/components/ImageViewer";
 import ReportModal from "@/src/components/ReportModal";
 import ForwardModal from "@/src/components/ForwardModal";
+import GroupVoiceNoteButton from "@/src/components/GroupVoiceNoteButton";
+import VoiceMessage from "@/src/components/VoiceMessage";
+import { NetworkError } from "@/src/components/NetworkError";
 import { useRole } from "@/src/context/RoleProvider";
 import { api, getUserErrorMessage, GroupDto } from "@/src/lib/api";
 import { showImagePicker, uploadMessageMedia } from "@/src/lib/imageUpload";
-import { typography } from "@/src/theme/typography";
-import { LinearGradient } from "expo-linear-gradient";
-import { NetworkError } from "@/src/components/NetworkError";
 
 type Message = {
   id: string;
@@ -32,7 +44,7 @@ type Message = {
   senderName: string;
   senderAvatar?: string;
   content: string;
-  type?: "text" | "image";
+  type?: "text" | "image" | "audio" | "video" | "file";
   mediaUrl?: string;
   createdAt: string;
   replyTo?: { id: string; senderName: string; content: string };
@@ -43,9 +55,8 @@ type Message = {
 };
 
 function normalizeMessage(row: any, groupId: string, currentUserId?: string): Message {
-  const d = row.created_at ? new Date(row.created_at) : new Date();
-  
-  let replyTo = undefined;
+  const d = row.created_at || row.createdAt ? new Date(row.created_at || row.createdAt) : new Date();
+  let replyTo: Message["replyTo"];
   if (row.replyTo) replyTo = row.replyTo;
   else if (row.reply_to) {
     replyTo = {
@@ -60,15 +71,16 @@ function normalizeMessage(row: any, groupId: string, currentUserId?: string): Me
     groupId,
     senderId: row.sender_id || row.senderId,
     senderName: row.users?.name || row.senderName || "Member",
-    senderAvatar: row.senderAvatar || "",
+    senderAvatar: row.senderAvatar || row.users?.avatarUrl || row.users?.avatar_url || "",
     content: row.content || "",
     type: row.type || "text",
     mediaUrl: row.mediaUrl || row.media_url,
     createdAt: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    dateString: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
-    own: row.own || row.sender_id === currentUserId,
-    status: "sent",
+    dateString: d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+    own: row.own || row.sender_id === currentUserId || row.senderId === currentUserId,
+    status: row.status || "sent",
     replyTo,
+    pinned: Boolean(row.pinned),
   };
 }
 
@@ -92,8 +104,7 @@ export default function GroupChat() {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerImage, setViewerImage] = useState("");
   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
-  const listRef = useRef<FlatList>(null);
-  
+  const listRef = useRef<FlatList<Message>>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -112,12 +123,8 @@ export default function GroupChat() {
         setMessages([]);
         setError(getUserErrorMessage(loadError, "Could not load this group chat."));
       })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
   }, [id, retryTick, user?.id]);
 
   if (loading) {
@@ -128,7 +135,7 @@ export default function GroupChat() {
     );
   }
 
-  if (!group) {
+  if (!group || !id) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.surface }} edges={["top"]}>
         <NetworkError message={error || "This group is not available."} onRetry={() => setRetryTick((value) => value + 1)} />
@@ -136,16 +143,22 @@ export default function GroupChat() {
     );
   }
 
-  const pinned = messages.find((m) => m.pinned);
+  const pinned = messages.find((message) => message.pinned);
+
+  const appendSent = (saved: any) => {
+    setMessages((current) => [...current, normalizeMessage(saved, id, user?.id)]);
+    setReplyTo(null);
+    if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+  };
 
   const handleImagePick = async () => {
     const uri = await showImagePicker({ aspect: [4, 3], quality: 0.8 });
-    if (!uri) return;
-    setAttachedImage(uri);
+    if (uri) setAttachedImage(uri);
   };
 
   const handleLongPress = (message: Message) => {
-    if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     const isOwn = message.senderId === user?.id;
     const options = [
       "Reply",
@@ -165,7 +178,6 @@ export default function GroupChat() {
       },
       async (buttonIndex) => {
         if (buttonIndex === undefined) return;
-        
         switch (options[buttonIndex]) {
           case "Reply":
             setReplyTo(message);
@@ -177,28 +189,26 @@ export default function GroupChat() {
           case "Unpin Message":
             try {
               await api.groups.pinMessage(message.id, !message.pinned);
-              setMessages(m => m.map(msg => msg.id === message.id ? { ...msg, pinned: !message.pinned } : msg));
-              if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setMessages((current) => current.map((entry) => entry.id === message.id ? { ...entry, pinned: !message.pinned } : entry));
             } catch {
-              Alert.alert("Error", "Could not pin message");
+              Alert.alert("Error", "Could not update the pinned message.");
             }
             break;
           case "Copy Text":
             await Clipboard.setStringAsync(message.content);
-            if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
             break;
           case "Delete":
             Alert.alert("Delete Message", "Are you sure?", [
-              { text: "Cancel" },
+              { text: "Cancel", style: "cancel" },
               {
                 text: "Delete",
                 style: "destructive",
                 onPress: async () => {
                   try {
                     await api.groups.deleteMessage(message.id);
-                    setMessages((m) => m.filter((msg) => msg.id !== message.id));
+                    setMessages((current) => current.filter((entry) => entry.id !== message.id));
                   } catch {
-                    Alert.alert("Error", "Failed to delete message");
+                    Alert.alert("Error", "Failed to delete message.");
                   }
                 },
               },
@@ -208,7 +218,7 @@ export default function GroupChat() {
             setReportMessageId(message.id);
             break;
         }
-      }
+      },
     );
   };
 
@@ -216,56 +226,46 @@ export default function GroupChat() {
     if (!reportMessageId) return;
     await api.reports.reportMessage(reportMessageId, { reason, details });
   };
-  
+
   const handleForward = async (targetGroupId: string) => {
     if (!forwardMessage) return;
-    await api.groups.sendMessage(targetGroupId, {
-      content: forwardMessage.content,
-      type: forwardMessage.type,
-      mediaUrl: forwardMessage.mediaUrl,
-      clientMessageId: `client-fwd-${Date.now()}`,
-    }).then(() => {
-      if (Platform.OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      await api.groups.sendMessage(targetGroupId, {
+        content: forwardMessage.content,
+        type: forwardMessage.type,
+        mediaUrl: forwardMessage.mediaUrl,
+        clientMessageId: `client-fwd-${Date.now()}`,
+      });
       Alert.alert("Sent", "Message forwarded successfully.");
-    }).catch((forwardError) => {
+    } catch (forwardError) {
       Alert.alert("Forward failed", getUserErrorMessage(forwardError, "Could not forward this message."));
-    });
-  };
-
-  const openImage = (url: string) => {
-    setViewerImage(url);
-    setViewerVisible(true);
+    }
   };
 
   const send = async () => {
     if (!text.trim() && !attachedImage) return;
     const content = text.trim();
     const imageUri = attachedImage;
-    
+    const replyRef = replyTo;
     setText("");
     setAttachedImage(null);
-    const replyRef = replyTo;
     setReplyTo(null);
-    
     if (imageUri) setSendingImage(true);
-    
+
     try {
-      let mediaUrl;
+      let mediaUrl: string | undefined;
       if (imageUri) {
-         const result = await uploadMessageMedia(id!, imageUri);
-         mediaUrl = result.url;
+        const result = await uploadMessageMedia(id, imageUri);
+        mediaUrl = result.url;
       }
-      
-      const saved = await api.groups.sendMessage(id!, {
+      const saved = await api.groups.sendMessage(id, {
         content,
         type: mediaUrl ? "image" : "text",
         mediaUrl,
         replyToId: replyRef?.id,
         clientMessageId: `client-${Date.now()}`,
       });
-      setMessages((m) => [...m, normalizeMessage(saved, id!, user?.id)]);
-      if (Platform.OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+      appendSent(saved);
     } catch (sendError) {
       setText(content);
       setAttachedImage(imageUri);
@@ -279,39 +279,22 @@ export default function GroupChat() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.chatBg }} edges={["top"]} testID="group-chat-screen">
       <View style={[styles.header, { backgroundColor: colors.background || colors.surface, borderBottomColor: colors.border }]}>
-        <Pressable onPress={() => router.back()} hitSlop={15} style={styles.backBtn}>
+        <Pressable onPress={() => router.back()} hitSlop={15} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Back">
           <Ionicons name="chevron-back" size={26} color={colors.textPrimary || colors.onSurface} />
         </Pressable>
-        <Pressable
-          onPress={() => router.push(`/group/info/${group.id}`)}
-          style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm }}
-        >
+        <Pressable onPress={() => router.push(`/group/info/${group.id}`)} style={styles.groupIdentity} accessibilityRole="button" accessibilityLabel={`Open ${group.name} group info`}>
           <Avatar uri={group.avatarUrl} name={group.name} size={42} verified={group.official} />
           <View style={{ flex: 1, justifyContent: "center" }}>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, fontWeight: "700", letterSpacing: 0 }} numberOfLines={1}>
-              {group.name}
-            </Text>
-            <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontWeight: "500", marginTop: 1 }} numberOfLines={1}>
-              {(group.memberCount || 0).toLocaleString()} members
-            </Text>
+            <Text style={{ color: colors.textPrimary || colors.onSurface, fontWeight: "700" }} numberOfLines={1}>{group.name}</Text>
+            <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontWeight: "500", marginTop: 1 }} numberOfLines={1}>{(group.memberCount || 0).toLocaleString()} members</Text>
           </View>
         </Pressable>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Pressable
-            style={styles.iconBtn}
-            onPress={() => router.push(`/group/search/${group.id}`)}
-            testID="chat-search-btn"
-          >
-            <Ionicons name="search" size={22} color={colors.textPrimary || colors.onSurface} />
-          </Pressable>
-          <Pressable
-            style={styles.iconBtn}
-            onPress={() => router.push(`/group/info/${group.id}`)}
-            testID="chat-info-btn"
-          >
-            <Ionicons name="ellipsis-vertical" size={22} color={colors.textPrimary || colors.onSurface} />
-          </Pressable>
-        </View>
+        <Pressable style={styles.iconBtn} onPress={() => router.push(`/group/search/${group.id}`)} testID="chat-search-btn" accessibilityRole="button" accessibilityLabel="Search messages">
+          <Ionicons name="search" size={22} color={colors.textPrimary || colors.onSurface} />
+        </Pressable>
+        <Pressable style={styles.iconBtn} onPress={() => router.push(`/group/info/${group.id}`)} testID="chat-info-btn" accessibilityRole="button" accessibilityLabel="Group options">
+          <Ionicons name="ellipsis-vertical" size={22} color={colors.textPrimary || colors.onSurface} />
+        </Pressable>
       </View>
 
       {pinned && (
@@ -319,24 +302,18 @@ export default function GroupChat() {
           <View style={{ width: 4, height: 36, backgroundColor: colors.brandPrimary, borderRadius: 2 }} />
           <View style={{ flex: 1, marginLeft: spacing.sm }}>
             <Text style={{ color: colors.brandPrimary, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase" }}>Pinned Message</Text>
-            <Text style={{ color: colors.textPrimary || colors.onSurface, marginTop: 2, ...typography.body }} numberOfLines={1}>
-              {pinned.content}
-            </Text>
+            <Text style={{ color: colors.textPrimary || colors.onSurface, marginTop: 2, ...typography.body }} numberOfLines={1}>{pinned.content}</Text>
           </View>
           <Ionicons name="pin" size={18} color={colors.brandPrimary} />
         </View>
       )}
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-      >
-        <FlatList 
-          showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <FlatList
           ref={listRef}
           data={messages}
-          keyExtractor={(m) => m.id}
+          keyExtractor={(message) => message.id}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item, index }) => {
             const prev = messages[index - 1];
             const next = messages[index + 1];
@@ -344,49 +321,39 @@ export default function GroupChat() {
             const showAvatar = !item.own && (!prev || prev.senderId !== item.senderId || showDate);
             const showName = !item.own && (!prev || prev.senderId !== item.senderId || showDate);
             const isLastInGroup = !next || next.senderId !== item.senderId || next.dateString !== item.dateString;
-            
             return (
               <View>
                 {showDate && item.dateString && (
                   <View style={styles.dateSeparator}>
                     <View style={[styles.dateBubble, { backgroundColor: colors.surfaceTertiary }]}>
-                      <Text style={{ color: colors.onSurfaceTertiary, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                        {item.dateString}
-                      </Text>
+                      <Text style={{ color: colors.onSurfaceTertiary, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>{item.dateString}</Text>
                     </View>
                   </View>
                 )}
-                <Bubble 
-                  msg={item} 
-                  showAvatar={showAvatar} 
-                  showName={showName} 
+                <Bubble
+                  msg={item}
+                  showAvatar={showAvatar}
+                  showName={showName}
                   isLastInGroup={isLastInGroup}
-                  onReply={() => setReplyTo(item)} 
-                  onLongPress={() => handleLongPress(item)} 
-                  onImagePress={openImage} 
+                  onLongPress={() => handleLongPress(item)}
+                  onImagePress={(url) => { setViewerImage(url); setViewerVisible(true); }}
                 />
               </View>
             );
           }}
           contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, gap: 4 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-          ListEmptyComponent={
-            <EmptyState icon="people-circle-outline" title="Say Hello 👋" message="Start the conversation in this group." />
-          }
+          ListEmptyComponent={<EmptyState icon="people-circle-outline" title="Say Hello 👋" message="Start the conversation in this group." />}
         />
 
         {replyTo && (
           <View style={[styles.replyPreview, { backgroundColor: colors.surfaceSecondary || colors.surfaceTertiary }]}>
             <View style={{ width: 4, height: 36, backgroundColor: colors.brandSecondary, borderRadius: 2 }} />
             <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <Text style={{ color: colors.brandSecondary, fontWeight: "700" }}>
-                Replying to {replyTo.senderName}
-              </Text>
-              <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>
-                {replyTo.content}
-              </Text>
+              <Text style={{ color: colors.brandSecondary, fontWeight: "700" }}>Replying to {replyTo.senderName}</Text>
+              <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>{replyTo.content}</Text>
             </View>
-            <Pressable onPress={() => setReplyTo(null)} hitSlop={15} style={{ padding: 4 }}>
+            <Pressable onPress={() => setReplyTo(null)} hitSlop={15} style={{ padding: 4 }} accessibilityRole="button" accessibilityLabel="Cancel reply">
               <Ionicons name="close-circle" size={24} color={colors.textSecondary || colors.onSurfaceTertiary} />
             </Pressable>
           </View>
@@ -395,38 +362,19 @@ export default function GroupChat() {
         {attachedImage && (
           <View style={[styles.replyPreview, { backgroundColor: colors.surfaceSecondary || colors.surfaceTertiary, paddingVertical: spacing.sm }]}>
             <View style={{ width: 4, height: 48, backgroundColor: colors.brandPrimary, borderRadius: 2 }} />
-            <View style={{ marginLeft: spacing.sm, borderRadius: radius.sm, overflow: "hidden" }}>
-              <Image source={{ uri: attachedImage }} style={{ width: 48, height: 48 }} contentFit="cover" />
-            </View>
-            <View style={{ flex: 1, marginLeft: spacing.sm, justifyContent: "center" }}>
-              <Text style={{ color: colors.onSurface, fontWeight: "500" }}>Attached Image</Text>
-            </View>
-            <Pressable onPress={() => setAttachedImage(null)} hitSlop={15} style={{ padding: 4 }}>
+            <View style={{ marginLeft: spacing.sm, borderRadius: radius.sm, overflow: "hidden" }}><Image source={{ uri: attachedImage }} style={{ width: 48, height: 48 }} contentFit="cover" /></View>
+            <Text style={{ flex: 1, marginLeft: spacing.sm, color: colors.onSurface, fontWeight: "500" }}>Attached image</Text>
+            <Pressable onPress={() => setAttachedImage(null)} hitSlop={15} style={{ padding: 4 }} accessibilityRole="button" accessibilityLabel="Remove attachment">
               <Ionicons name="close-circle" size={24} color={colors.textSecondary || colors.onSurfaceTertiary} />
             </Pressable>
           </View>
         )}
 
-        <View style={[
-          styles.composer, 
-          { 
-            backgroundColor: colors.background || colors.surface, 
-            borderTopColor: colors.border,
-            paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, spacing.sm) : spacing.sm 
-          }
-        ]}>
-          <TouchableOpacity 
-            onPress={handleImagePick} 
-            disabled={sendingImage}
-            style={[styles.attachBtn, { opacity: sendingImage ? 0.5 : 1, backgroundColor: colors.surfaceTertiary || "#eee" }]}
-          >
-            {sendingImage ? (
-              <ActivityIndicator size="small" color={colors.brandPrimary} />
-            ) : (
-              <Ionicons name="add" size={24} color={colors.brandPrimary} />
-            )}
+        <View style={[styles.composer, { backgroundColor: colors.background || colors.surface, borderTopColor: colors.border, paddingBottom: Platform.OS === "ios" ? Math.max(insets.bottom, spacing.sm) : spacing.sm }]}>
+          <TouchableOpacity onPress={handleImagePick} disabled={sendingImage} style={[styles.attachBtn, { opacity: sendingImage ? 0.5 : 1, backgroundColor: colors.surfaceTertiary || "#eee" }]} accessibilityRole="button" accessibilityLabel="Attach photo">
+            {sendingImage ? <ActivityIndicator size="small" color={colors.brandPrimary} /> : <Ionicons name="add" size={24} color={colors.brandPrimary} />}
           </TouchableOpacity>
-          
+
           <View style={[styles.inputWrap, { backgroundColor: colors.surfaceTertiary || "#eee", borderColor: "transparent" }]}>
             <TextInput
               testID="chat-input"
@@ -435,152 +383,93 @@ export default function GroupChat() {
               placeholder="Type a message..."
               placeholderTextColor={colors.muted}
               multiline
-              style={{ flex: 1, color: colors.textPrimary || colors.onSurface, maxHeight: 120, paddingTop: Platform.OS === 'ios' ? 10 : 8, paddingBottom: Platform.OS === 'ios' ? 10 : 8 }}
+              accessibilityLabel="Message"
+              style={{ flex: 1, color: colors.textPrimary || colors.onSurface, maxHeight: 120, paddingTop: Platform.OS === "ios" ? 10 : 8, paddingBottom: Platform.OS === "ios" ? 10 : 8 }}
             />
           </View>
-          
-          <Animated.View style={{ transform: [{ scale: (text.trim() || attachedImage) ? 1 : 0.8 }], opacity: (text.trim() || attachedImage) ? 1 : 0.5 }}>
-            <Pressable
-              onPress={send}
-              disabled={!text.trim() && !attachedImage}
-            >
-              <LinearGradient
-                colors={[colors.brandPrimary || "#2E5C4E", colors.brandSecondary || "#1a362d"]}
-                style={styles.sendBtn}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Ionicons name="arrow-up" size={20} color="#fff" style={{ marginTop: -1 }} />
-              </LinearGradient>
-            </Pressable>
-          </Animated.View>
+
+          {text.trim() || attachedImage ? (
+            <Animated.View style={{ transform: [{ scale: 1 }], opacity: 1 }}>
+              <Pressable onPress={() => void send()} accessibilityRole="button" accessibilityLabel="Send message">
+                <LinearGradient colors={[colors.brandPrimary || "#2E5C4E", colors.brandSecondary || "#1a362d"]} style={styles.sendBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                  <Ionicons name="arrow-up" size={20} color="#fff" style={{ marginTop: -1 }} />
+                </LinearGradient>
+              </Pressable>
+            </Animated.View>
+          ) : (
+            <GroupVoiceNoteButton groupId={id} replyToId={replyTo?.id} disabled={sendingImage} onSent={appendSent} />
+          )}
         </View>
       </KeyboardAvoidingView>
-      
-      <ImageViewer
-        visible={viewerVisible}
-        imageUrl={viewerImage}
-        onClose={() => setViewerVisible(false)}
-      />
 
-      <ReportModal
-        visible={!!reportMessageId}
-        onClose={() => setReportMessageId(null)}
-        onSubmit={handleReport}
-        title="Report Message"
-      />
-      
-      <ForwardModal
-        visible={!!forwardMessage}
-        messageContent={forwardMessage?.content || null}
-        onClose={() => setForwardMessage(null)}
-        onForward={handleForward}
-      />
+      <ImageViewer visible={viewerVisible} imageUrl={viewerImage} onClose={() => setViewerVisible(false)} />
+      <ReportModal visible={!!reportMessageId} onClose={() => setReportMessageId(null)} onSubmit={handleReport} title="Report Message" />
+      <ForwardModal visible={!!forwardMessage} messageContent={forwardMessage?.content || null} onClose={() => setForwardMessage(null)} onForward={handleForward} />
     </SafeAreaView>
   );
 }
 
-function Bubble({ msg, showAvatar, showName, isLastInGroup, onReply, onLongPress, onImagePress }: { 
-  msg: Message; 
-  showAvatar: boolean; 
-  showName: boolean; 
+function Bubble({
+  msg,
+  showAvatar,
+  showName,
+  isLastInGroup,
+  onLongPress,
+  onImagePress,
+}: {
+  msg: Message;
+  showAvatar: boolean;
+  showName: boolean;
   isLastInGroup: boolean;
-  onReply: () => void; 
   onLongPress: () => void;
   onImagePress: (url: string) => void;
 }) {
   const { colors } = useTheme();
-  const own = msg.own;
-  
+  const own = Boolean(msg.own);
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   return (
-    <View style={{ 
-      flexDirection: "row", 
-      justifyContent: own ? "flex-end" : "flex-start", 
-      alignItems: "flex-end", 
-      gap: 6, 
-      marginTop: showName ? spacing.md : 2,
-      marginBottom: isLastInGroup ? spacing.xs : 0
-    }}>
-      {!own && (
-        <View style={{ width: 28, alignItems: "center" }}>
-          {showAvatar && <Avatar uri={msg.senderAvatar} name={msg.senderName} size={28} />}
-        </View>
-      )}
+    <View style={{ flexDirection: "row", justifyContent: own ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 6, marginTop: showName ? spacing.md : 2, marginBottom: isLastInGroup ? spacing.xs : 0 }}>
+      {!own && <View style={{ width: 28, alignItems: "center" }}>{showAvatar && <Avatar uri={msg.senderAvatar} name={msg.senderName} size={28} />}</View>}
       <Pressable
         onLongPress={onLongPress}
         onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start()}
         onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
         delayLongPress={250}
-        style={{ maxWidth: "78%" }}
+        accessibilityRole="button"
+        accessibilityLabel={`${msg.senderName}: ${msg.type === "audio" ? "voice note" : msg.content}`}
+        style={{ maxWidth: "82%" }}
       >
-        <Animated.View
-          style={[
-            styles.bubble,
-            {
-              backgroundColor: own ? colors.brandPrimary : colors.surfaceSecondary || "#f0f0f0",
-              borderTopLeftRadius: radius.lg,
-              borderTopRightRadius: radius.lg,
-              borderBottomLeftRadius: own ? radius.lg : (isLastInGroup ? 4 : radius.lg),
-              borderBottomRightRadius: own ? (isLastInGroup ? 4 : radius.lg) : radius.lg,
-              transform: [{ scale: scaleAnim }],
-              ...(own ? {
-                shadowColor: colors.brandPrimary,
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.15,
-                shadowRadius: 4,
-                elevation: 2,
-              } : {}),
-            },
-          ]}
-        >
-          {showName && !own && (
-            <Text style={{ color: colors.brandPrimary, fontWeight: "700", marginBottom: 4, letterSpacing: 0 }}>
-              {msg.senderName}
-            </Text>
-          )}
-          
+        <Animated.View style={[styles.bubble, {
+          backgroundColor: own ? colors.brandPrimary : colors.surfaceSecondary || "#f0f0f0",
+          borderTopLeftRadius: radius.lg,
+          borderTopRightRadius: radius.lg,
+          borderBottomLeftRadius: own ? radius.lg : (isLastInGroup ? 4 : radius.lg),
+          borderBottomRightRadius: own ? (isLastInGroup ? 4 : radius.lg) : radius.lg,
+          transform: [{ scale: scaleAnim }],
+        }]}>
+          {showName && !own && <Text style={{ color: colors.brandPrimary, fontWeight: "700", marginBottom: 4 }}>{msg.senderName}</Text>}
+
           {msg.replyTo && (
-            <View style={[
-              styles.replyQuote, 
-              { 
-                backgroundColor: own ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.05)", 
-                borderLeftColor: own ? "#fff" : colors.brandSecondary 
-              }
-            ]}>
-              <Text style={{ color: own ? "#fff" : colors.brandSecondary, fontWeight: "700", marginBottom: 2 }}>
-                {msg.replyTo.senderName}
-              </Text>
-              <Text style={{ color: own ? "rgba(255,255,255,0.9)" : colors.textSecondary || colors.onSurfaceTertiary, fontSize: 13 }} numberOfLines={2}>
-                {msg.replyTo.content}
-              </Text>
+            <View style={[styles.replyQuote, { backgroundColor: own ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.05)", borderLeftColor: own ? "#fff" : colors.brandSecondary }]}>
+              <Text style={{ color: own ? "#fff" : colors.brandSecondary, fontWeight: "700", marginBottom: 2 }}>{msg.replyTo.senderName}</Text>
+              <Text style={{ color: own ? "rgba(255,255,255,0.9)" : colors.textSecondary || colors.onSurfaceTertiary, fontSize: 13 }} numberOfLines={2}>{msg.replyTo.content}</Text>
             </View>
           )}
-          
+
           {msg.type === "image" && msg.mediaUrl ? (
-            <TouchableOpacity onPress={() => onImagePress(msg.mediaUrl!)} activeOpacity={0.9}>
-              <Image 
-                source={{ uri: msg.mediaUrl }} 
-                style={styles.messageImage}
-                contentFit="cover"
-              />
+            <TouchableOpacity onPress={() => onImagePress(msg.mediaUrl!)} activeOpacity={0.9} accessibilityRole="imagebutton" accessibilityLabel="Open image">
+              <Image source={{ uri: msg.mediaUrl }} style={styles.messageImage} contentFit="cover" />
             </TouchableOpacity>
+          ) : msg.type === "audio" && msg.mediaUrl ? (
+            <VoiceMessage uri={msg.mediaUrl} own={own} />
           ) : (
-            <Text style={{ color: own ? "#fff" : colors.textPrimary || colors.onSurface, ...typography.body }}>
-              {msg.content}
-            </Text>
+            <Text style={{ color: own ? "#fff" : colors.textPrimary || colors.onSurface, ...typography.body }}>{msg.content}</Text>
           )}
-          
+
           <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-end", marginTop: 4, gap: 4 }}>
             <Text style={{ color: own ? "rgba(255,255,255,0.7)" : colors.muted, fontWeight: "500" }}>{msg.createdAt}</Text>
-            {own && (
-              <Ionicons
-                name={msg.status === "read" ? "radio-button-on" : "ellipse"}
-                size={msg.status === "read" ? 13 : 8}
-                color={msg.status === "read" ? "#6ee7b7" : "rgba(255,255,255,0.7)"}
-              />
-            )}
+            {own && <Ionicons name={msg.status === "read" ? "radio-button-on" : "ellipse"} size={msg.status === "read" ? 13 : 8} color={msg.status === "read" ? "#6ee7b7" : "rgba(255,255,255,0.7)"} />}
           </View>
         </Animated.View>
       </Pressable>
@@ -589,70 +478,19 @@ function Bubble({ msg, showAvatar, showName, isLastInGroup, onReply, onLongPress
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 64,
-  },
-  backBtn: {
-    marginRight: 4,
-  },
-  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  pinnedBar: {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-    zIndex: 1,
-  },
-  bubble: {
-    paddingHorizontal: spacing.md, paddingVertical: 10,
-    borderRadius: radius.lg,
-  },
-  messageImage: {
-    width: 220,
-    height: 160,
-    borderRadius: radius.sm,
-    marginBottom: spacing.xs,
-  },
-  replyQuote: {
-    borderLeftWidth: 3, paddingLeft: spacing.sm, paddingVertical: 6,
-    borderRadius: 6, marginBottom: spacing.sm, paddingRight: spacing.sm,
-  },
-  replyPreview: {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  composer: {
-    flexDirection: "row", alignItems: "flex-end", gap: spacing.sm,
-    paddingHorizontal: spacing.md, paddingTop: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  attachBtn: { 
-    width: 38, height: 38, borderRadius: 19, 
-    alignItems: "center", justifyContent: "center",
-    marginBottom: 4
-  },
-  inputWrap: {
-    flex: 1, minHeight: 40, borderRadius: 20,
-    paddingHorizontal: spacing.md,
-    flexDirection: "row", alignItems: "center",
-    borderWidth: 1,
-    marginBottom: 4
-  },
-  sendBtn: { 
-    width: 38, height: 38, borderRadius: 19, 
-    alignItems: "center", justifyContent: "center",
-    marginBottom: 4
-  },
-  dateSeparator: {
-    alignItems: "center", marginVertical: spacing.md,
-  },
-  dateBubble: {
-    paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.pill,
-  },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 64 },
+  backBtn: { marginRight: 4, minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  groupIdentity: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  pinnedBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2, zIndex: 1 },
+  bubble: { paddingHorizontal: spacing.md, paddingVertical: 10, borderRadius: radius.lg },
+  messageImage: { width: 220, height: 160, borderRadius: radius.sm, marginBottom: spacing.xs },
+  replyQuote: { borderLeftWidth: 3, paddingLeft: spacing.sm, paddingVertical: 6, borderRadius: 6, marginBottom: spacing.sm, paddingRight: spacing.sm },
+  replyPreview: { flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
+  composer: { flexDirection: "row", alignItems: "flex-end", gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth },
+  attachBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 3 },
+  inputWrap: { flex: 1, minHeight: 40, borderRadius: 20, paddingHorizontal: spacing.md, flexDirection: "row", alignItems: "center", borderWidth: 1, marginBottom: 3 },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 3 },
+  dateSeparator: { alignItems: "center", marginVertical: spacing.md },
+  dateBubble: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.pill },
 });

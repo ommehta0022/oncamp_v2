@@ -10,10 +10,11 @@ import { checkForAppUpdate } from "./AppUpdateGate";
 
 const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
 const INSTALLATION_KEY = "oncampus.update.installation_id";
-const FALLBACK_POLL_MS = 15_000;
+const FALLBACK_POLL_MS = 5 * 60 * 1000;
 
 let inFlight = false;
 let currentCampaignInMemory: string | null = null;
+let currentCampaignTargetInMemory: string | null = null;
 let currentNativeReleaseInMemory: string | null = null;
 
 function makeInstallationId() {
@@ -41,14 +42,13 @@ async function notificationRegistration() {
     sound: "default",
   });
 
+  // Never turn a background update check into a permission nag. Registration
+  // reflects the current permission; the normal notification settings flow owns
+  // any explicit permission request.
   const existing = await Notifications.getPermissionsAsync();
-  const permissionResult = existing.status === "granted"
-    ? existing
-    : await Notifications.requestPermissionsAsync();
-
-  const permission = permissionResult.status === "granted"
+  const permission = existing.status === "granted"
     ? "granted"
-    : permissionResult.status === "denied"
+    : existing.status === "denied"
       ? "denied"
       : "unknown";
 
@@ -101,7 +101,7 @@ async function checkServerCampaign(force = false) {
     const id = await installationId();
     const runtime = String(Updates.runtimeVersion || Constants.expoConfig?.runtimeVersion || "");
     const nativeVersion = String(Constants.expoConfig?.version || "0.0.0");
-    const currentUpdateId = Updates.updateId || "embedded";
+    const currentUpdateId = String(Updates.updateId || "embedded");
     if (!runtime) return;
 
     const url = new URL(`${API_BASE}/updates/campaign`);
@@ -124,18 +124,26 @@ async function checkServerCampaign(force = false) {
     };
 
     if (campaign.nativeUpdateAvailable && campaign.nativeReleaseVersion) {
-      if (force || campaign.nativeReleaseVersion !== currentNativeReleaseInMemory) {
+      if (campaign.nativeReleaseVersion !== currentNativeReleaseInMemory) {
         currentNativeReleaseInMemory = campaign.nativeReleaseVersion;
-        await checkForAppUpdate(false, true);
+        await checkForAppUpdate("campaign", true, true);
       }
       return;
     }
 
     if (!campaign.available || !campaign.campaignId) return;
-    if (campaign.campaignId === currentCampaignInMemory && !force) return;
 
+    // Deduplicate against the actual currently-launched update. After a new OTA
+    // is applied Updates.updateId changes, so a legitimate later campaign can be
+    // processed immediately without re-showing an old campaign on app resume.
+    const target = `${runtime}|${currentUpdateId}`;
+    if (currentCampaignTargetInMemory === target && currentCampaignInMemory === campaign.campaignId) return;
+    currentCampaignTargetInMemory = target;
     currentCampaignInMemory = campaign.campaignId;
-    await checkForAppUpdate(true);
+
+    // Campaign checks are never "manual". They must not display "You're up to
+    // date" or RETRY NEEDED merely because the network is temporarily unavailable.
+    await checkForAppUpdate("campaign", true, true);
   } catch {
     // The currently installed bundle remains active on connectivity/server errors.
   } finally {
