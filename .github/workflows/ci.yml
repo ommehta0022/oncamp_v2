@@ -58,6 +58,14 @@ jobs:
         working-directory: frontend
         run: npx expo export --platform ios --output-dir /tmp/oncampus-ci-ios
 
+      - name: Validate web/PWA production export
+        working-directory: frontend
+        run: |
+          npx expo export --platform web --output-dir /tmp/oncampus-ci-web
+          test -s /tmp/oncampus-ci-web/manifest.webmanifest
+          test -s /tmp/oncampus-ci-web/sw.js
+          test -s /tmp/oncampus-ci-web/oncampus-icon.svg
+
       - name: Install admin panel dependencies
         working-directory: admin-panel
         run: npm install
