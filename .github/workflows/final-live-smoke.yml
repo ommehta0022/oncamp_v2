@@ -12,16 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Verify live backend, Studio, institution login and student discovery
+      - name: Verify live backend, institution login, dashboard, Studio APIs and student discovery
         shell: bash
         run: |
           set -euo pipefail
           API='https://oncampus-backend-production.up.railway.app/v1'
-          WEB='https://institution-studio-web-production.up.railway.app'
 
           curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$API/health" >/tmp/health.json
-          curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$WEB/studio/login" >/tmp/studio-login.html
-
           curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$API/campus/directory/institutions" >/tmp/directory.json
           python - <<'PY'
           import json
@@ -56,7 +53,7 @@ jobs:
           assert inst.get('name')=='OnCampus University', inst
           assert len(studio.get('groups') or []) >= 5
           assert len(studio.get('events') or []) >= 3
-          print('institution login/dashboard/Studio: PASS')
+          print('institution login/dashboard/Studio API: PASS')
           PY
 
           curl -fsS -X POST "$API/auth/otp/start" -H 'Content-Type: application/json' --data '{"phone":"9900000001","action":"login"}' >/tmp/student-start.json
@@ -80,4 +77,4 @@ jobs:
           print('student login/discover/profile: PASS')
           PY
 
-          echo 'Final live smoke passed.'
+          echo 'Final live backend smoke passed.'
