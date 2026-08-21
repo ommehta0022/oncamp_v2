@@ -25,7 +25,7 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
         self.assertIn("SUCCESS_SHOWN_KEY", UPDATE_GATE)
         self.assertIn("successShown !== identity", UPDATE_GATE)
         self.assertIn('phase: "applied"', UPDATE_GATE)
-        self.assertIn("You will not see this message again for this version", UPDATE_GATE)
+        self.assertIn("shown only once for this version", UPDATE_GATE)
 
     def test_up_to_date_alert_is_not_automatic(self):
         self.assertNotIn("You're up to date", UPDATE_GATE)
@@ -34,7 +34,7 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
 
     def test_v15_native_runtime_and_microphone_permission(self):
         expo = APP_JSON["expo"]
-        self.assertEqual(expo["version"], "1.5.0")
+        self.assertEqual(expo["version"], "1.5.1")
         self.assertEqual(expo["runtimeVersion"], "1.5.0")
         self.assertEqual(expo["extra"]["otaRuntimeVersion"], "1.5.0")
         self.assertIn("RECORD_AUDIO", expo["android"]["permissions"])
