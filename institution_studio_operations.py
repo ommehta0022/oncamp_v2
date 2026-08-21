@@ -36,6 +36,19 @@ class OpportunityPatch(BaseModel):
     metadata: Optional[dict[str, Any]] = None
 
 
+class AnnouncementPatch(BaseModel):
+    coverUrl: Optional[str] = Field(default=None, max_length=2000)
+    metadata: Optional[dict[str, Any]] = None
+
+
+class DepartmentStudioPatch(BaseModel):
+    logoUrl: Optional[str] = Field(default=None, max_length=2000)
+    coverUrl: Optional[str] = Field(default=None, max_length=2000)
+    headStaffId: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+    sortOrder: Optional[int] = Field(default=None, ge=0, le=100000)
+
+
 class PlacePatch(BaseModel):
     name: Optional[str] = Field(default=None, max_length=180)
     category: Optional[str] = Field(default=None, max_length=80)
@@ -43,12 +56,50 @@ class PlacePatch(BaseModel):
     latitude: Optional[float] = Field(default=None, ge=-90, le=90)
     longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     floor: Optional[str] = Field(default=None, max_length=30)
+    metadata: Optional[dict[str, Any]] = None
 
 
 class GroupStudioPatch(BaseModel):
     departmentId: Optional[str] = None
     studioCategory: Optional[str] = Field(default=None, max_length=80)
     featured: Optional[bool] = None
+    avatarUrl: Optional[str] = Field(default=None, max_length=2000)
+
+
+@router.patch("/announcements/{item_id}")
+def update_announcement_media(item_id: str, payload: AnnouncementPatch, user: server.CurrentUser = Depends(server.current_user)) -> dict[str, Any]:
+    iid, _ = context(user)
+    current = owned("scheduled_announcements", item_id, iid)
+    data: dict[str, Any] = {}
+    if "coverUrl" in payload.model_fields_set:
+        data["cover_url"] = payload.coverUrl
+    if "metadata" in payload.model_fields_set:
+        data["metadata"] = payload.metadata or {}
+    rows = server.db.patch("scheduled_announcements", {"id": f"eq.{item_id}", "institution_id": f"eq.{iid}"}, data) or []
+    published_post_id = current.get("published_post_id")
+    if published_post_id and "coverUrl" in payload.model_fields_set:
+        server.db.patch(
+            "posts",
+            {"id": f"eq.{published_post_id}", "institution_id": f"eq.{iid}"},
+            {"media_url": payload.coverUrl, "media_type": "image" if payload.coverUrl else None},
+        )
+    return rows[0] if rows else owned("scheduled_announcements", item_id, iid)
+
+
+@router.patch("/departments/{item_id}")
+def update_department_media(item_id: str, payload: DepartmentStudioPatch, user: server.CurrentUser = Depends(server.current_user)) -> dict[str, Any]:
+    iid, _ = context(user)
+    owned("institution_departments", item_id, iid)
+    mapping = {
+        "logoUrl": "logo_url",
+        "coverUrl": "cover_url",
+        "headStaffId": "head_staff_id",
+        "metadata": "metadata",
+        "sortOrder": "sort_order",
+    }
+    data = {mapping[k]: v for k, v in payload.model_dump(exclude_unset=True).items() if k in mapping}
+    rows = server.db.patch("institution_departments", {"id": f"eq.{item_id}", "institution_id": f"eq.{iid}"}, data) or []
+    return rows[0] if rows else owned("institution_departments", item_id, iid)
 
 
 @router.get("/opportunities")
@@ -91,7 +142,7 @@ def studio_groups(user: server.CurrentUser = Depends(server.current_user)) -> li
 @router.patch("/groups/{group_id}")
 def patch_studio_group(group_id: str, payload: GroupStudioPatch, user: server.CurrentUser = Depends(server.current_user)) -> dict[str, Any]:
     iid, _ = context(user); owned("groups", group_id, iid)
-    mapping = {"departmentId": "department_id", "studioCategory": "studio_category", "featured": "featured"}
+    mapping = {"departmentId": "department_id", "studioCategory": "studio_category", "featured": "featured", "avatarUrl": "avatar_url"}
     data = {mapping[k]: v for k, v in payload.model_dump(exclude_unset=True).items() if k in mapping}
     rows = server.db.patch("groups", {"id": f"eq.{group_id}", "institution_id": f"eq.{iid}"}, data) or []
     return rows[0] if rows else owned("groups", group_id, iid)
@@ -106,7 +157,7 @@ def list_places(user: server.CurrentUser = Depends(server.current_user)) -> list
 @router.patch("/places/{item_id}")
 def update_place(item_id: str, payload: PlacePatch, user: server.CurrentUser = Depends(server.current_user)) -> dict[str, Any]:
     iid, _ = context(user); owned("campus_places", item_id, iid)
-    mapping = {"name": "name", "category": "category", "description": "description", "latitude": "latitude", "longitude": "longitude", "floor": "floor"}
+    mapping = {"name": "name", "category": "category", "description": "description", "latitude": "latitude", "longitude": "longitude", "floor": "floor", "metadata": "metadata"}
     data = {mapping[k]: v for k, v in payload.model_dump(exclude_unset=True).items() if k in mapping}
     rows = server.db.patch("campus_places", {"id": f"eq.{item_id}", "institution_id": f"eq.{iid}"}, data) or []
     return rows[0] if rows else owned("campus_places", item_id, iid)
