@@ -35,6 +35,13 @@ class GovernanceBackendTests(unittest.TestCase):
         self.assertIn('"/v1/campus/institution/export-link"', PRODUCTION)
         self.assertIn('"/v1/campus/public/export"', PRODUCTION)
 
+    def test_all_campus_routes_have_boundary_rate_limit(self):
+        self.assertIn("async def campus_rate_limit", PRODUCTION)
+        self.assertIn('request.url.path.startswith("/v1/campus/")', PRODUCTION)
+        self.assertIn("server.redis.check_rate_limit", PRODUCTION)
+        self.assertIn("_local_rate_allowed", PRODUCTION)
+        self.assertIn('status_code=429', PRODUCTION)
+
 
 class GovernanceUiTests(unittest.TestCase):
     def test_roles_audit_and_exports_are_real_api_backed(self):
