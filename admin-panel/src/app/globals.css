@@ -53,8 +53,102 @@
   * {
     @apply border-border;
   }
+  html,
+  body {
+    max-width: 100%;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Institution Studio responsive safety layer.
+   Browser zoom reduces the CSS viewport; these rules ensure every Studio
+   panel shrinks/wraps instead of overlapping in Chrome or Edge. */
+.studio-responsive,
+.studio-responsive * {
+  box-sizing: border-box;
+}
+
+.studio-responsive {
+  width: 100%;
+  max-width: 100vw;
+}
+
+.studio-responsive main,
+.studio-responsive section,
+.studio-responsive aside,
+.studio-responsive header,
+.studio-responsive nav,
+.studio-responsive form,
+.studio-responsive div,
+.studio-responsive label,
+.studio-responsive a,
+.studio-responsive button {
+  min-width: 0;
+}
+
+.studio-responsive img,
+.studio-responsive video,
+.studio-responsive canvas,
+.studio-responsive svg {
+  max-width: 100%;
+}
+
+.studio-responsive input,
+.studio-responsive textarea,
+.studio-responsive select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.studio-responsive h1,
+.studio-responsive h2,
+.studio-responsive h3,
+.studio-responsive p,
+.studio-responsive td,
+.studio-responsive th {
+  overflow-wrap: anywhere;
+}
+
+.studio-responsive table {
+  max-width: 100%;
+}
+
+.studio-responsive .overflow-x-auto {
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 639px) {
+  .studio-responsive h1 {
+    font-size: clamp(1.65rem, 8vw, 2rem) !important;
+    line-height: 1.12 !important;
+  }
+
+  .studio-responsive h2 {
+    line-height: 1.2;
+  }
+
+  .studio-responsive button,
+  .studio-responsive a,
+  .studio-responsive input,
+  .studio-responsive select,
+  .studio-responsive textarea {
+    max-width: 100%;
+  }
+
+  .studio-responsive [class*="min-w-[7"],
+  .studio-responsive [class*="min-w-[8"],
+  .studio-responsive [class*="min-w-[9"] {
+    max-width: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .studio-responsive .grid-cols-2,
+  .studio-responsive .grid-cols-3 {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
