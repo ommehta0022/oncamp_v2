@@ -21,14 +21,17 @@ const NATIVE_RELEASE_API = `${API_BASE}/updates/native/latest`;
 const TRUSTED_NATIVE_APK_PREFIX = `${API_BASE}/updates/native/apk?version=`;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const OTA_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+const PROMPT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const PENDING_OTA_KEY = "oncampus.update.pending_ota.v2";
 const PENDING_NATIVE_KEY = "oncampus.update.pending_native.v2";
 const SUCCESS_SHOWN_KEY = "oncampus.update.success_shown.v2";
+const NATIVE_PROMPT_KEY = "oncampus.update.native_prompted.v3";
 
 let lastAutomaticCheckAt = 0;
 let lastOtaCheckAt = 0;
 let activeCheck: Promise<void> | null = null;
 let activeOtaCheck: Promise<boolean> | null = null;
+let forcedPromptedVersionInMemory: string | null = null;
 
 type NativeRelease = {
   available?: boolean;
@@ -75,6 +78,11 @@ type UpdateUiState = {
 type PendingOtaMarker = {
   sourceUpdateId: string;
   fetchedAt: number;
+};
+
+type NativePromptMarker = {
+  version: string;
+  promptedAt: number;
 };
 
 const INITIAL_UI: UpdateUiState = {
@@ -138,6 +146,22 @@ function isTrustedNativeRelease(release: NativeRelease) {
   );
 }
 
+async function readPendingOta(): Promise<PendingOtaMarker | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_OTA_KEY);
+    if (!raw) return null;
+    const marker = JSON.parse(raw) as PendingOtaMarker;
+    if (!marker?.sourceUpdateId || !Number.isFinite(Number(marker?.fetchedAt))) {
+      await AsyncStorage.removeItem(PENDING_OTA_KEY);
+      return null;
+    }
+    return marker;
+  } catch {
+    await AsyncStorage.removeItem(PENDING_OTA_KEY).catch(() => undefined);
+    return null;
+  }
+}
+
 async function markPendingOta() {
   const marker: PendingOtaMarker = {
     sourceUpdateId: currentUpdateId(),
@@ -146,10 +170,40 @@ async function markPendingOta() {
   await AsyncStorage.setItem(PENDING_OTA_KEY, JSON.stringify(marker));
 }
 
+async function shouldShowNativePrompt(version: string, mode: UpdateCheckMode, forceUpdate: boolean) {
+  if (mode === "manual") return true;
+
+  if (forceUpdate) {
+    if (forcedPromptedVersionInMemory === version) return false;
+    forcedPromptedVersionInMemory = version;
+    return true;
+  }
+
+  try {
+    const raw = await AsyncStorage.getItem(NATIVE_PROMPT_KEY);
+    if (raw) {
+      const marker = JSON.parse(raw) as NativePromptMarker;
+      if (
+        marker?.version === version &&
+        Date.now() - Number(marker?.promptedAt || 0) < PROMPT_COOLDOWN_MS
+      ) {
+        return false;
+      }
+    }
+
+    await AsyncStorage.setItem(
+      NATIVE_PROMPT_KEY,
+      JSON.stringify({ version, promptedAt: Date.now() } satisfies NativePromptMarker)
+    );
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 /**
- * Reconciles update state only after a real process/bundle restart.
- * A success message is shown once per newly-applied OTA/APK identity and stale
- * retry state is never persisted across launches.
+ * Reconcile update state only after a real process/bundle restart.
+ * Success UI is emitted once per applied install identity.
  */
 async function reconcileAppliedUpdate(): Promise<boolean> {
   try {
@@ -169,8 +223,7 @@ async function reconcileAppliedUpdate(): Promise<boolean> {
         if (marker?.sourceUpdateId && marker.sourceUpdateId !== currentId) {
           applied = true;
           await AsyncStorage.removeItem(PENDING_OTA_KEY);
-        } else if (Date.now() - Number(marker?.fetchedAt || 0) > 24 * 60 * 60 * 1000) {
-          // An abandoned/cancelled OTA must not create a permanent stale state.
+        } else if (Date.now() - Number(marker?.fetchedAt || 0) > PROMPT_COOLDOWN_MS) {
           await AsyncStorage.removeItem(PENDING_OTA_KEY);
         }
       } catch {
@@ -180,7 +233,10 @@ async function reconcileAppliedUpdate(): Promise<boolean> {
 
     if (pendingNative && compareVersions(installedVersion, pendingNative) >= 0) {
       applied = true;
-      await AsyncStorage.removeItem(PENDING_NATIVE_KEY);
+      await Promise.all([
+        AsyncStorage.removeItem(PENDING_NATIVE_KEY),
+        AsyncStorage.removeItem(NATIVE_PROMPT_KEY),
+      ]);
     }
 
     if (applied && successShown !== identity) {
@@ -190,18 +246,37 @@ async function reconcileAppliedUpdate(): Promise<boolean> {
         phase: "applied",
         progress: 100,
         message: "OnCampus is updated",
-        detail: "The update was applied successfully. You will not see this message again for this version.",
+        detail: "The update was applied successfully. This confirmation is shown only once for this version.",
       });
       return true;
     }
   } catch {
-    // Update reconciliation is best effort and must never block app startup.
+    // Best effort only. Update state must never block normal startup.
   }
   return false;
 }
 
 async function checkForOtaUpdate(mode: UpdateCheckMode, bypassThrottle = false): Promise<boolean> {
   if (Platform.OS !== "android" || !Updates.isEnabled) return false;
+
+  const pending = await readPendingOta();
+  if (pending?.sourceUpdateId === currentUpdateId()) {
+    const age = Date.now() - Number(pending.fetchedAt || 0);
+    if (age < PROMPT_COOLDOWN_MS) {
+      if (mode === "manual") {
+        emitUpdateUi({
+          kind: "ota",
+          phase: "ready",
+          progress: 100,
+          message: "Update ready to apply",
+          detail: "The verified update is already downloaded. Restart OnCampus to apply it.",
+        });
+      }
+      // Do not re-download or re-show the same startup message on every launch.
+      return true;
+    }
+    await AsyncStorage.removeItem(PENDING_OTA_KEY).catch(() => undefined);
+  }
 
   const now = Date.now();
   if (mode === "automatic" && !bypassThrottle && now - lastOtaCheckAt < OTA_CHECK_INTERVAL_MS) return false;
@@ -216,7 +291,6 @@ async function checkForOtaUpdate(mode: UpdateCheckMode, bypassThrottle = false):
     try {
       const result = await Updates.checkForUpdateAsync();
       if (!result.isAvailable) {
-        // A successful check with no update explicitly clears any transient UI.
         emitUpdateUi(INITIAL_UI);
         return false;
       }
@@ -272,10 +346,6 @@ async function checkForOtaUpdate(mode: UpdateCheckMode, bypassThrottle = false):
       return true;
     } catch {
       if (progressTimer) clearInterval(progressTimer);
-
-      // Background/campaign checks are deliberately silent. A temporary network
-      // failure is not an installation failure and must never leave RETRY NEEDED
-      // on an otherwise current app.
       if (mode === "manual") {
         emitUpdateUi({
           kind: "ota",
@@ -381,11 +451,7 @@ export async function checkForAppUpdate(
       const latestVersion = normalizeVersion(release.version);
 
       if (!release.available || !latestVersion || compareVersions(latestVersion, installedVersion) <= 0) {
-        // "Up to date" feedback is allowed only after an explicit settings action.
-        // Automatic/campaign startup checks remain completely silent.
-        if (mode === "manual") {
-          Alert.alert("No update available", `OnCampus ${installedVersion} is already current.`);
-        }
+        if (mode === "manual") Alert.alert("No update available", `OnCampus ${installedVersion} is already current.`);
         return;
       }
 
@@ -396,6 +462,8 @@ export async function checkForAppUpdate(
 
       const minSupportedVersion = normalizeVersion(release.minVersion);
       const forceUpdate = Boolean(release.forceUpdate) || compareVersions(installedVersion, minSupportedVersion) < 0;
+      if (!(await shouldShowNativePrompt(latestVersion, mode, forceUpdate))) return;
+
       const notes = String(release.notes || "").trim().slice(0, 700);
       const sizeMb = release.size && release.size > 0 ? `\n\nDownload size: ${(release.size / 1024 / 1024).toFixed(1)} MB` : "";
       const message = `OnCampus ${latestVersion} is available.${notes ? `\n\n${notes}` : ""}${sizeMb}`;
