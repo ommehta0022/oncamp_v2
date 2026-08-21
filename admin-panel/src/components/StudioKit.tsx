@@ -38,9 +38,9 @@ export function StudioActionButton({
       await run();
       setState("success");
       window.setTimeout(() => setState("idle"), 1100);
-    } catch (error) {
+    } catch {
+      // The page-level action reports the actual error through StudioNotice.
       setState("idle");
-      throw error;
     }
   }
   return (
@@ -67,6 +67,10 @@ export function StudioNotice({ text, tone = "info" }: { text?: string; tone?: "i
   return <div role="status" className={`studio-notice rounded-xl border px-4 py-3 text-sm font-medium ${style}`}>{text}</div>;
 }
 
+function looksLikeVideo(value?: string) {
+  return Boolean(value && /\.(mp4|webm|mov|m4v)(?:\?|$)/i.test(value));
+}
+
 export function StudioMediaUploader({
   value,
   onUploaded,
@@ -86,6 +90,7 @@ export function StudioMediaUploader({
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [lastKind, setLastKind] = useState<"image" | "video" | null>(null);
 
   async function upload(file?: File) {
     if (!file) return;
@@ -93,11 +98,17 @@ export function StudioMediaUploader({
       setError(`File must be ${maxMb} MB or smaller.`);
       return;
     }
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      setError("Choose a supported image or video file.");
+      return;
+    }
     setError("");
     setBusy(true);
     setProgress(1);
+    setLastKind(file.type.startsWith("video/") ? "video" : "image");
     try {
       const result = await institutionStudioApi.uploadMedia(file, (p: number) => setProgress(Math.max(1, p)));
+      if (!result?.url) throw new Error("Upload completed but no media URL was returned.");
       await onUploaded(result.url, file);
       setProgress(100);
     } catch (e) {
@@ -108,11 +119,14 @@ export function StudioMediaUploader({
     }
   }
 
+  const video = lastKind === "video" || (lastKind === null && looksLikeVideo(value));
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
       {value ? (
         <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
-          <img src={value} alt="Uploaded media preview" className={`w-full object-cover ${compact ? "h-28" : "h-44"}`} />
+          {video
+            ? <video src={value} controls preload="metadata" className={`w-full object-cover ${compact ? "h-28" : "h-44"}`} />
+            : <img src={value} alt="Uploaded media preview" className={`w-full object-cover ${compact ? "h-28" : "h-44"}`} />}
         </div>
       ) : null}
       <button
