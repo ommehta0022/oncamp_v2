@@ -47,10 +47,13 @@ class StudentSurfaceRegressionTests(unittest.TestCase):
         self.assertNotIn('/create-post', FEED)
         self.assertNotIn('Composer', FEED)
 
-    def test_generic_post_card_has_no_repost_or_share_action(self):
+    def test_generic_post_card_has_external_share_but_no_oncampus_repost(self):
         self.assertNotIn('repeat-outline', POST_CARD)
-        self.assertNotIn('Share.share', POST_CARD)
+        self.assertIn('Share.share', POST_CARD)
+        self.assertIn('oncampus://post/', POST_CARD)
         self.assertNotIn('api.posts.repost', POST_CARD)
+        self.assertNotIn('api.posts.share', POST_CARD)
+        self.assertNotIn('postRequest', POST_CARD)
 
 
 class InstitutionPublishingUiTests(unittest.TestCase):
