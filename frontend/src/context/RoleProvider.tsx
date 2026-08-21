@@ -91,7 +91,8 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(STORAGE_KEY, r);
   }, []);
 
-  const canCreatePosts = !!user?.canCreatePosts || role === "institution_admin" || role === "group_owner" || role === "group_admin" || role === "platform_admin";
+  // Publishing is institution-owned. Student/group roles never receive a post composer.
+  const canCreatePosts = role === "institution_admin" || role === "platform_admin";
   const canCreateGroups = !!user?.canCreateGroups || role === "institution_admin" || role === "platform_admin";
   const canManageInstitution = role === "institution_admin" || role === "platform_admin";
   const isGroupAdmin = role === "group_owner" || role === "group_admin" || role === "moderator" || role === "platform_admin";
