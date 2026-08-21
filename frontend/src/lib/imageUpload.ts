@@ -1,8 +1,9 @@
 /**
  * Shared media picker/uploader.
- * Photos are recompressed on-device before upload; documents/videos/audio are preserved.
+ * Photos are recompressed on-device before upload; GIF/video/audio/documents stay intact.
  */
 
+import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { Alert, Platform } from "react-native";
@@ -21,7 +22,8 @@ export interface ImagePickerOptions {
 }
 
 const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "heic", "heif"]);
-const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "m4v"]);
+const PASSTHROUGH_IMAGE_EXTENSIONS = new Set(["gif"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "m4v", "webm"]);
 const AUDIO_EXTENSIONS = new Set(["m4a", "aac", "mp3", "webm", "ogg"]);
 
 function extensionOf(uri: string) {
@@ -48,7 +50,9 @@ async function compressPhoto(uri: string, quality = 0.72): Promise<string> {
 function contentType(uri: string, fallback = "image/jpeg") {
   const extension = extensionOf(uri);
   if (extension === "pdf") return "application/pdf";
-  if (VIDEO_EXTENSIONS.has(extension)) return extension === "mov" ? "video/quicktime" : "video/mp4";
+  if (extension === "gif") return "image/gif";
+  if (extension === "mov") return "video/quicktime";
+  if (extension === "mp4" || extension === "m4v") return "video/mp4";
   if (extension === "m4a") return "audio/mp4";
   if (extension === "aac") return "audio/aac";
   if (extension === "mp3") return "audio/mpeg";
@@ -109,7 +113,7 @@ export async function requestMediaLibraryPermission(): Promise<boolean> {
   try {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Please allow photo access to select images.");
+      Alert.alert("Permission Required", "Please allow photo access to select media.");
       return false;
     }
     return true;
@@ -156,6 +160,39 @@ export async function pickImage(options: ImagePickerOptions = {}): Promise<strin
   }
 }
 
+export async function pickVideo(): Promise<string | null> {
+  if (!(await requestMediaLibraryPermission())) return null;
+  try {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: false,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+    });
+    if (result.canceled || !result.assets[0]) return null;
+    return result.assets[0].uri;
+  } catch (error) {
+    console.error("Pick video error:", error);
+    Alert.alert("Error", "Failed to pick video. Please try again.");
+    return null;
+  }
+}
+
+export async function pickGif(): Promise<string | null> {
+  try {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: "image/gif",
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (result.canceled || !result.assets?.[0]) return null;
+    return result.assets[0].uri;
+  } catch (error) {
+    console.error("Pick GIF error:", error);
+    Alert.alert("Error", "Failed to pick GIF. Please try again.");
+    return null;
+  }
+}
+
 export async function showImagePicker(options: ImagePickerOptions = {}): Promise<string | null> {
   if (Platform.OS === "web") return pickImage(options);
   return new Promise((resolve) => {
@@ -181,9 +218,8 @@ export async function uploadAvatar(imageUri: string): Promise<UploadResult> {
 export async function uploadPostMedia(mediaUri: string): Promise<UploadResult> {
   try {
     const extension = extensionOf(mediaUri);
-    const prepared = extension === "pdf" || VIDEO_EXTENSIONS.has(extension) || AUDIO_EXTENSIONS.has(extension)
-      ? mediaUri
-      : await compressPhoto(mediaUri);
+    const passthrough = extension === "pdf" || PASSTHROUGH_IMAGE_EXTENSIONS.has(extension) || VIDEO_EXTENSIONS.has(extension) || AUDIO_EXTENSIONS.has(extension);
+    const prepared = passthrough ? mediaUri : await compressPhoto(mediaUri);
     const data = await upload("/upload/post-media", prepared, "post.jpg");
     return { url: data.url || data.mediaUrl || data.fileUrl, uploaded: true, mediaType: data.mediaType };
   } catch (error: any) {
@@ -203,13 +239,12 @@ export async function uploadGroupAvatar(groupId: string, imageUri: string): Prom
   }
 }
 
-export async function uploadMessageMedia(groupId: string, mediaUri: string): Promise<UploadResult> {
+export async function uploadMessageMedia(groupId: string, mediaUri: string, fallbackType = "image/jpeg"): Promise<UploadResult> {
   try {
     const extension = extensionOf(mediaUri);
-    const prepared = VIDEO_EXTENSIONS.has(extension) || AUDIO_EXTENSIONS.has(extension)
-      ? mediaUri
-      : await compressPhoto(mediaUri);
-    const data = await upload(`/upload/message-media/${encodeURIComponent(groupId)}`, prepared, "message.jpg");
+    const passthrough = PASSTHROUGH_IMAGE_EXTENSIONS.has(extension) || VIDEO_EXTENSIONS.has(extension) || AUDIO_EXTENSIONS.has(extension);
+    const prepared = passthrough ? mediaUri : await compressPhoto(mediaUri);
+    const data = await upload(`/upload/message-media/${encodeURIComponent(groupId)}`, prepared, "message-media", fallbackType);
     return { url: data.url, uploaded: true, mediaType: data.mediaType };
   } catch (error: any) {
     console.error("Message media upload error:", error);
@@ -219,12 +254,7 @@ export async function uploadMessageMedia(groupId: string, mediaUri: string): Pro
 
 export async function uploadVoiceNote(groupId: string, audioUri: string): Promise<UploadResult> {
   try {
-    const data = await upload(
-      `/campus/groups/${encodeURIComponent(groupId)}/voice-note`,
-      audioUri,
-      "voice-note.m4a",
-      "audio/mp4",
-    );
+    const data = await upload(`/campus/groups/${encodeURIComponent(groupId)}/voice-note`, audioUri, "voice-note.m4a", "audio/mp4");
     return { url: data.url, uploaded: true, mediaType: "audio" };
   } catch (error: any) {
     console.error("Voice note upload error:", error);
@@ -234,7 +264,8 @@ export async function uploadVoiceNote(groupId: string, audioUri: string): Promis
 
 export async function uploadInstitutionDoc(imageUri: string): Promise<UploadResult> {
   try {
-    const prepared = extensionOf(imageUri) === "pdf" ? imageUri : await compressPhoto(imageUri);
+    const extension = extensionOf(imageUri);
+    const prepared = extension === "pdf" || extension === "gif" ? imageUri : await compressPhoto(imageUri);
     const data = await upload("/upload/institution-doc", prepared, "document.jpg");
     return { url: data.url, uploaded: true };
   } catch (error: any) {
