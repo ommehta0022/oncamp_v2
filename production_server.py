@@ -10,6 +10,7 @@ import uvicorn
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+import campus_ai
 import campus_media
 import campus_ops_extension
 import campus_platform
@@ -18,6 +19,7 @@ import campus_semantics
 import ota_updates
 import server
 import update_campaign
+from campus_ai import router as campus_ai_router
 from campus_media import router as campus_media_router
 from campus_ops_extension import router as campus_ops_router
 from campus_platform import router as campus_platform_router
@@ -33,6 +35,7 @@ app.include_router(update_campaign_router)
 # before their backward-compatible implementations in campus_platform.
 app.include_router(campus_platform_hardening_router)
 app.include_router(campus_ops_router)
+app.include_router(campus_ai_router)
 app.include_router(campus_platform_router)
 app.include_router(campus_semantics_router)
 app.include_router(campus_media_router)
@@ -77,6 +80,8 @@ async def verify_production_routes() -> None:
         "/v1/campus/institution/audit-logs",
         "/v1/campus/institution/export-link",
         "/v1/campus/public/export",
+        "/v1/campus/ai/status",
+        "/v1/campus/institution/ai/analyze",
         "/v1/campus/posts/{post_id}/versions",
         "/v1/campus/posts/{post_id}/semantics",
         "/v1/campus/groups/{group_id}/media",
@@ -91,7 +96,7 @@ async def verify_production_routes() -> None:
         _campus_scheduler_task = asyncio.create_task(campus_platform.scheduler_loop())
     if _semantics_task is None or _semantics_task.done():
         _semantics_task = asyncio.create_task(campus_semantics.semantics_loop())
-    logger.info("Production OTA/native/content/campus/security/governance/semantic/media routes verified; background workers started")
+    logger.info("Production OTA/native/content/campus/security/governance/AI/semantic/media routes verified; background workers started")
 
 
 @app.on_event("shutdown")
