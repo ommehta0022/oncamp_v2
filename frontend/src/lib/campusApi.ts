@@ -1,4 +1,5 @@
 import { API_BASE_URL, getAccessToken } from "./api";
+import { cache } from "./cache";
 
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -7,6 +8,7 @@ type Options = {
   body?: unknown;
   query?: Record<string, string | number | boolean | null | undefined>;
   timeoutMs?: number;
+  cacheTtlMs?: number;
 };
 
 export class CampusApiError extends Error {
@@ -26,80 +28,104 @@ function qs(query?: Options["query"]) {
   return text ? `?${text}` : "";
 }
 
+function accountCacheScope(token: string) {
+  // Non-reversible FNV-1a-style local scope: prevents cached data from one
+  // signed-in account being returned to a different account on the same device.
+  let hash = 2166136261;
+  for (let index = 0; index < token.length; index += 1) {
+    hash ^= token.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 async function campusRequest<T>(path: string, options: Options = {}): Promise<T> {
   const method = options.method || "GET";
   const token = await getAccessToken();
   if (!token) throw new CampusApiError("Please sign in again.", 401);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 30000);
-  const attempts = method === "GET" ? 2 : 1;
+  const query = qs(options.query);
+  const cacheKey = method === "GET" && options.cacheTtlMs
+    ? `campus_${accountCacheScope(token)}_${path}${query}`
+    : null;
+  const attempts = method === "GET" ? 3 : 1;
   let lastError: unknown;
 
-  try {
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      try {
-        const response = await fetch(`${API_BASE_URL}${path}${qs(options.query)}`, {
-          method,
-          signal: controller.signal,
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        });
-        const text = await response.text();
-        const data = text ? (() => { try { return JSON.parse(text); } catch { return null; } })() : undefined;
-        if (!response.ok) {
-          const detail = typeof data?.detail === "string" ? data.detail : data?.message;
-          throw new CampusApiError(detail || `Request failed (${response.status})`, response.status);
-        }
-        return data as T;
-      } catch (error) {
-        lastError = error;
-        if (error instanceof CampusApiError && error.status < 500) throw error;
-        if (attempt === attempts - 1) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 350));
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 30000);
+    try {
+      const response = await fetch(`${API_BASE_URL}${path}${query}`, {
+        method,
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      });
+      const text = await response.text();
+      const data = text ? (() => { try { return JSON.parse(text); } catch { return null; } })() : undefined;
+      if (!response.ok) {
+        const detail = typeof data?.detail === "string" ? data.detail : data?.message;
+        throw new CampusApiError(detail || `Request failed (${response.status})`, response.status);
       }
+      if (cacheKey) await cache.set(cacheKey, data, options.cacheTtlMs);
+      return data as T;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof CampusApiError && error.status > 0 && error.status < 500) throw error;
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 300 * (2 ** attempt)));
+      }
+    } finally {
+      clearTimeout(timeout);
     }
-  } finally {
-    clearTimeout(timeout);
   }
-  throw lastError instanceof Error ? lastError : new CampusApiError("Request failed");
+
+  if (cacheKey) {
+    const cached = await cache.get<T>(cacheKey);
+    if (cached !== null) return cached;
+  }
+  if (lastError instanceof CampusApiError) throw lastError;
+  if (lastError instanceof Error && lastError.name === "AbortError") throw new CampusApiError("The campus service timed out. Please try again.", 0);
+  throw new CampusApiError(lastError instanceof Error ? lastError.message : "Request failed");
 }
+
+const MINUTE = 60_000;
 
 export const campusApi = {
   student: {
-    hub: () => campusRequest<any>("/campus/hub"),
-    search: (q: string) => campusRequest<any>("/campus/search", { query: { q } }),
-    trending: () => campusRequest<any>("/campus/trending"),
-    searchHistory: () => campusRequest<any[]>("/campus/search/history"),
+    hub: () => campusRequest<any>("/campus/hub", { cacheTtlMs: 5 * MINUTE }),
+    search: (q: string) => campusRequest<any>("/campus/search", { query: { q }, cacheTtlMs: 2 * MINUTE }),
+    trending: () => campusRequest<any>("/campus/trending", { cacheTtlMs: 5 * MINUTE }),
+    searchHistory: () => campusRequest<any[]>("/campus/search/history", { cacheTtlMs: 10 * MINUTE }),
     clearSearchHistory: () => campusRequest<any>("/campus/search/history", { method: "DELETE" }),
-    events: () => campusRequest<any[]>("/campus/events"),
+    events: () => campusRequest<any[]>("/campus/events", { cacheTtlMs: 10 * MINUTE }),
     rsvp: (eventId: string, status: "going" | "interested" | "not_going" | "waitlist", guests = 0) =>
       campusRequest<any>(`/campus/events/${eventId}/rsvp`, { method: "POST", body: { status, guests } }),
-    marketplace: () => campusRequest<any[]>("/campus/marketplace"),
+    marketplace: () => campusRequest<any[]>("/campus/marketplace", { cacheTtlMs: 5 * MINUTE }),
     createMarketplace: (payload: any) => campusRequest<any>("/campus/marketplace", { method: "POST", body: payload }),
-    lostFound: () => campusRequest<any[]>("/campus/lost-found"),
+    lostFound: () => campusRequest<any[]>("/campus/lost-found", { cacheTtlMs: 5 * MINUTE }),
     createLostFound: (payload: any) => campusRequest<any>("/campus/lost-found", { method: "POST", body: payload }),
-    opportunities: () => campusRequest<any[]>("/campus/opportunities"),
-    places: () => campusRequest<any[]>("/campus/places"),
+    opportunities: () => campusRequest<any[]>("/campus/opportunities", { cacheTtlMs: 10 * MINUTE }),
+    places: () => campusRequest<any[]>("/campus/places", { cacheTtlMs: 60 * MINUTE }),
     digitalId: () => campusRequest<any>("/campus/digital-id"),
     emergency: () => campusRequest<any[]>("/campus/emergency"),
-    alumni: () => campusRequest<any[]>("/campus/alumni"),
+    alumni: () => campusRequest<any[]>("/campus/alumni", { cacheTtlMs: 10 * MINUTE }),
     saveAlumni: (payload: any) => campusRequest<any>("/campus/alumni/me", { method: "POST", body: payload }),
     feedback: (payload: { category?: string; subject: string; message: string; rating?: number }) =>
       campusRequest<any>("/campus/feedback", { method: "POST", body: payload }),
-    activity: () => campusRequest<any[]>("/campus/activity"),
-    changelog: () => campusRequest<any[]>("/campus/changelog"),
+    activity: () => campusRequest<any[]>("/campus/activity", { cacheTtlMs: 5 * MINUTE }),
+    changelog: () => campusRequest<any[]>("/campus/changelog", { cacheTtlMs: 60 * MINUTE }),
     invite: (code: string) => campusRequest<any>(`/campus/invites/${encodeURIComponent(code)}`),
     acceptInvite: (code: string) => campusRequest<any>(`/campus/invites/${encodeURIComponent(code)}/accept`, { method: "POST" }),
     reaction: (postId: string, reaction?: string) => campusRequest<any>(`/campus/posts/${postId}/reaction`, { method: "POST", body: { reaction: reaction || null } }),
     reactions: (postId: string) => campusRequest<any>(`/campus/posts/${postId}/reactions`),
     poll: (postId: string) => campusRequest<any>(`/campus/posts/${postId}/poll`),
     votePoll: (pollId: string, optionIds: string[]) => campusRequest<any>(`/campus/polls/${pollId}/vote`, { method: "POST", body: { optionIds } }),
-    linkPreview: (url: string) => campusRequest<any>("/campus/link-preview", { query: { url } }),
+    linkPreview: (url: string) => campusRequest<any>("/campus/link-preview", { query: { url }, cacheTtlMs: 60 * MINUTE }),
     muteGroup: (groupId: string, muted: boolean) => campusRequest<any>(`/campus/groups/${groupId}/mute`, { method: "POST", query: { muted } }),
     archiveGroup: (groupId: string, archived: boolean) => campusRequest<any>(`/campus/groups/${groupId}/archive`, { method: "POST", query: { archived } }),
   },
