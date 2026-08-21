@@ -16,23 +16,18 @@ export default function GroupAdmin() {
   const [group, setGroup] = useState<GroupDto | null>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
-  const [postRequests, setPostRequests] = useState<any[]>([]);
 
   useEffect(() => {
     if (!id) return;
     api.groups.get(id).then(setGroup).catch(() => setGroup(null));
     api.groups.members(id).then((rows: any) => Array.isArray(rows) && setMembers(rows)).catch(() => setMembers([]));
     api.groups.joinRequests(id).then((rows: any) => Array.isArray(rows) && setJoinRequests(rows)).catch(() => setJoinRequests([]));
-    api.groups.postRequests(id).then((rows: any) => Array.isArray(rows) && setPostRequests(rows)).catch(() => setPostRequests([]));
   }, [id]);
 
   const kpis = useMemo(() => [
     { label: "Members", value: String(members.length || group?.memberCount || 0), icon: "people" as const, color: "#2E5C4E" },
     { label: "Join requests", value: String(joinRequests.length), icon: "person-add" as const, color: "#E87A5D" },
-    { label: "Post requests", value: String(postRequests.filter((r) => r.status === "pending").length), icon: "clipboard" as const, color: "#4A788C" },
-  ], [group?.memberCount, joinRequests.length, members.length, postRequests]);
-  const scheduledCount = postRequests.filter((r) => r.status === "scheduled").length;
-  const publishedCount = postRequests.filter((r) => ["approved", "published"].includes(r.status)).length;
+  ], [group?.memberCount, joinRequests.length, members.length]);
 
   if (!group) {
     return (
@@ -78,18 +73,12 @@ export default function GroupAdmin() {
           <Divider />
           <Row icon="person-add" title="Join requests" subtitle={`${joinRequests.length} pending`} color="#E87A5D" onPress={() => router.push(`/group/requests/${id}`)} badge={joinRequests.length ? String(joinRequests.length) : undefined} />
           <Divider />
-          <Row icon="clipboard" title="Post / poster requests" subtitle={`${postRequests.filter((r) => r.status === "pending").length} pending review`} color="#4A788C" onPress={() => router.push(`/group/admin/post-requests/${id}`)} badge={postRequests.filter((r) => r.status === "pending").length ? String(postRequests.filter((r) => r.status === "pending").length) : undefined} />
-          <Divider />
-          <Row icon="calendar" title="Scheduled posts" subtitle={`${scheduledCount} scheduled`} color="#D9983A" onPress={() => router.push(`/group/admin/post-requests/${id}`)} />
-          <Divider />
-          <Row icon="megaphone" title="Published posts" subtitle={`${publishedCount} from requests`} color="#347D5B" onPress={() => router.push(`/group/${id}`)} />
-          <Divider />
           <Row icon="pin" title="Pinned messages" subtitle="Review in group chat" color="#8A8D8B" onPress={() => router.push(`/group/${id}`)} />
         </View>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Controls</Text>
         <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <Row icon="options" title="Permissions" subtitle={`Posting: ${group.postingMode || 'members can request'}`} color="#8A8D8B" onPress={() => router.push(`/group/admin/settings?id=${id}`)} />
+          <Row icon="options" title="Group settings" subtitle="Visibility and administration" color="#8A8D8B" onPress={() => router.push(`/group/admin/settings?id=${id}`)} />
         </View>
       </ScrollView>
     </SafeAreaView>
