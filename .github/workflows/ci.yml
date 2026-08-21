@@ -33,7 +33,7 @@ jobs:
         run: python -m pytest -q
 
       - name: Compile production backend
-        run: python -m compileall -q server.py production_server.py institution_content_workflow.py campus_platform.py campus_platform_hardening.py campus_ops_extension.py campus_ai.py campus_semantics.py campus_media.py ota_updates.py update_campaign.py
+        run: python -m compileall -q server.py production_server.py institution_content_workflow.py campus_platform.py campus_platform_hardening.py campus_ops_extension.py campus_ai.py campus_semantics.py campus_media.py campus_voice.py ota_updates.py update_campaign.py
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
