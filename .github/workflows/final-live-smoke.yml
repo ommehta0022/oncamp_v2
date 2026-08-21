@@ -12,22 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Verify live backend, institution login, dashboard, Studio APIs and student discovery
+      - name: Verify live institution login, dashboard, Studio APIs and student Discover
         shell: bash
         run: |
           set -euo pipefail
           API='https://oncampus-backend-production.up.railway.app/v1'
 
           curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$API/health" >/tmp/health.json
-          curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$API/campus/directory/institutions" >/tmp/directory.json
-          python - <<'PY'
-          import json
-          data=json.load(open('/tmp/directory.json'))
-          rows=data if isinstance(data,list) else data.get('items') or data.get('institutions') or data.get('data') or []
-          assert len(rows)==1, f'expected exactly one institution, got {len(rows)}'
-          assert rows[0].get('name')=='OnCampus University', rows[0]
-          print('student Discover directory: PASS')
-          PY
 
           status=$(curl -sS -o /tmp/invalid-inst.json -w '%{http_code}' -X POST "$API/auth/institution/otp/start" -H 'Content-Type: application/json' --data '{"identifier":"9900000999"}')
           test "$status" = '404'
@@ -53,7 +44,7 @@ jobs:
           assert inst.get('name')=='OnCampus University', inst
           assert len(studio.get('groups') or []) >= 5
           assert len(studio.get('events') or []) >= 3
-          print('institution login/dashboard/Studio API: PASS')
+          print('institution 9900000002 login/dashboard/Studio API: PASS')
           PY
 
           curl -fsS -X POST "$API/auth/otp/start" -H 'Content-Type: application/json' --data '{"phone":"9900000001","action":"login"}' >/tmp/student-start.json
@@ -65,16 +56,21 @@ jobs:
           PY
           )
           test -n "$STUDENT_TOKEN"
+          curl -fsS "$API/campus/directory/institutions" -H "Authorization: Bearer $STUDENT_TOKEN" >/tmp/directory.json
           curl -fsS "$API/campus/directory/institutions/seed-inst-iit-bombay" -H "Authorization: Bearer $STUDENT_TOKEN" >/tmp/profile.json
           python - <<'PY'
           import json
+          data=json.load(open('/tmp/directory.json'))
+          rows=data if isinstance(data,list) else data.get('items') or data.get('institutions') or data.get('data') or []
+          assert len(rows)==1, f'expected exactly one institution, got {len(rows)}'
+          assert rows[0].get('name')=='OnCampus University', rows[0]
           p=json.load(open('/tmp/profile.json'))
           inst=p.get('institution') or p
           assert inst.get('name')=='OnCampus University', inst
           assert len(p.get('groups') or []) >= 5
           assert len(p.get('events') or []) >= 3
           assert len(p.get('opportunities') or []) >= 4
-          print('student login/discover/profile: PASS')
+          print('student login/Discover/profile: PASS')
           PY
 
           echo 'Final live backend smoke passed.'
