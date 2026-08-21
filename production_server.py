@@ -30,6 +30,7 @@ from campus_platform_hardening import router as campus_platform_hardening_router
 from campus_semantics import router as campus_semantics_router
 from campus_voice import router as campus_voice_router
 from institution_content_workflow import router as institution_content_router
+from institution_studio import router as institution_studio_router
 from update_campaign import router as update_campaign_router
 
 app = server.app
@@ -44,6 +45,7 @@ app.include_router(campus_platform_router)
 app.include_router(campus_semantics_router)
 app.include_router(campus_media_router)
 app.include_router(campus_voice_router)
+app.include_router(institution_studio_router)
 logger = logging.getLogger("oncampus")
 _auto_campaign_task: Optional[asyncio.Task] = None
 _campus_scheduler_task: Optional[asyncio.Task] = None
@@ -69,7 +71,7 @@ def _local_rate_allowed(key: str, limit: int) -> bool:
     count += 1
     _campus_local_rate[key] = (stored_bucket, count)
     if len(_campus_local_rate) > 5000:
-        stale = [item for item, (item_bucket, _) in _campus_local_rate.items() if item_bucket < bucket]
+        stale = [item for item, (item_bucket, _) in list(_campus_local_rate.items()) if item_bucket < bucket]
         for item in stale[:2500]:
             _campus_local_rate.pop(item, None)
     return count <= limit
@@ -116,6 +118,12 @@ async def verify_production_routes() -> None:
         "/v1/campus/posts/{post_id}/semantics",
         "/v1/campus/groups/{group_id}/media",
         "/v1/campus/groups/{group_id}/voice-note",
+        "/v1/campus/directory/institutions",
+        "/v1/campus/directory/institutions/{institution_id}",
+        "/v1/campus/institution/studio",
+        "/v1/campus/institution/studio/profile",
+        "/v1/campus/institution/studio/media",
+        "/v1/campus/institution/studio/publish",
     }
     missing = sorted(path for path in required if path not in route_paths)
     if missing:
@@ -127,7 +135,7 @@ async def verify_production_routes() -> None:
         _campus_scheduler_task = asyncio.create_task(campus_platform.scheduler_loop())
     if _semantics_task is None or _semantics_task.done():
         _semantics_task = asyncio.create_task(campus_semantics.semantics_loop())
-    logger.info("Production OTA/native/content/campus/security/governance/AI/semantic/media/voice routes verified; background workers started")
+    logger.info("Production OTA/native/content/campus/security/governance/AI/semantic/media/voice/institution-studio routes verified; background workers started")
 
 
 @app.on_event("shutdown")
