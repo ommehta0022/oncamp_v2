@@ -52,7 +52,7 @@ class GovernanceUiTests(unittest.TestCase):
 class InviteQrUiTests(unittest.TestCase):
     def test_join_screen_has_real_qr_scanner_and_live_api_validation(self):
         self.assertIn("CameraView", JOIN)
-        self.assertIn('barcodeTypes={{ barcodeTypes: ["qr"] }}'.replace('{{', '{').replace('}}', '}'), JOIN)
+        self.assertIn('barcodeScannerSettings={{ barcodeTypes: ["qr"] }}', JOIN)
         self.assertIn("campusApi.student.invite", JOIN)
         self.assertIn("campusApi.student.acceptInvite", JOIN)
         self.assertIn("extractInviteCode", JOIN)
