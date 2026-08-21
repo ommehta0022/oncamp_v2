@@ -2,3 +2,4 @@ OnCampus 1.5.1
 runtime=1.5.0
 channel=production
 reason=startup update prompt dedupe and full release validation
+validation=full-ci-and-apk-rerun
