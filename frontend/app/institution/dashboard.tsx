@@ -84,6 +84,12 @@ export default function InstitutionDashboard({ embedded = false }: Props) {
 
       <View style={styles.kpiGrid}>{kpis.map((k) => <View key={k.label} style={[styles.kpi, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}><View style={[styles.kpiIcon, { backgroundColor: k.color + "22" }]}><Ionicons name={k.icon} size={17} color={k.color} /></View><Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: spacing.sm }}>{k.label}</Text><Text style={{ color: colors.onSurface, fontSize: 22, fontWeight: "600", marginTop: 2 }}>{Number(k.value).toLocaleString()}</Text></View>)}</View>
 
+      <Pressable onPress={() => router.push("/institution/campus-platform" as any)} style={[styles.platformBanner, { backgroundColor: palette.primary, borderColor: palette.secondary + "88" }]}>
+        <View style={[styles.platformIcon, { backgroundColor: "rgba(255,255,255,.16)" }]}><Ionicons name="grid" size={24} color="#fff" /></View>
+        <View style={{ flex: 1 }}><Text style={styles.platformTitle}>Campus Platform</Text><Text style={styles.platformSubtitle}>Students · staff · departments · events · broadcasts · moderation · analytics · integrations</Text></View>
+        <Ionicons name="arrow-forward-circle" size={28} color="#fff" />
+      </Pressable>
+
       <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Publishing</Text>
       <View style={styles.quickRow}>
         <Quick icon="create" label="Create post" color={palette.primary} onPress={() => router.push("/institution/content-create" as any)} />
@@ -96,6 +102,8 @@ export default function InstitutionDashboard({ embedded = false }: Props) {
 
       <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Manage</Text>
       <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+        <Row icon="grid" title="Campus Platform" subtitle="Approvals, faculty, departments, events, alerts, moderation and integrations" color={palette.primary} onPress={() => router.push("/institution/campus-platform" as any)} />
+        <Divider />
         <Row icon="file-tray-full" title="Content Studio" subtitle={`${contentCounts.inboxPending} incoming · ${contentCounts.sentPending} sent · ${contentCounts.drafts} drafts`} color={palette.primary} onPress={() => router.push("/institution/content" as any)} />
         <Divider />
         <Row icon="people" title="Official groups" subtitle={`${counts.groups || 0} groups · ${counts.members || 0} members`} color={palette.secondary} onPress={() => router.push("/(tabs)/groups")} />
@@ -137,6 +145,7 @@ const styles = StyleSheet.create({
   verifiedPill: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,.22)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill }, typePill: { backgroundColor: "rgba(255,255,255,.17)" }, verifiedText: { color: "#fff", fontSize: 10, fontWeight: "600", letterSpacing: .3 },
   heroTitle: { color: "#fff", fontSize: 21, lineHeight: 25, fontWeight: "600", marginTop: 6 }, heroSubtitle: { color: "#ffffffd6", fontSize: font.sm, marginTop: 3, lineHeight: 18 },
   kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, paddingHorizontal: spacing.lg, marginTop: spacing.md }, kpi: { flexGrow: 1, flexBasis: "45%", padding: spacing.md, borderRadius: radius.md, borderWidth: 1 }, kpiIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  platformBanner: { marginHorizontal: spacing.lg, marginTop: spacing.lg, borderWidth: 1, borderRadius: 18, padding: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md }, platformIcon: { width: 46, height: 46, borderRadius: 14, alignItems: "center", justifyContent: "center" }, platformTitle: { color: "#fff", fontSize: 17, fontWeight: "700" }, platformSubtitle: { color: "#ffffffd0", fontSize: 12, lineHeight: 17, marginTop: 3 },
   sectionTitle: { fontSize: font.lg, fontWeight: "600", paddingHorizontal: spacing.lg, marginTop: spacing.xl, marginBottom: spacing.md }, quickRow: { flexDirection: "row", paddingHorizontal: spacing.lg, gap: spacing.sm, justifyContent: "space-between" }, quick: { flex: 1, minWidth: 0, alignItems: "center", gap: spacing.sm }, quickIcon: { width: 52, height: 52, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   readyBanner: { marginHorizontal: spacing.lg, marginTop: spacing.lg, borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md },
   section: { marginHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, overflow: "hidden" }, row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, minHeight: 62 }, rowIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
