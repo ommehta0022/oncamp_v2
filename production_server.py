@@ -11,10 +11,12 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 import campus_platform
+import campus_semantics
 import ota_updates
 import server
 import update_campaign
 from campus_platform import router as campus_platform_router
+from campus_semantics import router as campus_semantics_router
 from institution_content_workflow import router as institution_content_router
 from update_campaign import router as update_campaign_router
 
@@ -22,9 +24,11 @@ app = server.app
 app.include_router(institution_content_router)
 app.include_router(update_campaign_router)
 app.include_router(campus_platform_router)
+app.include_router(campus_semantics_router)
 logger = logging.getLogger("oncampus")
 _auto_campaign_task: Optional[asyncio.Task] = None
 _campus_scheduler_task: Optional[asyncio.Task] = None
+_semantics_task: Optional[asyncio.Task] = None
 
 
 @app.get("/v1/updates/manifest", include_in_schema=False)
@@ -39,7 +43,7 @@ def production_ota_status(runtimeVersion: Optional[str] = None) -> dict:
 
 @app.on_event("startup")
 async def verify_production_routes() -> None:
-    global _auto_campaign_task, _campus_scheduler_task
+    global _auto_campaign_task, _campus_scheduler_task, _semantics_task
     route_paths = {getattr(route, "path", "") for route in app.routes}
     required = {
         "/v1/updates/manifest",
@@ -57,6 +61,8 @@ async def verify_production_routes() -> None:
         "/v1/campus/institution/events",
         "/v1/campus/institution/broadcasts",
         "/v1/campus/institution/moderation",
+        "/v1/campus/posts/{post_id}/versions",
+        "/v1/campus/posts/{post_id}/semantics",
     }
     missing = sorted(path for path in required if path not in route_paths)
     if missing:
@@ -66,13 +72,15 @@ async def verify_production_routes() -> None:
         _auto_campaign_task = asyncio.create_task(update_campaign.auto_campaign_loop())
     if _campus_scheduler_task is None or _campus_scheduler_task.done():
         _campus_scheduler_task = asyncio.create_task(campus_platform.scheduler_loop())
-    logger.info("Production OTA/native/content/campus routes verified; campaign and campus schedulers started")
+    if _semantics_task is None or _semantics_task.done():
+        _semantics_task = asyncio.create_task(campus_semantics.semantics_loop())
+    logger.info("Production OTA/native/content/campus/semantic routes verified; background workers started")
 
 
 @app.on_event("shutdown")
 async def stop_background_tasks() -> None:
-    global _auto_campaign_task, _campus_scheduler_task
-    tasks = [_auto_campaign_task, _campus_scheduler_task]
+    global _auto_campaign_task, _campus_scheduler_task, _semantics_task
+    tasks = [_auto_campaign_task, _campus_scheduler_task, _semantics_task]
     for task in tasks:
         if task and not task.done():
             task.cancel()
@@ -84,6 +92,7 @@ async def stop_background_tasks() -> None:
                 pass
     _auto_campaign_task = None
     _campus_scheduler_task = None
+    _semantics_task = None
 
 
 def institution_admin_or_error(request: Request):
