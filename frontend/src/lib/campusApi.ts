@@ -9,7 +9,11 @@ type Options = {
   query?: Record<string, string | number | boolean | null | undefined>;
   timeoutMs?: number;
   cacheTtlMs?: number;
+  preferCache?: boolean;
 };
+
+type MemoryEntry = { value: unknown; expiresAt: number };
+const memoryCache = new Map<string, MemoryEntry>();
 
 export class CampusApiError extends Error {
   constructor(message: string, public status = 0) {
@@ -46,12 +50,23 @@ async function campusRequest<T>(path: string, options: Options = {}): Promise<T>
   const cacheKey = method === "GET" && options.cacheTtlMs
     ? `campus_${accountCacheScope(token)}_${path}${query}`
     : null;
-  const attempts = method === "GET" ? 3 : 1;
+
+  if (cacheKey && options.preferCache) {
+    const memory = memoryCache.get(cacheKey);
+    if (memory && memory.expiresAt > Date.now()) return memory.value as T;
+    const persisted = await cache.get<T>(cacheKey);
+    if (persisted !== null) {
+      memoryCache.set(cacheKey, { value: persisted, expiresAt: Date.now() + Math.min(options.cacheTtlMs || 30_000, 60_000) });
+      return persisted;
+    }
+  }
+
+  const attempts = method === "GET" ? 2 : 1;
   let lastError: unknown;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 30000);
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 15000);
     try {
       const response = await fetch(`${API_BASE_URL}${path}${query}`, {
         method,
@@ -69,12 +84,18 @@ async function campusRequest<T>(path: string, options: Options = {}): Promise<T>
         const detail = typeof data?.detail === "string" ? data.detail : data?.message;
         throw new CampusApiError(detail || `Request failed (${response.status})`, response.status);
       }
-      if (cacheKey) await cache.set(cacheKey, data, options.cacheTtlMs);
+      if (cacheKey) {
+        memoryCache.set(cacheKey, { value: data, expiresAt: Date.now() + (options.cacheTtlMs || 30_000) });
+        void cache.set(cacheKey, data, options.cacheTtlMs);
+      } else if (method !== "GET") {
+        memoryCache.clear();
+        void cache.clearAll();
+      }
       return data as T;
     } catch (error) {
       lastError = error;
       if (error instanceof CampusApiError && error.status > 0 && error.status < 500) throw error;
-      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 300 * (2 ** attempt)));
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 200));
     } finally {
       clearTimeout(timeout);
     }
@@ -94,8 +115,8 @@ const MINUTE = 60_000;
 export const campusApi = {
   student: {
     institutions: (filters: { q?: string; type?: string; city?: string; verified?: boolean; limit?: number; offset?: number } = {}) =>
-      campusRequest<any>("/campus/directory/institutions", { query: filters, cacheTtlMs: 5 * MINUTE }),
-    institutionProfile: (id: string) => campusRequest<any>(`/campus/directory/institutions/${encodeURIComponent(id)}`, { cacheTtlMs: 5 * MINUTE }),
+      campusRequest<any>("/campus/directory/institutions", { query: filters, cacheTtlMs: MINUTE, preferCache: true }),
+    institutionProfile: (id: string) => campusRequest<any>(`/campus/directory/institutions/${encodeURIComponent(id)}`, { cacheTtlMs: 5 * MINUTE, preferCache: true }),
     followInstitution: (id: string) => campusRequest<any>(`/campus/directory/institutions/${encodeURIComponent(id)}/follow`, { method: "POST" }),
     unfollowInstitution: (id: string) => campusRequest<any>(`/campus/directory/institutions/${encodeURIComponent(id)}/follow`, { method: "DELETE" }),
     hub: () => campusRequest<any>("/campus/hub", { cacheTtlMs: 5 * MINUTE }),
