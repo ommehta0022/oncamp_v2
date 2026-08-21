@@ -30,6 +30,7 @@ from campus_platform_hardening import router as campus_platform_hardening_router
 from campus_semantics import router as campus_semantics_router
 from campus_voice import router as campus_voice_router
 from institution_content_workflow import router as institution_content_router
+from institution_engagement import router as institution_engagement_router
 from institution_studio import router as institution_studio_router
 from update_campaign import router as update_campaign_router
 
@@ -46,6 +47,7 @@ app.include_router(campus_semantics_router)
 app.include_router(campus_media_router)
 app.include_router(campus_voice_router)
 app.include_router(institution_studio_router)
+app.include_router(institution_engagement_router)
 logger = logging.getLogger("oncampus")
 _auto_campaign_task: Optional[asyncio.Task] = None
 _campus_scheduler_task: Optional[asyncio.Task] = None
@@ -120,6 +122,9 @@ async def verify_production_routes() -> None:
         "/v1/campus/groups/{group_id}/voice-note",
         "/v1/campus/directory/institutions",
         "/v1/campus/directory/institutions/{institution_id}",
+        "/v1/campus/directory/institutions/{institution_id}/engagement",
+        "/v1/campus/directory/institutions/{institution_id}/bookmark",
+        "/v1/campus/directory/institutions/{institution_id}/view",
         "/v1/campus/institution/studio",
         "/v1/campus/institution/studio/profile",
         "/v1/campus/institution/studio/media",
@@ -176,11 +181,7 @@ async def campus_rate_limit(request: Request, call_next):
             logger.warning("Distributed campus rate limit unavailable: %s", type(exc).__name__)
             allowed = _local_rate_allowed(key, limit)
         if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Too many campus requests. Please retry shortly."},
-                headers={"Retry-After": "60"},
-            )
+            return JSONResponse(status_code=429, content={"detail": "Too many campus requests. Please retry shortly."}, headers={"Retry-After": "60"})
     return await call_next(request)
 
 
@@ -189,18 +190,12 @@ async def institution_only_publishing(request: Request, call_next):
     """Students may consume content, but publishing and publishing-request workflows are institution-owned."""
     path = request.url.path
     method = request.method.upper()
-
-    # Legacy student post/poster request creation is fully retired. Keep historical admin
-    # read/decision routes only for migration/cleanup, never as a student workflow.
     retired_request_creation = method == "POST" and (
         re.fullmatch(r"/v1/groups/[^/]+/post-requests", path) is not None
         or re.fullmatch(r"/v1/institutions/[^/]+/post-requests", path) is not None
     )
     if retired_request_creation:
-        return JSONResponse(
-            status_code=410,
-            content={"detail": "Student publishing requests are retired. Institution administrators publish through Content Studio."},
-        )
+        return JSONResponse(status_code=410, content={"detail": "Student publishing requests are retired. Institution administrators publish through Content Studio."})
 
     protected = (
         (method == "POST" and path == "/v1/posts")
@@ -222,10 +217,7 @@ async def institution_only_publishing(request: Request, call_next):
 @app.middleware("http")
 async def protect_institution_branding_uploads(request: Request, call_next):
     """Require a live institution-admin session for institution branding uploads."""
-    protected_paths = {
-        "/v1/upload/institution-logo",
-        "/v1/upload/institution-cover",
-    }
+    protected_paths = {"/v1/upload/institution-logo", "/v1/upload/institution-cover"}
     if request.method == "POST" and request.url.path in protected_paths:
         try:
             institution_admin_or_error(request)
@@ -237,10 +229,4 @@ async def protect_institution_branding_uploads(request: Request, call_next):
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "8080")),
-        proxy_headers=True,
-        forwarded_allow_ips="*",
-    )
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")), proxy_headers=True, forwarded_allow_ips="*")
