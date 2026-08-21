@@ -32,6 +32,7 @@ from campus_voice import router as campus_voice_router
 from institution_content_workflow import router as institution_content_router
 from institution_engagement import router as institution_engagement_router
 from institution_studio import router as institution_studio_router
+from institution_studio_analytics import router as institution_studio_analytics_router
 from institution_studio_operations import router as institution_studio_operations_router
 from update_campaign import router as update_campaign_router
 
@@ -50,6 +51,7 @@ app.include_router(campus_voice_router)
 app.include_router(institution_studio_router)
 app.include_router(institution_engagement_router)
 app.include_router(institution_studio_operations_router)
+app.include_router(institution_studio_analytics_router)
 logger = logging.getLogger("oncampus")
 _auto_campaign_task: Optional[asyncio.Task] = None
 _campus_scheduler_task: Optional[asyncio.Task] = None
@@ -134,6 +136,7 @@ async def verify_production_routes() -> None:
         "/v1/campus/institution/studio/opportunities",
         "/v1/campus/institution/studio/groups",
         "/v1/campus/institution/studio/places",
+        "/v1/campus/institution/studio/analytics",
     }
     missing = sorted(path for path in required if path not in route_paths)
     if missing:
