@@ -15,7 +15,7 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     outputs:
       version: ${{ steps.app_version.outputs.version }}
     defaults:
@@ -32,7 +32,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -54,6 +54,9 @@ jobs:
 
       - name: Install JavaScript dependencies
         run: npm ci --legacy-peer-deps
+
+      - name: Type-check release source
+        run: npx tsc --noEmit
 
       - name: Preflight JavaScript bundle
         run: npx expo export --platform android --output-dir /tmp/oncampus-expo-bundle
