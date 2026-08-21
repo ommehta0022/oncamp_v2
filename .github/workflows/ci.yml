@@ -13,7 +13,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       EXPO_NO_TELEMETRY: "1"
       EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
@@ -29,11 +29,11 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r requirements.txt
 
-      - name: Run backend and security regression tests
-        run: python -m pytest -q tests/test_auth_and_latency.py tests/test_institution_content_workflow.py
+      - name: Run complete backend and security regression suite
+        run: python -m pytest -q
 
-      - name: Compile production backend entry points
-        run: python -m py_compile server.py production_server.py institution_content_workflow.py ota_updates.py update_campaign.py
+      - name: Compile production backend
+        run: python -m compileall -q server.py production_server.py institution_content_workflow.py campus_platform.py campus_platform_hardening.py campus_semantics.py campus_media.py ota_updates.py update_campaign.py
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -46,9 +46,17 @@ jobs:
         working-directory: frontend
         run: npm ci --legacy-peer-deps
 
+      - name: Type-check mobile app
+        working-directory: frontend
+        run: npx tsc --noEmit
+
       - name: Validate production Android JS bundle
         working-directory: frontend
-        run: npx expo export --platform android --output-dir /tmp/oncampus-ci-export
+        run: npx expo export --platform android --output-dir /tmp/oncampus-ci-android
+
+      - name: Validate production iOS JS bundle
+        working-directory: frontend
+        run: npx expo export --platform ios --output-dir /tmp/oncampus-ci-ios
 
       - name: Install admin panel dependencies
         working-directory: admin-panel

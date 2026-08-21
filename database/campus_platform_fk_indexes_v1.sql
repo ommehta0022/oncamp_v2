@@ -1,0 +1,46 @@
+-- Applied to production Supabase on 2026-08-21 as migration campus_platform_fk_indexes_v1.
+-- Cover high-impact foreign keys used by campus platform APIs and institution operations.
+
+create index if not exists idx_campus_alumni_profiles_institution_id on public.campus_alumni_profiles(institution_id);
+create index if not exists idx_campus_attendance_records_user_id on public.campus_attendance_records(user_id);
+create index if not exists idx_campus_attendance_sessions_institution_id on public.campus_attendance_sessions(institution_id);
+create index if not exists idx_campus_attendance_sessions_department_id on public.campus_attendance_sessions(department_id);
+create index if not exists idx_campus_attendance_sessions_created_by on public.campus_attendance_sessions(created_by);
+create index if not exists idx_campus_digital_ids_institution_id on public.campus_digital_ids(institution_id);
+create index if not exists idx_campus_digital_ids_department_id on public.campus_digital_ids(department_id);
+create index if not exists idx_campus_emergency_alerts_created_by on public.campus_emergency_alerts(created_by);
+create index if not exists idx_campus_emergency_alerts_resolved_by on public.campus_emergency_alerts(resolved_by);
+create index if not exists idx_campus_entity_verifications_requested_by on public.campus_entity_verifications(requested_by);
+create index if not exists idx_campus_entity_verifications_reviewed_by on public.campus_entity_verifications(reviewed_by);
+create index if not exists idx_campus_events_created_by on public.campus_events(created_by);
+create index if not exists idx_campus_integrations_institution_id on public.campus_integrations(institution_id);
+create index if not exists idx_campus_integrations_created_by on public.campus_integrations(created_by);
+create index if not exists idx_campus_invites_created_by on public.campus_invites(created_by);
+create index if not exists idx_campus_lost_found_items_user_id on public.campus_lost_found_items(user_id);
+create index if not exists idx_campus_marketplace_items_seller_user_id on public.campus_marketplace_items(seller_user_id);
+create index if not exists idx_campus_opportunities_created_by on public.campus_opportunities(created_by);
+create index if not exists idx_campus_places_institution_id on public.campus_places(institution_id);
+create index if not exists idx_institution_backups_institution_id on public.institution_backups(institution_id);
+create index if not exists idx_institution_backups_created_by on public.institution_backups(created_by);
+create index if not exists idx_institution_backups_restored_by on public.institution_backups(restored_by);
+create index if not exists idx_institution_broadcasts_created_by on public.institution_broadcasts(created_by);
+create index if not exists idx_institution_staff_user_id on public.institution_staff(user_id);
+create index if not exists idx_institution_staff_department_id on public.institution_staff(department_id);
+create index if not exists idx_institution_staff_role_id on public.institution_staff(role_id);
+create index if not exists idx_institution_staff_created_by on public.institution_staff(created_by);
+create index if not exists idx_institution_student_approvals_user_id on public.institution_student_approvals(user_id);
+create index if not exists idx_institution_student_approvals_reviewed_by on public.institution_student_approvals(reviewed_by);
+create index if not exists idx_institution_webhooks_institution_id on public.institution_webhooks(institution_id);
+create index if not exists idx_institution_webhooks_created_by on public.institution_webhooks(created_by);
+create index if not exists idx_post_poll_options_poll_id on public.post_poll_options(poll_id);
+create index if not exists idx_post_poll_votes_option_id on public.post_poll_votes(option_id);
+create index if not exists idx_post_poll_votes_user_id on public.post_poll_votes(user_id);
+create index if not exists idx_post_polls_created_by on public.post_polls(created_by);
+create index if not exists idx_post_versions_changed_by on public.post_versions(changed_by);
+create index if not exists idx_scheduled_announcements_institution_id on public.scheduled_announcements(institution_id);
+create index if not exists idx_scheduled_announcements_created_by on public.scheduled_announcements(created_by);
+create index if not exists idx_scheduled_announcements_published_post_id on public.scheduled_announcements(published_post_id);
+create index if not exists idx_user_activity_events_institution_id on public.user_activity_events(institution_id);
+create index if not exists idx_user_archived_groups_group_id on public.user_archived_groups(group_id);
+create index if not exists idx_user_feedback_user_id on public.user_feedback(user_id);
+create index if not exists idx_user_feedback_institution_id on public.user_feedback(institution_id);

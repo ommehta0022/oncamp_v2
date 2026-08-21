@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Alert, Pressable, Share, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
+import { Alert, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -83,18 +83,6 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     } finally { setBusyAction(null); }
   };
 
-  const shareExternally = async () => {
-    const preview = [item.title, item.content].filter(Boolean).join("\n\n").trim();
-    try {
-      await Share.share({
-        title: item.title || "OnCampus post",
-        message: `${preview}${preview ? "\n\n" : ""}Open in OnCampus: oncampus://post/${item.id}`,
-      });
-    } catch (error) {
-      showToast({ message: getUserErrorMessage(error, "Could not open the share sheet."), variant: "error" });
-    }
-  };
-
   const deletePost = () => {
     Alert.alert("Delete post?", "This post will be removed from OnCampus.", [
       { text: "Cancel", style: "cancel" },
@@ -118,7 +106,6 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
   };
 
   const options = [
-    { label: "Share outside OnCampus", icon: "share-social-outline", onPress: shareExternally },
     ...(isMine ? [{ label: "Edit", icon: "create-outline", onPress: () => router.push(`/post/edit/${item.id}`) }] : []),
     ...(isMine || isModerator ? [{ label: "Delete", icon: "trash-outline", color: colors.error, onPress: deletePost }] : []),
     ...((isMine || isModerator) && !item.pinned ? [{ label: "Pin to top", icon: "pin-outline", onPress: pinPost }] : []),
