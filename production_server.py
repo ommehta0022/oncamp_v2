@@ -182,7 +182,7 @@ async def institution_only_publishing(request: Request, call_next):
     path = request.url.path
     method = request.method.upper()
 
-    # Student post/poster request creation is fully retired. Keep historical admin
+    # Legacy student post/poster request creation is fully retired. Keep historical admin
     # read/decision routes only for migration/cleanup, never as a student workflow.
     retired_request_creation = method == "POST" and (
         re.fullmatch(r"/v1/groups/[^/]+/post-requests", path) is not None
