@@ -40,15 +40,6 @@ export default function AdminPanelScreen() {
     }
   };
 
-  const handleClearCache = async () => {
-    try {
-      await api.admin.clearCache();
-      Alert.alert("Success", "System cache cleared successfully");
-    } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to clear cache");
-    }
-  };
-
   if (role !== "platform_admin") return null;
 
   if (loading) {
@@ -86,15 +77,6 @@ export default function AdminPanelScreen() {
             <Text style={[styles.statLabel, { color: colors.muted }]}>Total Groups</Text>
           </View>
         </View>
-
-        <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>System Actions</Text>
-        <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: colors.danger + "22", borderColor: colors.danger }]}
-          onPress={handleClearCache}
-        >
-          <Ionicons name="trash-outline" size={20} color={colors.danger} />
-          <Text style={[styles.actionText, { color: colors.danger }]}>Clear System Cache</Text>
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -141,23 +123,5 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 14,
-  },
-  sectionTitle: {
-    fontSize: font.lg,
-    fontWeight: "600",
-    marginBottom: spacing.md,
-  },
-  actionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: 8,
-  },
-  actionText: {
-    fontSize: 16,
-    fontWeight: "600",
   },
 });
