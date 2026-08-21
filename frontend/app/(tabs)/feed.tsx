@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { font, spacing } from "@/src/theme/colors";
+import { spacing } from "@/src/theme/colors";
 import PostCard from "@/src/components/PostCard";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
@@ -70,7 +70,7 @@ export default function Feed() {
       <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
         <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => router.push("/search")} style={styles.iconBtn} testID="feed-search-btn"><Ionicons name="search" size={22} color={colors.onSurface} /></Pressable>
+          <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={styles.iconBtn} testID="feed-search-btn"><Ionicons name="search" size={22} color={colors.onSurface} /></Pressable>
           <Pressable onPress={() => router.push("/saved")} style={styles.iconBtn} testID="feed-saved-btn"><Ionicons name="bookmark-outline" size={22} color={colors.onSurface} /></Pressable>
         </View>
       </View>
@@ -84,7 +84,7 @@ export default function Feed() {
           keyExtractor={(p) => p.id}
           contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: 120, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.brandPrimary} />}
-          ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here." actionLabel="Refresh" onAction={() => void loadPosts(1, true)} />}
+          ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here automatically." />}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.brandPrimary} style={{ paddingVertical: spacing.lg }} /> : null}
           renderItem={({ item }) => <PostCard post={item} onChange={(updated) => setPosts((current) => current.map((post) => post.id === updated.id ? updated : post))} onDeleted={(id) => setPosts((current) => current.filter((post) => post.id !== id))} style={{ marginHorizontal: spacing.lg }} />}
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
