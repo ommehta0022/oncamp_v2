@@ -1,3 +1,5 @@
+import "./studio.css";
+
 export const metadata = {
   title: "Institution Studio | OnCampus",
   description: "Manage your institution's campus presence on OnCampus",
