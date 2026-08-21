@@ -1,0 +1,83 @@
+name: Final Live OnCampus Smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify live backend, Studio, institution login and student discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://oncampus-backend-production.up.railway.app/v1'
+          WEB='https://institution-studio-web-production.up.railway.app'
+
+          curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$API/health" >/tmp/health.json
+          curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$WEB/studio/login" >/tmp/studio-login.html
+
+          curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$API/campus/directory/institutions" >/tmp/directory.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/directory.json'))
+          rows=data if isinstance(data,list) else data.get('items') or data.get('institutions') or data.get('data') or []
+          assert len(rows)==1, f'expected exactly one institution, got {len(rows)}'
+          assert rows[0].get('name')=='OnCampus University', rows[0]
+          print('student Discover directory: PASS')
+          PY
+
+          status=$(curl -sS -o /tmp/invalid-inst.json -w '%{http_code}' -X POST "$API/auth/institution/otp/start" -H 'Content-Type: application/json' --data '{"identifier":"9900000999"}')
+          test "$status" = '404'
+          echo 'unregistered institution blocked: PASS'
+
+          curl -fsS -X POST "$API/auth/institution/otp/start" -H 'Content-Type: application/json' --data '{"identifier":"9900000002"}' >/tmp/inst-start.json
+          curl -fsS -X POST "$API/auth/institution/otp/verify" -H 'Content-Type: application/json' --data '{"identifier":"9900000002","code":"123456","platform":"web"}' >/tmp/inst-session.json
+          INST_TOKEN=$(python - <<'PY'
+          import json
+          d=json.load(open('/tmp/inst-session.json'))
+          print(d.get('accessToken') or d.get('access_token') or '')
+          PY
+          )
+          test -n "$INST_TOKEN"
+          curl -fsS "$API/institutions/me/dashboard" -H "Authorization: Bearer $INST_TOKEN" >/tmp/inst-dashboard.json
+          curl -fsS "$API/campus/institution/studio" -H "Authorization: Bearer $INST_TOKEN" >/tmp/studio.json
+          curl -fsS "$API/campus/institution/studio/analytics" -H "Authorization: Bearer $INST_TOKEN" >/tmp/studio-analytics.json
+          python - <<'PY'
+          import json
+          dash=json.load(open('/tmp/inst-dashboard.json'))
+          studio=json.load(open('/tmp/studio.json'))
+          inst=(studio.get('institution') or dash.get('institution') or {})
+          assert inst.get('name')=='OnCampus University', inst
+          assert len(studio.get('groups') or []) >= 5
+          assert len(studio.get('events') or []) >= 3
+          print('institution login/dashboard/Studio: PASS')
+          PY
+
+          curl -fsS -X POST "$API/auth/otp/start" -H 'Content-Type: application/json' --data '{"phone":"9900000001","action":"login"}' >/tmp/student-start.json
+          curl -fsS -X POST "$API/auth/otp/verify" -H 'Content-Type: application/json' --data '{"phone":"9900000001","code":"123456","platform":"android"}' >/tmp/student-session.json
+          STUDENT_TOKEN=$(python - <<'PY'
+          import json
+          d=json.load(open('/tmp/student-session.json'))
+          print(d.get('accessToken') or d.get('access_token') or '')
+          PY
+          )
+          test -n "$STUDENT_TOKEN"
+          curl -fsS "$API/campus/directory/institutions/seed-inst-iit-bombay" -H "Authorization: Bearer $STUDENT_TOKEN" >/tmp/profile.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/profile.json'))
+          inst=p.get('institution') or p
+          assert inst.get('name')=='OnCampus University', inst
+          assert len(p.get('groups') or []) >= 5
+          assert len(p.get('events') or []) >= 3
+          assert len(p.get('opportunities') or []) >= 4
+          print('student login/discover/profile: PASS')
+          PY
+
+          echo 'Final live smoke passed.'
