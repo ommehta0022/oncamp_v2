@@ -6,6 +6,8 @@ OPS = (ROOT / "campus_ops_extension.py").read_text(encoding="utf-8")
 PRODUCTION = (ROOT / "production_server.py").read_text(encoding="utf-8")
 SETTINGS = (ROOT / "frontend" / "app" / "institution" / "settings.tsx").read_text(encoding="utf-8")
 GOVERNANCE = (ROOT / "frontend" / "app" / "institution" / "governance.tsx").read_text(encoding="utf-8")
+JOIN = (ROOT / "frontend" / "app" / "join.tsx").read_text(encoding="utf-8")
+APP_CONFIG = (ROOT / "frontend" / "app.json").read_text(encoding="utf-8")
 
 
 class GovernanceBackendTests(unittest.TestCase):
@@ -44,6 +46,21 @@ class GovernanceUiTests(unittest.TestCase):
     def test_student_post_request_setting_is_not_exposed(self):
         self.assertNotIn("allowExternalRequests", SETTINGS)
         self.assertIn("Student publishing requests and external post-sharing controls are intentionally not exposed", SETTINGS)
+
+
+class InviteQrUiTests(unittest.TestCase):
+    def test_join_screen_has_real_qr_scanner_and_live_api_validation(self):
+        self.assertIn('CameraView', JOIN)
+        self.assertIn('barcodeTypes: ["qr"]', JOIN)
+        self.assertIn('campusApi.student.invite', JOIN)
+        self.assertIn('campusApi.student.acceptInvite', JOIN)
+        self.assertIn('extractInviteCode', JOIN)
+
+    def test_existing_native_baseline_already_has_camera_and_deep_link_support(self):
+        self.assertIn('"scheme": "oncampus"', APP_CONFIG)
+        self.assertIn('"CAMERA"', APP_CONFIG)
+        self.assertIn('"version": "1.4.0"', APP_CONFIG)
+        self.assertIn('"runtimeVersion": "1.4.0"', APP_CONFIG)
 
 
 if __name__ == "__main__":
