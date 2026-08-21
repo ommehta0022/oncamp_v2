@@ -48,7 +48,7 @@ jobs:
           PY
 
           curl -fsS -X POST "$API/auth/otp/start" -H 'Content-Type: application/json' --data '{"phone":"9900000001","action":"login"}' >/tmp/student-start.json
-          curl -fsS -X POST "$API/auth/otp/verify" -H 'Content-Type: application/json' --data '{"phone":"9900000001","code":"123456","platform":"android"}' >/tmp/student-session.json
+          curl -fsS -X POST "$API/auth/otp/verify-code" -H 'Content-Type: application/json' --data '{"phone":"9900000001","code":"123456","platform":"android"}' >/tmp/student-session.json
           STUDENT_TOKEN=$(python - <<'PY'
           import json
           d=json.load(open('/tmp/student-session.json'))
