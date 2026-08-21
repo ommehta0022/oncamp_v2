@@ -170,6 +170,9 @@ def get_invite(code: str) -> dict[str, Any]:
 @router.post("/invites/{code}/accept")
 def accept_invite(code: str, user: server.CurrentUser = Depends(server.current_user)) -> dict[str, Any]:
     row = _invite_row(code)
+    # Resolve presentation data before consuming the final allowed use. Re-validating
+    # after increment would incorrectly reject an acceptance that just exhausted maxUses.
+    info = get_invite(code)
     iid = str(row["institution_id"])
     invite_type = str(row["invite_type"])
     target_id = row.get("target_id")
@@ -221,7 +224,7 @@ def accept_invite(code: str, user: server.CurrentUser = Depends(server.current_u
     server.db.patch("campus_invites", {"id": f"eq.{row['id']}"}, {"use_count": int(row.get("use_count") or 0) + 1})
     platform._activity(user.id, iid, "invite.accepted", invite_type, target_id, {"inviteId": row["id"], "status": status})
     platform.emit_webhook(iid, "invite.accepted", {"userId": user.id, "inviteId": row["id"], "type": invite_type, "status": status})
-    return {"accepted": True, "status": status, **get_invite(code)}
+    return {"accepted": True, "status": status, **info}
 
 
 @router.post("/posts/{post_id}/reaction")
