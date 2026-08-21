@@ -13,11 +13,13 @@ import Avatar from "@/src/components/Avatar";
 import Button from "@/src/components/Button";
 import { checkForAppUpdate } from "@/src/components/AppUpdateGate";
 import { useRole } from "@/src/context/RoleProvider";
+import { useLanguage } from "@/src/context/LanguageProvider";
 import { clearSession } from "@/src/lib/api";
 
 export default function Settings() {
   const { colors, mode } = useTheme();
   const { user } = useRole();
+  const { t } = useLanguage();
   const router = useRouter();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -29,7 +31,7 @@ export default function Settings() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.surface }} edges={["top"]} testID="settings-screen">
-      <Header title="Settings" onBack={() => router.back()} />
+      <Header title={t("settings.title")} onBack={() => router.back()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 70 }}>
         <Pressable
           onPress={() => router.push("/settings/edit-profile")}
@@ -48,43 +50,43 @@ export default function Settings() {
           </Animated.View>
         </Pressable>
 
-        <Section title="Preferences">
-          <SettingsRow icon="color-palette" title="Appearance" value={mode === "system" ? "Auto" : mode === "dark" ? "Dark" : "Light"} onPress={() => router.push("/settings/theme")} />
+        <Section title={t("settings.preferences")}>
+          <SettingsRow icon="color-palette" title={t("settings.appearance")} value={mode === "system" ? "Auto" : mode === "dark" ? "Dark" : "Light"} onPress={() => router.push("/settings/theme")} />
           <Divider />
-          <SettingsRow icon="notifications" title="Notifications" subtitle="Campus, community and device alerts" onPress={() => router.push("/settings/notifications")} />
+          <SettingsRow icon="notifications" title={t("settings.notifications")} subtitle="Campus, community and device alerts" onPress={() => router.push("/settings/notifications")} />
           <Divider />
-          <SettingsRow icon="language" title="Language" onPress={() => router.push("/settings/language")} />
+          <SettingsRow icon="language" title={t("settings.language")} onPress={() => router.push("/settings/language")} />
         </Section>
 
-        <Section title="Privacy & safety">
-          <SettingsRow icon="lock-closed" title="Privacy" onPress={() => router.push("/settings/privacy")} />
+        <Section title={t("settings.privacySafety")}>
+          <SettingsRow icon="lock-closed" title={t("settings.privacy")} onPress={() => router.push("/settings/privacy")} />
           <Divider />
-          <SettingsRow icon="shield-checkmark" title="Blocked users" onPress={() => router.push("/settings/blocked")} />
+          <SettingsRow icon="shield-checkmark" title={t("settings.blocked")} onPress={() => router.push("/settings/blocked")} />
           <Divider />
-          <SettingsRow icon="bug" title="Report a problem" onPress={() => router.push("/settings/report")} />
+          <SettingsRow icon="bug" title={t("settings.report")} onPress={() => router.push("/settings/report")} />
         </Section>
 
-        <Section title="Your OnCampus">
-          <SettingsRow icon="bookmark" title="Saved posts" onPress={() => router.push("/saved")} />
+        <Section title={t("settings.yourCampus")}>
+          <SettingsRow icon="bookmark" title={t("settings.saved")} onPress={() => router.push("/saved")} />
           <Divider />
-          <SettingsRow icon="time" title="Recent activity" onPress={() => router.push("/settings/activity")} />
+          <SettingsRow icon="time" title={t("settings.activity")} onPress={() => router.push("/settings/activity")} />
           <Divider />
-          <SettingsRow icon="cloud-download" title="Storage & data" onPress={() => router.push("/settings/storage")} />
+          <SettingsRow icon="cloud-download" title={t("settings.storage")} onPress={() => router.push("/settings/storage")} />
           <Divider />
-          <SettingsRow icon="sparkles" title="What’s new" onPress={() => router.push("/settings/changelog" as any)} />
+          <SettingsRow icon="sparkles" title={t("settings.whatsNew")} onPress={() => router.push("/settings/changelog" as any)} />
         </Section>
 
-        <Section title="Support">
-          <SettingsRow icon="download-outline" title="Check for updates" subtitle="Checks only when you ask" onPress={() => void checkForAppUpdate("manual")} />
+        <Section title={t("settings.support")}>
+          <SettingsRow icon="download-outline" title={t("settings.checkUpdates")} subtitle="Checks only when you ask" onPress={() => void checkForAppUpdate("manual")} />
           <Divider />
-          <SettingsRow icon="help-circle" title="Help center" onPress={() => router.push("/settings/help")} />
+          <SettingsRow icon="help-circle" title={t("settings.help")} onPress={() => router.push("/settings/help")} />
           <Divider />
-          <SettingsRow icon="document-text" title="About & policies" onPress={() => router.push("/settings/about")} />
+          <SettingsRow icon="document-text" title={t("settings.about")} onPress={() => router.push("/settings/about")} />
         </Section>
 
         <View style={{ padding: spacing.xl, marginTop: spacing.lg }}>
           <Button
-            label="Log Out"
+            label={t("settings.logout")}
             variant="outline"
             onPress={logout}
             style={{ borderColor: colors.error || "#ef4444" }}
