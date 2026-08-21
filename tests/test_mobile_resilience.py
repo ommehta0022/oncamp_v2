@@ -22,10 +22,13 @@ class MobileResilienceTests(unittest.TestCase):
         self.assertIn('const controller = new AbortController()', CAMPUS_API)
         self.assertIn('300 * (2 ** attempt)', CAMPUS_API)
 
-    def test_photos_are_recompressed_but_video_and_pdf_are_preserved(self):
+    def test_photos_are_recompressed_but_non_photo_media_are_preserved(self):
         self.assertIn('ImageManipulator.manipulateAsync', IMAGE_UPLOAD)
         self.assertIn('compressPhoto', IMAGE_UPLOAD)
-        self.assertIn('extension === "pdf" || VIDEO_EXTENSIONS.has(extension)', IMAGE_UPLOAD)
+        self.assertIn('extension === "pdf"', IMAGE_UPLOAD)
+        self.assertIn('VIDEO_EXTENSIONS.has(extension)', IMAGE_UPLOAD)
+        self.assertIn('PASSTHROUGH_IMAGE_EXTENSIONS.has(extension)', IMAGE_UPLOAD)
+        self.assertIn('AUDIO_EXTENSIONS.has(extension)', IMAGE_UPLOAD)
 
 
 class AccessibilityRegressionTests(unittest.TestCase):
