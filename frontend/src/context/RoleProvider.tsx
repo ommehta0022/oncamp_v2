@@ -91,7 +91,7 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(STORAGE_KEY, r);
   }, []);
 
-  // Publishing is institution-owned. Student/group roles never receive a post composer.
+  // Institution-owned publishing: student and group roles never receive a post composer.
   const canCreatePosts = role === "institution_admin" || role === "platform_admin";
   const canCreateGroups = !!user?.canCreateGroups || role === "institution_admin" || role === "platform_admin";
   const canManageInstitution = role === "institution_admin" || role === "platform_admin";
