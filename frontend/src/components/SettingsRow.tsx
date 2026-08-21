@@ -20,33 +20,31 @@ type Props = {
 export default function SettingsRow({ icon, iconColor, iconBg, title, subtitle, value, right, onPress, destructive, testID }: Props) {
   const { colors } = useTheme();
   const titleColor = destructive ? colors.error : colors.onSurface;
+  const accessibleLabel = [title, value, subtitle].filter(Boolean).join(", ");
   return (
     <Pressable
       testID={testID}
+      accessibilityRole={onPress ? "button" : "text"}
+      accessibilityLabel={accessibleLabel}
+      accessibilityHint={onPress ? `Open ${title}` : undefined}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        {
-          backgroundColor: pressed ? colors.surfaceTertiary : "transparent",
-        },
+        { backgroundColor: pressed ? colors.surfaceTertiary : "transparent" },
       ]}
     >
       {icon && (
-        <View style={[styles.iconWrap, { backgroundColor: iconBg || colors.brandTertiary }]}>
+        <View accessible={false} style={[styles.iconWrap, { backgroundColor: iconBg || colors.brandTertiary }]}>
           <Ionicons name={icon} size={20} color={iconColor || colors.onBrandTertiary} />
         </View>
       )}
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: titleColor, fontSize: font.lg, fontWeight: "500" }}>{title}</Text>
-        {!!subtitle && (
-          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{subtitle}</Text>
-        )}
+      <View style={{ flex: 1 }} accessible={false}>
+        <Text allowFontScaling maxFontSizeMultiplier={1.6} style={{ color: titleColor, fontSize: font.lg, fontWeight: "500" }}>{title}</Text>
+        {!!subtitle && <Text allowFontScaling maxFontSizeMultiplier={1.6} style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{subtitle}</Text>}
       </View>
-      {value !== undefined && (
-        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>{value}</Text>
-      )}
+      {value !== undefined && <Text accessible={false} allowFontScaling maxFontSizeMultiplier={1.6} style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>{value}</Text>}
       {right}
-      {!right && onPress && <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />}
+      {!right && onPress && <Ionicons accessible={false} name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />}
     </Pressable>
   );
 }
