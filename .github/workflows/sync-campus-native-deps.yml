@@ -1,0 +1,49 @@
+name: Sync Campus Native Dependencies
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-campus-native-deps.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.4'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check whether dependency sync is needed
+        id: check
+        working-directory: frontend
+        shell: bash
+        run: |
+          if node -e "const p=require('./package.json'); process.exit(p.dependencies['expo-camera'] && p.dependencies['expo-audio'] && p.dependencies['expo-image-manipulator'] && p.dependencies['expo-video'] ? 0 : 1)"; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install SDK 54 compatible native packages and update lockfile
+        if: steps.check.outputs.needed == 'true'
+        working-directory: frontend
+        run: npm install --save --ignore-scripts expo-camera@~17.0.10 expo-audio@~1.1.1 expo-image-manipulator@~14.0.8 expo-video@~3.0.16
+      - name: Commit dependency lock update
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/package.json frontend/package-lock.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'Add native campus media and QR dependencies'
+          git push origin HEAD:main
