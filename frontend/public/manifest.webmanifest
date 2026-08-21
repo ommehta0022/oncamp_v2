@@ -1,0 +1,22 @@
+{
+  "name": "OnCampus",
+  "short_name": "OnCampus",
+  "description": "Verified campus communities, groups, events and institution updates.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "background_color": "#2E5C4E",
+  "theme_color": "#2E5C4E",
+  "orientation": "any",
+  "categories": ["education", "social", "productivity"],
+  "icons": [
+    {
+      "src": "/oncampus-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
