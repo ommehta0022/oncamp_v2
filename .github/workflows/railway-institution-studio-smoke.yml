@@ -1,0 +1,38 @@
+name: Railway Institution Studio Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/railway-institution-studio-smoke.yml'
+      - 'admin-panel/**'
+      - 'institution_studio*.py'
+      - 'institution_engagement.py'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify Institution Studio web and backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          WEB='https://institution-studio-web-production.up.railway.app'
+          API='https://oncampus-backend-production.up.railway.app'
+          ORIGIN="$WEB"
+
+          curl --retry 5 --retry-delay 3 --retry-all-errors -fsS "$WEB/auth/login" >/dev/null
+          curl --retry 5 --retry-delay 3 --retry-all-errors -fsS "$WEB/studio/login" >/dev/null
+          curl --retry 5 --retry-delay 3 --retry-all-errors -fsS "$API/v1/health" >/dev/null
+
+          headers="$(curl --retry 5 --retry-delay 3 --retry-all-errors -sS -D - -o /dev/null -X OPTIONS \
+            -H "Origin: $ORIGIN" \
+            -H 'Access-Control-Request-Method: GET' \
+            -H 'Access-Control-Request-Headers: authorization,content-type' \
+            "$API/v1/health")"
+          echo "$headers"
+          echo "$headers" | tr -d '\r' | grep -Eiq "^access-control-allow-origin: (${ORIGIN//./\.}|\*)$"
+
+          echo 'Railway Institution Studio smoke test passed.'
