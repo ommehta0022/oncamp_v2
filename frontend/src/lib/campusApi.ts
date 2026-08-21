@@ -1,7 +1,7 @@
 import { API_BASE_URL, getAccessToken } from "./api";
 import { cache } from "./cache";
 
-type Method = "GET" | "POST" | "PATCH" | "DELETE";
+type Method = "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
 
 type Options = {
   method?: Method;
@@ -29,8 +29,6 @@ function qs(query?: Options["query"]) {
 }
 
 function accountCacheScope(token: string) {
-  // Non-reversible FNV-1a-style local scope: prevents cached data from one
-  // signed-in account being returned to a different account on the same device.
   let hash = 2166136261;
   for (let index = 0; index < token.length; index += 1) {
     hash ^= token.charCodeAt(index);
@@ -76,9 +74,7 @@ async function campusRequest<T>(path: string, options: Options = {}): Promise<T>
     } catch (error) {
       lastError = error;
       if (error instanceof CampusApiError && error.status > 0 && error.status < 500) throw error;
-      if (attempt < attempts - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 300 * (2 ** attempt)));
-      }
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 300 * (2 ** attempt)));
     } finally {
       clearTimeout(timeout);
     }
@@ -97,6 +93,11 @@ const MINUTE = 60_000;
 
 export const campusApi = {
   student: {
+    institutions: (filters: { q?: string; type?: string; city?: string; verified?: boolean; limit?: number; offset?: number } = {}) =>
+      campusRequest<any>("/campus/directory/institutions", { query: filters, cacheTtlMs: 5 * MINUTE }),
+    institutionProfile: (id: string) => campusRequest<any>(`/campus/directory/institutions/${encodeURIComponent(id)}`, { cacheTtlMs: 5 * MINUTE }),
+    followInstitution: (id: string) => campusRequest<any>(`/campus/directory/institutions/${encodeURIComponent(id)}/follow`, { method: "POST" }),
+    unfollowInstitution: (id: string) => campusRequest<any>(`/campus/directory/institutions/${encodeURIComponent(id)}/follow`, { method: "DELETE" }),
     hub: () => campusRequest<any>("/campus/hub", { cacheTtlMs: 5 * MINUTE }),
     search: (q: string) => campusRequest<any>("/campus/search", { query: { q }, cacheTtlMs: 2 * MINUTE }),
     trending: () => campusRequest<any>("/campus/trending", { cacheTtlMs: 5 * MINUTE }),
@@ -130,6 +131,24 @@ export const campusApi = {
     archiveGroup: (groupId: string, archived: boolean) => campusRequest<any>(`/campus/groups/${groupId}/archive`, { method: "POST", query: { archived } }),
   },
   institution: {
+    studio: () => campusRequest<any>("/campus/institution/studio"),
+    updateStudioProfile: (payload: any) => campusRequest<any>("/campus/institution/studio/profile", { method: "PATCH", body: payload }),
+    publishStudio: () => campusRequest<any>("/campus/institution/studio/publish", { method: "POST" }),
+    versions: () => campusRequest<any[]>("/campus/institution/studio/versions"),
+    restoreVersion: (id: string) => campusRequest<any>(`/campus/institution/studio/versions/${id}/restore`, { method: "POST" }),
+    createStory: (payload: any) => campusRequest<any>("/campus/institution/studio/story", { method: "POST", body: payload }),
+    updateStory: (id: string, payload: any) => campusRequest<any>(`/campus/institution/studio/story/${id}`, { method: "PATCH", body: payload }),
+    deleteStory: (id: string) => campusRequest<any>(`/campus/institution/studio/story/${id}`, { method: "DELETE" }),
+    createGallery: (payload: any) => campusRequest<any>("/campus/institution/studio/gallery", { method: "POST", body: payload }),
+    updateGallery: (id: string, payload: any) => campusRequest<any>(`/campus/institution/studio/gallery/${id}`, { method: "PATCH", body: payload }),
+    deleteGallery: (id: string) => campusRequest<any>(`/campus/institution/studio/gallery/${id}`, { method: "DELETE" }),
+    updateSection: (key: string, payload: any) => campusRequest<any>(`/campus/institution/studio/sections/${encodeURIComponent(key)}`, { method: "PUT", body: payload }),
+    createProgram: (payload: any) => campusRequest<any>("/campus/institution/studio/programs", { method: "POST", body: payload }),
+    updateProgram: (id: string, payload: any) => campusRequest<any>(`/campus/institution/studio/programs/${id}`, { method: "PATCH", body: payload }),
+    deleteProgram: (id: string) => campusRequest<any>(`/campus/institution/studio/programs/${id}`, { method: "DELETE" }),
+    createAchievement: (payload: any) => campusRequest<any>("/campus/institution/studio/achievements", { method: "POST", body: payload }),
+    updateAchievement: (id: string, payload: any) => campusRequest<any>(`/campus/institution/studio/achievements/${id}`, { method: "PATCH", body: payload }),
+    deleteAchievement: (id: string) => campusRequest<any>(`/campus/institution/studio/achievements/${id}`, { method: "DELETE" }),
     overview: () => campusRequest<any>("/campus/institution/overview"),
     studentApprovals: (status = "pending", q = "") => campusRequest<any[]>("/campus/institution/student-approvals", { query: { status, q } }),
     decideStudent: (id: string, status: "approved" | "rejected" | "needs_info", message = "") =>

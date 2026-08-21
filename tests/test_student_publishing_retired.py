@@ -62,10 +62,13 @@ def test_production_api_retires_request_creation_and_keeps_posting_admin_only():
     assert "institution_admin_or_error(request)" in source
 
 
-def test_discover_only_allows_invite_code_join_not_arbitrary_institution_request():
-    source = read("frontend/app/(tabs)/discover.tsx")
-    assert 'label="Join by QR/code"' in source
-    assert "campusApi.student.invite(code)" in source
-    assert "campusApi.student.acceptInvite(code)" in source
-    assert "postRequest(" not in source
-    assert "/institution/post-request/" not in source
+def test_discover_is_institution_focused_and_invite_join_remains_dedicated():
+    discover = read("frontend/app/(tabs)/discover.tsx")
+    join = read("frontend/app/join.tsx")
+    assert "Search universities, colleges, schools" in discover
+    assert "/institution-profile/" in discover
+    assert "campusApi.student.invite(value)" in join
+    assert "campusApi.student.acceptInvite(resolvedCode)" in join
+    assert "Join by QR or code" in join
+    assert "postRequest(" not in discover
+    assert "/institution/post-request/" not in discover
