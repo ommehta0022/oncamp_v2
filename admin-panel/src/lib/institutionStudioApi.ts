@@ -38,9 +38,19 @@ export function clearStudioSession() {
   }
 }
 
-export async function studioOtpStart(phone: string) { return request<any>("/v1/auth/otp/start", "POST", { phone }); }
+// Institution Studio must never use the generic user OTP endpoints. These
+// institution endpoints resolve the registered institution record first and
+// reject student/unregistered numbers before an OTP session can be issued.
+export async function studioOtpStart(phone: string) {
+  return request<any>("/v1/auth/institution/otp/start", "POST", { identifier: phone });
+}
 export async function studioOtpVerify(phone: string, code: string) {
-  const data = await request<any>("/v1/auth/otp/verify-code", "POST", { phone, code });
+  const data = await request<any>("/v1/auth/institution/otp/verify", "POST", {
+    identifier: phone,
+    phone,
+    code,
+    platform: "web",
+  });
   if (!data?.accessToken) throw new Error("Login did not return an access token.");
   localStorage.setItem(TOKEN_KEY, data.accessToken);
   if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
