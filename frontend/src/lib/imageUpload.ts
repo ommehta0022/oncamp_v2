@@ -1,9 +1,10 @@
 /**
- * Image Upload Utility
- * Handles image picking, camera access, and upload to backend
+ * Shared media picker/uploader.
+ * Photos are recompressed on-device before upload; documents/videos are preserved.
  */
 
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { Alert, Platform } from "react-native";
 import { API_BASE_URL, getAccessToken } from "./api";
 
@@ -19,18 +20,76 @@ export interface ImagePickerOptions {
   allowsMultiple?: boolean;
 }
 
-/**
- * Request camera permission
- */
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "heic", "heif"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "m4v"]);
+
+function extensionOf(uri: string) {
+  return /\.([a-zA-Z0-9]+)(?:\?|#|$)/.exec(uri)?.[1]?.toLowerCase() || "";
+}
+
+async function compressPhoto(uri: string, quality = 0.72): Promise<string> {
+  if (Platform.OS === "web") return uri;
+  const extension = extensionOf(uri);
+  if (extension && !IMAGE_EXTENSIONS.has(extension)) return uri;
+  try {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [],
+      { compress: Math.max(0.45, Math.min(0.9, quality)), format: ImageManipulator.SaveFormat.JPEG },
+    );
+    return result.uri || uri;
+  } catch (error) {
+    console.warn("Image compression failed; using original image", error);
+    return uri;
+  }
+}
+
+function contentType(uri: string, fallback = "image/jpeg") {
+  const extension = extensionOf(uri);
+  if (extension === "pdf") return "application/pdf";
+  if (VIDEO_EXTENSIONS.has(extension)) return extension === "mov" ? "video/quicktime" : "video/mp4";
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "png") return "image/png";
+  if (extension === "webp") return "image/webp";
+  return fallback;
+}
+
+async function appendUploadFile(formData: FormData, uri: string, fallbackName: string) {
+  const filename = uri.split("/").pop()?.split("?")[0] || fallbackName;
+  if (Platform.OS === "web") {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    formData.append("file", blob, filename);
+    return;
+  }
+  formData.append("file", {
+    uri: Platform.OS === "ios" ? uri.replace("file://", "") : uri,
+    name: filename,
+    type: contentType(uri),
+  } as any);
+}
+
+async function upload(endpoint: string, uri: string, fallbackName: string) {
+  const formData = new FormData();
+  await appendUploadFile(formData, uri, fallbackName);
+  const token = await getAccessToken();
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: "POST",
+    headers: { Authorization: token ? `Bearer ${token}` : "" },
+    body: formData,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Upload failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function requestCameraPermission(): Promise<boolean> {
   try {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission Required",
-        "Please allow camera access to take photos.",
-        [{ text: "OK" }]
-      );
+      Alert.alert("Permission Required", "Please allow camera access to take photos.");
       return false;
     }
     return true;
@@ -40,18 +99,11 @@ export async function requestCameraPermission(): Promise<boolean> {
   }
 }
 
-/**
- * Request media library permission
- */
 export async function requestMediaLibraryPermission(): Promise<boolean> {
   try {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission Required",
-        "Please allow photo access to select images.",
-        [{ text: "OK" }]
-      );
+      Alert.alert("Permission Required", "Please allow photo access to select images.");
       return false;
     }
     return true;
@@ -61,25 +113,17 @@ export async function requestMediaLibraryPermission(): Promise<boolean> {
   }
 }
 
-/**
- * Launch camera to take a photo
- */
 export async function takePhoto(options: ImagePickerOptions = {}): Promise<string | null> {
-  const hasPermission = await requestCameraPermission();
-  if (!hasPermission) return null;
-
+  if (!(await requestCameraPermission())) return null;
   try {
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: options.aspect || [1, 1],
-      quality: options.quality || 0.8,
+      quality: options.quality ?? 0.82,
     });
-
-    if (!result.canceled && result.assets[0]) {
-      return result.assets[0].uri;
-    }
-    return null;
+    if (result.canceled || !result.assets[0]) return null;
+    return compressPhoto(result.assets[0].uri, options.quality ?? 0.72);
   } catch (error) {
     console.error("Take photo error:", error);
     Alert.alert("Error", "Failed to take photo. Please try again.");
@@ -87,26 +131,18 @@ export async function takePhoto(options: ImagePickerOptions = {}): Promise<strin
   }
 }
 
-/**
- * Launch image picker to select from library
- */
 export async function pickImage(options: ImagePickerOptions = {}): Promise<string | null> {
-  const hasPermission = await requestMediaLibraryPermission();
-  if (!hasPermission) return null;
-
+  if (!(await requestMediaLibraryPermission())) return null;
   try {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: !options.allowsMultiple,
       aspect: options.aspect || [1, 1],
-      quality: options.quality || 0.8,
+      quality: options.quality ?? 0.82,
       allowsMultipleSelection: options.allowsMultiple || false,
     });
-
-    if (!result.canceled && result.assets[0]) {
-      return result.assets[0].uri;
-    }
-    return null;
+    if (result.canceled || !result.assets[0]) return null;
+    return compressPhoto(result.assets[0].uri, options.quality ?? 0.72);
   } catch (error) {
     console.error("Pick image error:", error);
     Alert.alert("Error", "Failed to pick image. Please try again.");
@@ -114,277 +150,67 @@ export async function pickImage(options: ImagePickerOptions = {}): Promise<strin
   }
 }
 
-/**
- * Show action sheet with camera/library options
- */
 export async function showImagePicker(options: ImagePickerOptions = {}): Promise<string | null> {
-  if (Platform.OS === "web") {
-    return pickImage(options);
-  }
+  if (Platform.OS === "web") return pickImage(options);
   return new Promise((resolve) => {
-    Alert.alert(
-      "Choose Photo",
-      "Select where to get the image from",
-      [
-        {
-          text: "Take Photo",
-          onPress: async () => {
-            const uri = await takePhoto(options);
-            resolve(uri);
-          },
-        },
-        {
-          text: "Choose from Library",
-          onPress: async () => {
-            const uri = await pickImage(options);
-            resolve(uri);
-          },
-        },
-        {
-          text: "Cancel",
-          style: "cancel",
-          onPress: () => resolve(null),
-        },
-      ]
-    );
+    Alert.alert("Choose Photo", "Select where to get the image from", [
+      { text: "Take Photo", onPress: async () => resolve(await takePhoto(options)) },
+      { text: "Choose from Library", onPress: async () => resolve(await pickImage(options)) },
+      { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
+    ]);
   });
 }
 
-/**
- * Upload avatar to backend
- */
 export async function uploadAvatar(imageUri: string): Promise<UploadResult> {
   try {
-    const formData = new FormData();
-    const filename = imageUri.split("/").pop() || "avatar.jpg";
-    const match = /\.(\w+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : "image/jpeg";
-
-    if (Platform.OS === "web") {
-      const res = await fetch(imageUri);
-      const blob = await res.blob();
-      formData.append("file", blob, filename);
-    } else {
-      formData.append("file", {
-        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-        name: filename,
-        type,
-      } as any);
-    }
-
-    const token = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/upload/avatar`, {
-      method: "POST",
-      headers: {
-        "Authorization": token ? `Bearer ${token}` : "",
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || `Upload failed with status ${response.status}`);
-    }
-
-    const data = await response.json();
-    return {
-      url: data.url || data.avatarUrl || data.fileUrl,
-      uploaded: true,
-    };
+    const prepared = await compressPhoto(imageUri);
+    const data = await upload("/upload/avatar", prepared, "avatar.jpg");
+    return { url: data.url || data.avatarUrl || data.fileUrl, uploaded: true };
   } catch (error: any) {
     console.error("Avatar upload error:", error);
     throw new Error(error.message || "Failed to upload avatar");
   }
 }
 
-/**
- * Upload post media to backend
- */
 export async function uploadPostMedia(imageUri: string): Promise<UploadResult> {
   try {
-    const formData = new FormData();
-    const filename = imageUri.split("/").pop() || "post.jpg";
-    const match = /\.(\w+)$/.exec(filename);
-    const extension = match?.[1]?.toLowerCase();
-    const type = extension === "pdf"
-      ? "application/pdf"
-      : ["mp4", "mov", "m4v"].includes(extension || "")
-        ? `video/${extension === "mov" ? "quicktime" : "mp4"}`
-        : `image/${extension === "jpg" ? "jpeg" : extension || "jpeg"}`;
-
-    if (Platform.OS === "web") {
-      const res = await fetch(imageUri);
-      const blob = await res.blob();
-      formData.append("file", blob, filename);
-    } else {
-      formData.append("file", {
-        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-        name: filename,
-        type,
-      } as any);
-    }
-
-    const token = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/upload/post-media`, {
-      method: "POST",
-      headers: {
-        "Authorization": token ? `Bearer ${token}` : "",
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || `Upload failed with status ${response.status}`);
-    }
-
-    const data = await response.json();
-    return {
-      url: data.url || data.mediaUrl || data.fileUrl,
-      uploaded: true,
-      mediaType: data.mediaType,
-    };
+    const extension = extensionOf(imageUri);
+    const prepared = extension === "pdf" || VIDEO_EXTENSIONS.has(extension) ? imageUri : await compressPhoto(imageUri);
+    const data = await upload("/upload/post-media", prepared, "post.jpg");
+    return { url: data.url || data.mediaUrl || data.fileUrl, uploaded: true, mediaType: data.mediaType };
   } catch (error: any) {
     console.error("Post media upload error:", error);
-    throw new Error(error.message || "Failed to upload image");
+    throw new Error(error.message || "Failed to upload media");
   }
 }
 
-/**
- * Upload group avatar to backend
- */
 export async function uploadGroupAvatar(groupId: string, imageUri: string): Promise<UploadResult> {
   try {
-    const formData = new FormData();
-    const filename = imageUri.split("/").pop() || "group.jpg";
-    const match = /\.(\w+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : "image/jpeg";
-
-    if (Platform.OS === "web") {
-      const res = await fetch(imageUri);
-      const blob = await res.blob();
-      formData.append("file", blob, filename);
-    } else {
-      formData.append("file", {
-        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-        name: filename,
-        type,
-      } as any);
-    }
-
-    const token = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/upload/group-avatar/${groupId}`, {
-      method: "POST",
-      headers: {
-        "Authorization": token ? `Bearer ${token}` : "",
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || `Upload failed with status ${response.status}`);
-    }
-
-    const data = await response.json();
-    return {
-      url: data.url,
-      uploaded: true,
-    };
+    const prepared = await compressPhoto(imageUri);
+    const data = await upload(`/upload/group-avatar/${encodeURIComponent(groupId)}`, prepared, "group.jpg");
+    return { url: data.url, uploaded: true };
   } catch (error: any) {
     console.error("Group avatar upload error:", error);
     throw new Error(error.message || "Failed to upload group avatar");
   }
 }
 
-/**
- * Upload message media to backend
- */
 export async function uploadMessageMedia(groupId: string, imageUri: string): Promise<UploadResult> {
   try {
-    const formData = new FormData();
-    const filename = imageUri.split("/").pop() || "message.jpg";
-    const match = /\.(\w+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : "image/jpeg";
-
-    if (Platform.OS === "web") {
-      const res = await fetch(imageUri);
-      const blob = await res.blob();
-      formData.append("file", blob, filename);
-    } else {
-      formData.append("file", {
-        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-        name: filename,
-        type,
-      } as any);
-    }
-
-    const token = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/upload/message-media/${groupId}`, {
-      method: "POST",
-      headers: {
-        "Authorization": token ? `Bearer ${token}` : "",
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || `Upload failed with status ${response.status}`);
-    }
-
-    const data = await response.json();
-    return {
-      url: data.url,
-      uploaded: true,
-    };
+    const prepared = await compressPhoto(imageUri);
+    const data = await upload(`/upload/message-media/${encodeURIComponent(groupId)}`, prepared, "message.jpg");
+    return { url: data.url, uploaded: true };
   } catch (error: any) {
     console.error("Message media upload error:", error);
     throw new Error(error.message || "Failed to upload image");
   }
 }
 
-/**
- * Upload institution document
- */
 export async function uploadInstitutionDoc(imageUri: string): Promise<UploadResult> {
   try {
-    const formData = new FormData();
-    const filename = imageUri.split("/").pop() || "document.jpg";
-    const match = /\.(\w+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : "image/jpeg";
-
-    if (Platform.OS === "web") {
-      const res = await fetch(imageUri);
-      const blob = await res.blob();
-      formData.append("file", blob, filename);
-    } else {
-      formData.append("file", {
-        uri: Platform.OS === "ios" ? imageUri.replace("file://", "") : imageUri,
-        name: filename,
-        type,
-      } as any);
-    }
-
-    const token = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/upload/institution-doc`, {
-      method: "POST",
-      headers: {
-        "Authorization": token ? `Bearer ${token}` : "",
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || `Upload failed with status ${response.status}`);
-    }
-
-    const data = await response.json();
-    return {
-      url: data.url,
-      uploaded: true,
-    };
+    const prepared = extensionOf(imageUri) === "pdf" ? imageUri : await compressPhoto(imageUri);
+    const data = await upload("/upload/institution-doc", prepared, "document.jpg");
+    return { url: data.url, uploaded: true };
   } catch (error: any) {
     console.error("Institution doc upload error:", error);
     throw new Error(error.message || "Failed to upload document");
