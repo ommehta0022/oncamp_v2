@@ -3,8 +3,8 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.4.0"
-def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "140").toInteger()
+def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.5.0"
+def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "150").toInteger()
 
 react {
     // Keep the native JS engine consistent between embedded and OTA updates.
@@ -111,7 +111,7 @@ dependencies {
     }
 
     if (hermesEnabled.toBoolean()) {
-        implementation("com.facebook.react:hermes-android")
+        implementation(com.facebook.react:hermes-android)
     } else {
         implementation jscFlavor
     }
