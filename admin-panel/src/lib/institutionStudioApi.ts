@@ -38,19 +38,15 @@ export function clearStudioSession() {
   }
 }
 
-export async function studioOtpStart(phone: string) {
-  return request<any>("/v1/auth/otp/start", "POST", { phone });
-}
-
+export async function studioOtpStart(phone: string) { return request<any>("/v1/auth/otp/start", "POST", { phone }); }
 export async function studioOtpVerify(phone: string, code: string) {
   const data = await request<any>("/v1/auth/otp/verify-code", "POST", { phone, code });
   if (!data?.accessToken) throw new Error("Login did not return an access token.");
   localStorage.setItem(TOKEN_KEY, data.accessToken);
   if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
   if (data.user) localStorage.setItem("institution_studio_user", JSON.stringify(data.user));
-  try {
-    await request("/v1/campus/institution/studio");
-  } catch (error) {
+  try { await request("/v1/campus/institution/studio"); }
+  catch (error) {
     clearStudioSession();
     throw new Error(error instanceof Error ? error.message : "This account is not an approved institution administrator.");
   }
@@ -59,6 +55,7 @@ export async function studioOtpVerify(phone: string, code: string) {
 
 export const institutionStudioApi = {
   bundle: () => request<any>("/v1/campus/institution/studio"),
+  updateIdentity: (payload: any) => request<any>("/v1/institutions/me", "PATCH", payload),
   updateProfile: (payload: any) => request<any>("/v1/campus/institution/studio/profile", "PATCH", payload),
   publish: () => request<any>("/v1/campus/institution/studio/publish", "POST"),
   versions: () => request<any[]>("/v1/campus/institution/studio/versions"),
@@ -90,6 +87,8 @@ export const institutionStudioApi = {
   events: () => request<any[]>("/v1/campus/institution/events"),
   createEvent: (payload: any) => request<any>("/v1/campus/institution/events", "POST", payload),
   updateEvent: (id: string, payload: any) => request<any>(`/v1/campus/institution/events/${encodeURIComponent(id)}`, "PATCH", payload),
+  createGroup: (payload: any) => request<any>("/v1/groups", "POST", { ...payload, official: true }),
+  updateGroup: (id: string, payload: any) => request<any>(`/v1/groups/${encodeURIComponent(id)}`, "PATCH", payload),
   announcements: () => request<any[]>("/v1/campus/institution/announcements"),
   createAnnouncement: (payload: any) => request<any>("/v1/campus/institution/announcements", "POST", payload),
   broadcasts: () => request<any[]>("/v1/campus/institution/broadcasts"),
@@ -110,8 +109,7 @@ export const institutionStudioApi = {
   createOpportunity: (payload: any) => request<any>("/v1/campus/institution/opportunities", "POST", payload),
   createPlace: (payload: any) => request<any>("/v1/campus/institution/places", "POST", payload),
   async uploadMedia(file: File) {
-    const form = new FormData();
-    form.append("file", file);
+    const form = new FormData(); form.append("file", file);
     const response = await fetch(`${API_URL}/v1/campus/institution/studio/media`, { method: "POST", headers: token() ? { Authorization: `Bearer ${token()}` } : {}, body: form });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.detail || "Upload failed");
