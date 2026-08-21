@@ -178,13 +178,27 @@ async def campus_rate_limit(request: Request, call_next):
 
 @app.middleware("http")
 async def institution_only_publishing(request: Request, call_next):
-    """Students may consume content, but institution publishing/collaboration is admin-only."""
+    """Students may consume content, but publishing and publishing-request workflows are institution-owned."""
     path = request.url.path
     method = request.method.upper()
+
+    # Student post/poster request creation is fully retired. Keep historical admin
+    # read/decision routes only for migration/cleanup, never as a student workflow.
+    retired_request_creation = method == "POST" and (
+        re.fullmatch(r"/v1/groups/[^/]+/post-requests", path) is not None
+        or re.fullmatch(r"/v1/institutions/[^/]+/post-requests", path) is not None
+    )
+    if retired_request_creation:
+        return JSONResponse(
+            status_code=410,
+            content={"detail": "Student publishing requests are retired. Institution administrators publish through Content Studio."},
+        )
+
     protected = (
         (method == "POST" and path == "/v1/posts")
         or (method == "POST" and re.fullmatch(r"/v1/posts/[^/]+/(repost|share)", path) is not None)
         or (re.fullmatch(r"/v1/groups/[^/]+/post-requests(?:/[^/]+/(?:approve|reject))?", path) is not None)
+        or (re.fullmatch(r"/v1/institutions/[^/]+/post-requests(?:/[^/]+/(?:approve|reject))?", path) is not None)
         or (method == "GET" and path == "/v1/users/me/post-requests")
     )
     if protected:

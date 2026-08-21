@@ -18,7 +18,7 @@ export default function GroupInfo() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { role, isGroupAdmin } = useRole();
+  const { isGroupAdmin } = useRole();
   const [group, setGroup] = useState<GroupDto | null>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [reportModalVisible, setReportModalVisible] = useState(false);
@@ -210,29 +210,12 @@ export default function GroupInfo() {
           </Pressable>
         </Section>
 
-        <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          {isGroupAdmin && (
+        {isGroupAdmin && (
+          <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <SettingsRow icon="person-add-outline" title="Join requests" onPress={() => router.push(`/group/requests/${group.id}`)} />
-          )}
-          {role === "normal_user" && (
-            <SettingsRow icon="clipboard-outline" title="Submit a post / poster request" subtitle="Ask admins to publish your poster in this group" onPress={() => router.push(`/group/post-request/${group.id}`)} testID="submit-post-request-btn" />
-          )}
-          {role === "normal_user" && group.institutionId && (
-            <SettingsRow
-              icon="business-outline"
-              title="Send request to institution"
-              subtitle="Ask this institution to publish your post in an official group"
-              onPress={() => router.push({
-                pathname: "/institution/post-request/[id]",
-                params: { id: group.institutionId, name: typeof group.institution === "string" ? group.institution : group.name },
-              })}
-              testID="submit-institution-post-request-btn"
-            />
-          )}
-          {isGroupAdmin && (
-            <SettingsRow icon="shield-checkmark-outline" title="Admin panel" subtitle="Manage requests, roles, and content" onPress={() => router.push(`/group/admin/${group.id}`)} testID="open-admin-panel-btn" />
-          )}
-        </View>
+            <SettingsRow icon="shield-checkmark-outline" title="Admin panel" subtitle="Manage members, roles, and group controls" onPress={() => router.push(`/group/admin/${group.id}`)} testID="open-admin-panel-btn" />
+          </View>
+        )}
 
         {group.role && (
           <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
