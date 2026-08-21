@@ -11,6 +11,7 @@ import {
   ChevronDown,
   FileText,
   GraduationCap,
+  Image as ImageIcon,
   LayoutDashboard,
   LogOut,
   MapPin,
@@ -29,6 +30,7 @@ const navigation = [
   { key: "dashboard", name: "Dashboard", href: "/studio", icon: LayoutDashboard },
   { key: "profile", name: "Profile", href: "/studio/profile", icon: Building2 },
   { key: "content", name: "Content", href: "/studio/content", icon: FileText },
+  { key: "media", name: "Media Library", href: "/studio/media", icon: ImageIcon },
   { key: "groups", name: "Groups", href: "/studio/operations#groups", icon: UsersRound },
   { key: "departments", name: "Departments", href: "/studio/operations#groups", icon: Building2 },
   { key: "events", name: "Events", href: "/studio/operations#events", icon: CalendarDays },
@@ -96,6 +98,7 @@ export default function InstitutionStudioShell({ children }: { children: React.R
     if (pathname === "/studio") return "dashboard";
     if (pathname.startsWith("/studio/profile")) return "profile";
     if (pathname.startsWith("/studio/content")) return "content";
+    if (pathname.startsWith("/studio/media")) return "media";
     if (pathname.startsWith("/studio/operations")) {
       if (hash === "events") return "events";
       if (hash === "people") return "students";
@@ -130,7 +133,7 @@ export default function InstitutionStudioShell({ children }: { children: React.R
     <div className="border-b border-white/10 p-3"><div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"><div className="flex items-center justify-between gap-2"><div className="min-w-0"><div className="truncate text-xs font-bold">{institution?.name || "Institution"}</div><div className="truncate text-[10px] text-slate-400">{[institution?.type, institution?.city].filter(Boolean).join(" · ") || "Campus workspace"}</div></div><ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" /></div></div></div>
     <nav className="flex-1 space-y-0.5 overflow-y-auto overscroll-contain px-2 py-3">{navigation.map((item) => {
       const Icon = item.icon;
-      const active = activeKey === item.key || (item.key === "departments" && activeKey === "groups") || (item.key === "opportunities" && activeKey === "events") || (item.key === "faculty" && activeKey === "students");
+      const active = activeKey === item.key;
       return <Link key={item.key} href={item.href} onMouseEnter={() => { router.prefetch(item.href.split("#")[0]); void institutionStudioApi.prefetchBundle(); }} onClick={() => setMobileOpen(false)} className={`flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-semibold transition ${active ? "bg-blue-600 text-white shadow-sm" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}><Icon className="h-4 w-4 shrink-0" /><span className="min-w-0 truncate">{item.name}</span></Link>;
     })}</nav>
     <div className="border-t border-white/10 p-3"><button onClick={signOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-white/10"><LogOut className="h-4 w-4" />Sign out</button></div>
@@ -148,12 +151,12 @@ export default function InstitutionStudioShell({ children }: { children: React.R
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input ref={searchRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search students, content, groups, and more…" className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-12 text-sm outline-none focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
             <span className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-400 sm:block">⌘ K</span>
-            {searchResults.length ? <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">{searchResults.map((item) => <Link key={item.key} href={item.href} onClick={() => setQuery("")} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700"><item.icon className="h-4 w-4" />{item.name}</Link>)}</div> : null}
+            {searchResults.length ? <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">{searchResults.map((item) => { const Icon = item.icon; return <Link key={item.key} href={item.href} onClick={() => setQuery("")} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700"><Icon className="h-4 w-4" />{item.name}</Link>; })}</div> : null}
           </div>
-          <button aria-label="Notifications" title="Notifications are managed in the mobile app and institution broadcasts" className="hidden shrink-0 rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 hover:bg-slate-50 sm:block"><Bell className="h-4 w-4" /></button>
+          <button aria-label="Notifications" title="Notifications are managed through institution broadcasts" className="hidden shrink-0 rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 hover:bg-slate-50 sm:block"><Bell className="h-4 w-4" /></button>
           <div className="relative shrink-0">
             <button onClick={() => { setCreateOpen((v) => !v); setUserOpen(false); }} className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-3.5 text-sm font-bold text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Create</span><ChevronDown className="h-3.5 w-3.5" /></button>
-            {createOpen ? <div className="absolute right-0 top-12 z-50 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"><CreateLink href="/studio/content" label="Announcement / broadcast" icon={FileText} /><CreateLink href="/studio/operations#groups" label="Group / department" icon={UsersRound} /><CreateLink href="/studio/operations#events" label="Event / opportunity" icon={CalendarDays} /><CreateLink href="/studio/profile" label="Profile media / story" icon={Building2} /></div> : null}
+            {createOpen ? <div className="absolute right-0 top-12 z-50 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"><CreateLink href="/studio/content" label="Announcement / broadcast" icon={FileText} /><CreateLink href="/studio/media" label="Upload / assign media" icon={ImageIcon} /><CreateLink href="/studio/operations#groups" label="Group / department" icon={UsersRound} /><CreateLink href="/studio/operations#events" label="Event / opportunity" icon={CalendarDays} /><CreateLink href="/studio/profile" label="Profile story / program" icon={Building2} /></div> : null}
           </div>
           <div className="relative shrink-0">
             <button onClick={() => { setUserOpen((v) => !v); setCreateOpen(false); }} className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 hover:bg-slate-50"><div className="grid h-7 w-7 place-items-center rounded-full bg-slate-900 text-[10px] font-black text-white">A</div><div className="hidden text-left lg:block"><div className="text-xs font-bold">Admin</div><div className="text-[10px] text-slate-400">Institution administrator</div></div><ChevronDown className="h-3.5 w-3.5 text-slate-400" /></button>
