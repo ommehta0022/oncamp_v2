@@ -17,13 +17,13 @@ import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
 import { ToastProvider } from "@/src/components/Toast";
 import AppUpdateGate from "@/src/components/AppUpdateGate";
 import ServerUpdateCoordinator from "@/src/components/ServerUpdateCoordinator";
+import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
 import { api } from "@/src/lib/api";
-
-// Temporarily disabled per current QA requirement.
-// import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
+import { installAlertPromptCompat } from "@/src/lib/alertPromptCompat";
 
 const STARTUP_BACKGROUND = "#2E5C4E";
 
+installAlertPromptCompat();
 LogBox.ignoreAllLogs(true);
 void SystemUI.setBackgroundColorAsync(STARTUP_BACKGROUND).catch(() => undefined);
 SplashScreen.preventAutoHideAsync();
@@ -41,18 +41,10 @@ function ThemedStack() {
     let mounted = true;
     api.platform
       .settings()
-      .then((settings) => {
-        if (mounted) setPlatformSettings(settings);
-      })
-      .catch(() => {
-        if (mounted) setPlatformSettings(null);
-      })
-      .finally(() => {
-        if (mounted) setCheckingSettings(false);
-      });
-    return () => {
-      mounted = false;
-    };
+      .then((settings) => { if (mounted) setPlatformSettings(settings); })
+      .catch(() => { if (mounted) setPlatformSettings(null); })
+      .finally(() => { if (mounted) setCheckingSettings(false); });
+    return () => { mounted = false; };
   }, []);
 
   if (checkingSettings) {
@@ -68,15 +60,9 @@ function ThemedStack() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.surface, padding: 24, justifyContent: "center" }}>
         <StatusBar style={isDark ? "light" : "dark"} translucent backgroundColor="transparent" />
-        <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "700", textAlign: "center" }}>
-          {platformSettings.appName || "OnCampus"}
-        </Text>
-        <Text style={{ color: colors.onSurface, fontSize: 18, fontWeight: "600", textAlign: "center", marginTop: 20 }}>
-          Maintenance Mode
-        </Text>
-        <Text style={{ color: colors.muted, fontSize: 15, lineHeight: 22, textAlign: "center", marginTop: 10 }}>
-          {platformSettings.maintenanceMessage || "System under maintenance. We'll be back soon!"}
-        </Text>
+        <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "700", textAlign: "center" }}>{platformSettings.appName || "OnCampus"}</Text>
+        <Text style={{ color: colors.onSurface, fontSize: 18, fontWeight: "600", textAlign: "center", marginTop: 20 }}>Maintenance Mode</Text>
+        <Text style={{ color: colors.muted, fontSize: 15, lineHeight: 22, textAlign: "center", marginTop: 10 }}>{platformSettings.maintenanceMessage || "System under maintenance. We'll be back soon!"}</Text>
       </View>
     );
   }
@@ -84,13 +70,7 @@ function ThemedStack() {
   return (
     <View style={{ flex: 1, width: "100%", backgroundColor: colors.surface }}>
       <StatusBar style={isDark ? "light" : "dark"} translucent backgroundColor="transparent" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { flex: 1, backgroundColor: colors.surface },
-          animation: "slide_from_right",
-        }}
-      />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { flex: 1, backgroundColor: colors.surface }, animation: "slide_from_right" }} />
     </View>
   );
 }
@@ -98,10 +78,7 @@ function ThemedStack() {
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
 
-  useEffect(() => {
-    if (loaded || error) SplashScreen.hideAsync();
-  }, [loaded, error]);
-
+  useEffect(() => { if (loaded || error) SplashScreen.hideAsync(); }, [loaded, error]);
   if (!loaded && !error) return null;
 
   return (
@@ -117,7 +94,7 @@ export default function RootLayout() {
                       <ThemedStack />
                       <AppUpdateGate />
                       <ServerUpdateCoordinator />
-                      {/* SessionExpiredModal temporarily disabled. */}
+                      <SessionExpiredModal />
                     </ToastProvider>
                   </PushNotificationProvider>
                 </NotificationProvider>
