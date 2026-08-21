@@ -10,11 +10,13 @@ import uvicorn
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+import campus_media
 import campus_platform
 import campus_semantics
 import ota_updates
 import server
 import update_campaign
+from campus_media import router as campus_media_router
 from campus_platform import router as campus_platform_router
 from campus_semantics import router as campus_semantics_router
 from institution_content_workflow import router as institution_content_router
@@ -25,6 +27,7 @@ app.include_router(institution_content_router)
 app.include_router(update_campaign_router)
 app.include_router(campus_platform_router)
 app.include_router(campus_semantics_router)
+app.include_router(campus_media_router)
 logger = logging.getLogger("oncampus")
 _auto_campaign_task: Optional[asyncio.Task] = None
 _campus_scheduler_task: Optional[asyncio.Task] = None
@@ -63,6 +66,7 @@ async def verify_production_routes() -> None:
         "/v1/campus/institution/moderation",
         "/v1/campus/posts/{post_id}/versions",
         "/v1/campus/posts/{post_id}/semantics",
+        "/v1/campus/groups/{group_id}/media",
     }
     missing = sorted(path for path in required if path not in route_paths)
     if missing:
@@ -74,7 +78,7 @@ async def verify_production_routes() -> None:
         _campus_scheduler_task = asyncio.create_task(campus_platform.scheduler_loop())
     if _semantics_task is None or _semantics_task.done():
         _semantics_task = asyncio.create_task(campus_semantics.semantics_loop())
-    logger.info("Production OTA/native/content/campus/semantic routes verified; background workers started")
+    logger.info("Production OTA/native/content/campus/semantic/media routes verified; background workers started")
 
 
 @app.on_event("shutdown")
