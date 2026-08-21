@@ -23,7 +23,7 @@ export default function Settings() {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const logout = async () => {
-    if (Platform.OS === "ios") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS === "ios") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await clearSession(false);
     router.replace("/(auth)/welcome");
   };
@@ -31,87 +31,52 @@ export default function Settings() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background || colors.surface }} edges={["top"]} testID="settings-screen">
       <Header title="Settings" onBack={() => router.back()} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
-        <Pressable
-          onPress={() => router.push("/settings/edit-profile")}
-          onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start()}
-          onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
-        >
-          <Animated.View style={[
-            styles.profileCard,
-            {
-              backgroundColor: colors.surfaceSecondary || colors.surface,
-              borderColor: colors.border,
-              transform: [{ scale: scaleAnim }],
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.05,
-              shadowRadius: 10,
-              elevation: 2,
-            },
-          ]}>
-            <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={64} verified={user?.verified} />
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 18, fontWeight: "700" }}>
-                {user?.name || "Complete your profile"}
-              </Text>
-              <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4, fontWeight: "500" }}>
-                {user?.bio || user?.course || "Tap to view and edit profile"}
-              </Text>
-            </View>
-            <View style={[styles.editIcon, { backgroundColor: colors.surfaceTertiary || "rgba(0,0,0,0.05)" }]}>
-              <Ionicons name="pencil" size={16} color={colors.textSecondary || colors.onSurfaceTertiary} />
-            </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 70 }}>
+        <Pressable onPress={() => router.push("/settings/edit-profile")} onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start()} onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}>
+          <Animated.View style={[styles.profileCard, { backgroundColor: colors.surfaceSecondary || colors.surface, borderColor: colors.border, transform: [{ scale: scaleAnim }] }]}>
+            <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={60} verified={user?.verified} />
+            <View style={{ flex: 1 }}><Text style={{ color: colors.textPrimary || colors.onSurface, fontSize: 18, fontWeight: "700" }}>{user?.name || "Complete your profile"}</Text><Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4 }}>{user?.course || user?.bio || "Essential profile details"}</Text></View>
+            <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
           </Animated.View>
         </Pressable>
-
-        <Section title="Account">
-          <SettingsRow icon="person" title="Edit Profile" onPress={() => router.push("/settings/edit-profile")} />
-          <Divider />
-          <SettingsRow icon="lock-closed" title="Privacy & Safety" onPress={() => router.push("/settings/privacy")} />
-          <Divider />
-          <SettingsRow icon="shield-checkmark" title="Blocked Users" onPress={() => router.push("/settings/blocked")} />
-        </Section>
 
         <Section title="Preferences">
           <SettingsRow icon="color-palette" title="Appearance" value={mode === "system" ? "Auto" : mode === "dark" ? "Dark" : "Light"} onPress={() => router.push("/settings/theme")} />
           <Divider />
-          <SettingsRow icon="notifications" title="Notifications" onPress={() => router.push("/settings/notifications")} />
-          <Divider />
-          <SettingsRow icon="cloud-download" title="Storage & Data" onPress={() => router.push("/settings/storage")} />
+          <SettingsRow icon="notifications" title="Notifications" subtitle="Simple notification categories" onPress={() => router.push("/settings/notifications")} />
           <Divider />
           <SettingsRow icon="language" title="Language" value="English" onPress={() => router.push("/settings/language")} />
-          <Divider />
-          <SettingsRow icon="download-outline" title="Check for Updates" value={`v${version}`} onPress={() => void checkForAppUpdate(true)} />
         </Section>
 
-        <Section title="Community">
-          <SettingsRow icon="bookmark" title="Saved Posts" onPress={() => router.push("/saved")} />
+        <Section title="Privacy & safety">
+          <SettingsRow icon="lock-closed" title="Privacy" onPress={() => router.push("/settings/privacy")} />
           <Divider />
-          <SettingsRow icon="time" title="Activity Log" onPress={() => router.push("/settings/activity")} />
+          <SettingsRow icon="shield-checkmark" title="Blocked users" onPress={() => router.push("/settings/blocked")} />
+          <Divider />
+          <SettingsRow icon="bug" title="Report a problem" onPress={() => router.push("/settings/report")} />
         </Section>
 
-        <Section title="Support">
-          <SettingsRow icon="help-circle" title="Help Center" onPress={() => router.push("/settings/help")} />
+        <Section title="Your OnCampus">
+          <SettingsRow icon="bookmark" title="Saved posts" onPress={() => router.push("/saved")} />
           <Divider />
-          <SettingsRow icon="document-text" title="Terms & Policies" onPress={() => router.push("/settings/about")} />
+          <SettingsRow icon="time" title="Recent activity" onPress={() => router.push("/settings/activity")} />
           <Divider />
-          <SettingsRow icon="bug" title="Report a Problem" onPress={() => router.push("/settings/report")} />
+          <SettingsRow icon="cloud-download" title="Storage & data" onPress={() => router.push("/settings/storage")} />
+          <Divider />
+          <SettingsRow icon="sparkles" title="What’s new" onPress={() => router.push("/settings/changelog" as any)} />
+        </Section>
+
+        <Section title="App">
+          <SettingsRow icon="download-outline" title="Check for updates" value={`v${version}`} onPress={() => void checkForAppUpdate(true)} />
+          <Divider />
+          <SettingsRow icon="help-circle" title="Help center" onPress={() => router.push("/settings/help")} />
+          <Divider />
+          <SettingsRow icon="document-text" title="About & policies" onPress={() => router.push("/settings/about")} />
         </Section>
 
         <View style={{ padding: spacing.xl, marginTop: spacing.lg }}>
-          <Button
-            label="Log Out"
-            variant="outline"
-            onPress={logout}
-            style={{ borderColor: colors.error || "#ef4444" }}
-            textStyle={{ color: colors.error || "#ef4444" }}
-            leftIcon={<Ionicons name="log-out-outline" size={20} color={colors.error || "#ef4444"} />}
-            testID="logout-btn"
-          />
-          <Text style={{ color: colors.textSecondary || colors.muted, fontSize: 12, fontWeight: "600", textAlign: "center", marginTop: spacing.xl, letterSpacing: 0.5 }}>
-            ONCAMPUS v{version}
-          </Text>
+          <Button label="Log Out" variant="outline" onPress={logout} style={{ borderColor: colors.error || "#ef4444" }} textStyle={{ color: colors.error || "#ef4444" }} leftIcon={<Ionicons name="log-out-outline" size={20} color={colors.error || "#ef4444"} />} testID="logout-btn" />
+          <Text style={{ color: colors.textSecondary || colors.muted, fontSize: 11, fontWeight: "600", textAlign: "center", marginTop: spacing.xl }}>ONCAMPUS v{version}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -120,27 +85,10 @@ export default function Settings() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   const { colors } = useTheme();
-  return (
-    <View style={{ marginTop: spacing.md }}>
-      <Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 12, fontWeight: "700", paddingHorizontal: spacing.xl, marginTop: spacing.md, marginBottom: spacing.sm, textTransform: "uppercase", letterSpacing: 1 }}>
-        {title}
-      </Text>
-      <View style={[styles.section, { backgroundColor: colors.surfaceSecondary || colors.surface }]}>{children}</View>
-    </View>
-  );
+  return <View style={{ marginTop: spacing.md }}><Text style={{ color: colors.textSecondary || colors.onSurfaceTertiary, fontSize: 12, fontWeight: "700", paddingHorizontal: spacing.xl, marginTop: spacing.md, marginBottom: spacing.sm, textTransform: "uppercase", letterSpacing: 1 }}>{title}</Text><View style={[styles.section, { backgroundColor: colors.surfaceSecondary || colors.surface }]}>{children}</View></View>;
 }
-
-function Divider() {
-  const { colors } = useTheme();
-  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border || colors.divider, marginLeft: 56 }} />;
-}
-
+function Divider() { const { colors } = useTheme(); return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border || colors.divider, marginLeft: 56 }} />; }
 const styles = StyleSheet.create({
-  profileCard: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    marginHorizontal: spacing.xl, marginTop: spacing.lg, marginBottom: spacing.sm,
-    padding: spacing.md, borderRadius: radius.lg, borderWidth: 1,
-  },
-  editIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  profileCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginHorizontal: spacing.xl, marginTop: spacing.lg, marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1 },
   section: { marginHorizontal: spacing.xl, borderRadius: radius.lg, overflow: "hidden" },
 });
