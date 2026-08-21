@@ -1,0 +1,88 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  ArchiveRestore,
+  BarChart3,
+  Database,
+  Download,
+  HardDrive,
+  KeyRound,
+  Loader2,
+  Plus,
+  RefreshCcw,
+  ShieldCheck,
+  Siren,
+  UsersRound,
+  Webhook,
+} from "lucide-react";
+import InstitutionStudioShell from "@/components/InstitutionStudioShell";
+import { institutionStudioApi } from "@/lib/institutionStudioApi";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://oncampus-backend-production.up.railway.app";
+async function rawStudio(path:string, method="GET") {
+  const token = localStorage.getItem("institution_studio_token");
+  const response = await fetch(`${API_URL}${path}`, { method, headers: { Accept:"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) } });
+  const data = await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(data?.detail||`Request failed (${response.status})`);
+  return data;
+}
+
+export default function GovernancePage() {
+  const [analytics,setAnalytics]=useState<any>(null);
+  const [moderation,setModeration]=useState<any[]>([]);
+  const [storage,setStorage]=useState<any>(null);
+  const [backups,setBackups]=useState<any[]>([]);
+  const [webhooks,setWebhooks]=useState<any[]>([]);
+  const [integrations,setIntegrations]=useState<any[]>([]);
+  const [audit,setAudit]=useState<any[]>([]);
+  const [busy,setBusy]=useState(true);
+  const [notice,setNotice]=useState("");
+  const [webhookDraft,setWebhookDraft]=useState({name:"",url:"",events:"*"});
+  const [integrationDraft,setIntegrationDraft]=useState({kind:"lms",name:"",baseUrl:"",active:true});
+
+  async function load(){setBusy(true);try{const[a,m,s,b,w,i,logs]=await Promise.all([
+    rawStudio("/v1/campus/institution/studio/analytics").catch(()=>institutionStudioApi.analytics()),
+    institutionStudioApi.moderation("open").catch(()=>[]),
+    institutionStudioApi.storage().catch(()=>null),
+    institutionStudioApi.backups().catch(()=>[]),
+    institutionStudioApi.webhooks().catch(()=>[]),
+    institutionStudioApi.integrations().catch(()=>[]),
+    rawStudio("/v1/campus/institution/audit-logs?limit=100").catch(()=>[]),
+  ]);setAnalytics(a);setModeration(Array.isArray(m)?m:(m?.items||[]));setStorage(s);setBackups(b||[]);setWebhooks(w||[]);setIntegrations(i||[]);setAudit(logs||[]);}catch(e){setNotice(e instanceof Error?e.message:"Could not load governance data.");}finally{setBusy(false)}}
+  useEffect(()=>{void load()},[]);
+
+  const topGroups=analytics?.topGroups||[];
+  const viewMax=Math.max(1,...(analytics?.viewTrend||[]).map((x:any)=>Number(x.count||0)));
+
+  async function exportReport(dataset:string,format:string){try{const link=await rawStudio(`/v1/campus/institution/export-link?dataset=${encodeURIComponent(dataset)}&format=${encodeURIComponent(format)}`,"POST");if(link?.url)window.open(`${API_URL}${link.url}`,"_blank","noopener,noreferrer");}catch(e){setNotice(e instanceof Error?e.message:"Could not create export.")}}
+
+  return <InstitutionStudioShell>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><div className="text-sm font-bold uppercase tracking-[.15em] text-blue-600">Control center</div><h1 className="mt-2 text-3xl font-black tracking-tight">Analytics, Moderation & Governance</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">Measure campus growth, keep the community safe, manage storage/backups, and connect institutional systems.</p></div><div className="flex gap-2"><button onClick={()=>void load()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold"><RefreshCcw className="h-4 w-4"/>Refresh</button><button onClick={()=>void exportReport("analytics","pdf")} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white"><Download className="h-4 w-4"/>Export report</button></div></div>
+      {notice?<div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{notice}</div>:null}
+      {busy&&!analytics?<div className="grid min-h-72 place-items-center rounded-2xl border border-slate-200 bg-white"><Loader2 className="h-7 w-7 animate-spin text-blue-600"/></div>:null}
+
+      <div id="analytics" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6"><Kpi icon={Activity} label="Profile Views · 14d" value={analytics?.profileViews14d||0}/><Kpi icon={UsersRound} label="Followers" value={analytics?.followers||0}/><Kpi icon={ShieldCheck} label="Bookmarks" value={analytics?.bookmarks||0}/><Kpi icon={BarChart3} label="Event Going" value={analytics?.eventGoing||0}/><Kpi icon={Database} label="Opportunities" value={analytics?.opportunities||0}/><Kpi icon={Siren} label="Open Moderation" value={analytics?.moderationOpen||moderation.length}/></div>
+
+      <div className="grid gap-5 2xl:grid-cols-[1.15fr_.85fr]"><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="text-lg font-black">Profile Discovery Trend</h2><p className="mt-1 text-xs text-slate-500">Real profile views recorded from student Discover.</p></div><span className="text-xs font-bold text-emerald-600">{analytics?.uniqueViewers14d||0} unique viewers</span></div><div className="mt-7 flex h-52 items-end gap-1.5">{(analytics?.viewTrend||[]).map((point:any)=><div key={point.date} className="flex h-full flex-1 flex-col justify-end"><div title={`${point.date}: ${point.count}`} style={{height:`${Math.max(4,(Number(point.count||0)/viewMax)*100)}%`}} className="w-full rounded-t-lg bg-gradient-to-t from-blue-600 to-cyan-400"/><div className="mt-2 hidden text-center text-[9px] text-slate-400 md:block">{new Date(point.date).getDate()}</div></div>)}</div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black">Top Campus Groups</h2><p className="mt-1 text-xs text-slate-500">Ranked by real membership.</p><div className="mt-5 space-y-3">{topGroups.slice(0,8).map((g:any,index:number)=><div key={g.id} className="flex items-center gap-3"><div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-blue-50 text-xs font-black text-blue-700">{index+1}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-bold">{g.name}</div><div className="mt-0.5 text-xs text-slate-500">{g.members} members</div></div>{g.featured?<span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Featured</span>:null}</div>)}{!topGroups.length?<Empty text="Group analytics will appear after activity starts."/>:null}</div></section></div>
+
+      <section id="moderation" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h2 className="text-lg font-black">Moderation Workspace</h2><p className="mt-1 text-xs text-slate-500">Reported, spam, duplicate and safety signals scoped to this institution.</p></div><button onClick={()=>void institutionStudioApi.scanModeration().then(()=>{setNotice("Moderation scan completed.");return load()}).catch((e:any)=>setNotice(e.message))} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold">Run moderation scan</button></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[800px] text-sm"><thead><tr className="border-b border-slate-100 text-left text-xs text-slate-500"><th className="pb-3">Target</th><th className="pb-3">Signal</th><th className="pb-3">Score</th><th className="pb-3">Explanation</th><th className="pb-3 text-right">Decision</th></tr></thead><tbody>{moderation.map((m:any)=><tr key={m.id} className="border-b border-slate-50"><td className="py-3"><b>{m.target_type||m.type||"content"}</b><div className="text-xs text-slate-500">{m.target_id||"—"}</div></td><td className="py-3 capitalize">{m.signal_type||m.reason||"review"}</td><td className="py-3 font-bold">{Math.round(Number(m.score||0)*100)}%</td><td className="max-w-lg py-3 text-xs text-slate-500">{m.explanation||JSON.stringify(m.labels||{})}</td><td className="py-3"><div className="flex justify-end gap-2"><button onClick={()=>void institutionStudioApi.moderate(m.id,"actioned").then(load)} className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700">Action</button><button onClick={()=>void institutionStudioApi.moderate(m.id,"dismissed").then(load)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold">Dismiss</button></div></td></tr>)}</tbody></table>{!moderation.length?<Empty text="No open moderation items."/>:null}</div></section>
+
+      <div className="grid gap-5 xl:grid-cols-3"><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><HardDrive className="h-5 w-5 text-blue-600"/><h2 className="font-black">Storage</h2></div><div className="mt-5 text-3xl font-black">{formatBytes(storage?.totalBytes||storage?.bytes||0)}</div><div className="mt-1 text-xs text-slate-500">Institution media usage</div><div className="mt-5 space-y-2 text-sm">{Object.entries(storage?.byKind||storage?.categories||{}).map(([key,value]:any)=><div key={key} className="flex justify-between"><span className="capitalize text-slate-500">{key}</span><b>{typeof value==="number"?formatBytes(value):String(value)}</b></div>)}</div></section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><ArchiveRestore className="h-5 w-5 text-blue-600"/><h2 className="font-black">Backup & Restore</h2></div><button onClick={()=>void institutionStudioApi.createBackup(`Studio ${new Date().toLocaleString()}`).then(load)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white">Create</button></div><div className="mt-4 space-y-2">{backups.slice(0,6).map((b:any)=><div key={b.id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 p-3"><div><div className="text-sm font-bold">{b.label||"Institution backup"}</div><div className="text-[11px] text-slate-500">{b.created_at?new Date(b.created_at).toLocaleString():b.status}</div></div><button onClick={()=>{if(confirm("Restore this backup? Current institution data may be replaced."))void institutionStudioApi.restoreBackup(b.id).then(load)}} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold">Restore</button></div>)}{!backups.length?<Empty text="No backups yet."/>:null}</div></section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><KeyRound className="h-5 w-5 text-blue-600"/><h2 className="font-black">Data Exports</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">Generate short-lived signed CSV/PDF exports without exposing permanent public files.</p><div className="mt-5 grid grid-cols-2 gap-2">{["students","staff","events","analytics"].map(dataset=><button key={dataset} onClick={()=>void exportReport(dataset,"csv")} className="rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-bold capitalize hover:bg-slate-50">{dataset} CSV</button>)}</div></section></div>
+
+      <div className="grid gap-5 2xl:grid-cols-2"><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><Webhook className="h-5 w-5 text-blue-600"/><div><h2 className="font-black">Webhooks</h2><p className="text-xs text-slate-500">Signed HTTPS callbacks for external systems.</p></div></div><div className="mt-4 grid gap-2 md:grid-cols-[.65fr_1fr_.45fr_auto]"><Field value={webhookDraft.name} onChange={(v:any)=>setWebhookDraft({...webhookDraft,name:v})} placeholder="Name"/><Field value={webhookDraft.url} onChange={(v:any)=>setWebhookDraft({...webhookDraft,url:v})} placeholder="https://example.edu/webhook"/><Field value={webhookDraft.events} onChange={(v:any)=>setWebhookDraft({...webhookDraft,events:v})} placeholder="*"/><button disabled={!webhookDraft.name||!webhookDraft.url} onClick={()=>void institutionStudioApi.createWebhook({name:webhookDraft.name,url:webhookDraft.url,events:webhookDraft.events.split(",").map(x=>x.trim()).filter(Boolean)}).then(()=>{setWebhookDraft({name:"",url:"",events:"*"});return load()}).catch((e:any)=>setNotice(e.message))} className="rounded-xl bg-blue-600 px-4 text-sm font-bold text-white"><Plus className="inline h-4 w-4"/> Add</button></div><div className="mt-4 space-y-2">{webhooks.map((w:any)=><div key={w.id} className="flex items-center justify-between rounded-xl bg-slate-50 p-3"><div className="min-w-0"><div className="truncate text-sm font-bold">{w.name}</div><div className="truncate text-xs text-slate-500">{w.url}</div></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${w.active!==false?"bg-emerald-50 text-emerald-700":"bg-slate-200 text-slate-600"}`}>{w.active!==false?"Active":"Disabled"}</span></div>)}{!webhooks.length?<Empty text="No webhooks configured."/>:null}</div></section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><Database className="h-5 w-5 text-blue-600"/><div><h2 className="font-black">External Integrations</h2><p className="text-xs text-slate-500">LMS, library, timetable, calendar and attendance connectors.</p></div></div><div className="mt-4 grid gap-2 md:grid-cols-[.4fr_.7fr_1fr_auto]"><select value={integrationDraft.kind} onChange={(e)=>setIntegrationDraft({...integrationDraft,kind:e.target.value})} className="h-10 rounded-xl border border-slate-200 px-2 text-sm">{["lms","library","timetable","calendar","attendance","other"].map(k=><option key={k}>{k}</option>)}</select><Field value={integrationDraft.name} onChange={(v:any)=>setIntegrationDraft({...integrationDraft,name:v})} placeholder="Integration name"/><Field value={integrationDraft.baseUrl} onChange={(v:any)=>setIntegrationDraft({...integrationDraft,baseUrl:v})} placeholder="https://provider.example.edu"/><button disabled={!integrationDraft.name} onClick={()=>void institutionStudioApi.createIntegration({...integrationDraft,config:{},secretRef:null}).then(()=>{setIntegrationDraft({kind:"lms",name:"",baseUrl:"",active:true});return load()}).catch((e:any)=>setNotice(e.message))} className="rounded-xl bg-blue-600 px-4 text-sm font-bold text-white"><Plus className="inline h-4 w-4"/> Add</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{integrations.map((i:any)=><div key={i.id} className="rounded-xl bg-slate-50 p-3"><div className="flex justify-between gap-2"><div><div className="text-sm font-bold">{i.name}</div><div className="text-xs capitalize text-slate-500">{i.kind}</div></div><span className={`h-fit rounded-full px-2 py-1 text-[10px] font-bold ${i.active?"bg-emerald-50 text-emerald-700":"bg-slate-200 text-slate-600"}`}>{i.active?"Connected":"Disabled"}</span></div><div className="mt-2 truncate text-[11px] text-slate-400">{i.base_url||"Provider configuration stored securely"}</div></div>)}{!integrations.length?<Empty text="No external integrations configured."/>:null}</div></section></div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black">Audit Trail</h2><p className="mt-1 text-xs text-slate-500">Every institution management action remains tenant-scoped and traceable.</p><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[780px] text-sm"><thead><tr className="border-b border-slate-100 text-left text-xs text-slate-500"><th className="pb-3">Time</th><th className="pb-3">Action</th><th className="pb-3">Target</th><th className="pb-3">Actor</th><th className="pb-3">Details</th></tr></thead><tbody>{audit.slice(0,50).map((log:any)=><tr key={log.id} className="border-b border-slate-50"><td className="py-3 whitespace-nowrap text-xs text-slate-500">{log.created_at?new Date(log.created_at).toLocaleString():"—"}</td><td className="py-3 font-bold">{log.event_type}</td><td className="py-3 text-slate-600">{[log.target_type,log.target_id].filter(Boolean).join(" · ")||"Institution"}</td><td className="py-3 text-slate-600">{log.user_id||"System"}</td><td className="max-w-md truncate py-3 text-xs text-slate-500">{JSON.stringify(log.metadata||{})}</td></tr>)}</tbody></table>{!audit.length?<Empty text="No audit entries yet."/>:null}</div></section>
+    </div>
+  </InstitutionStudioShell>
+}
+
+function Kpi({icon:Icon,label,value}:any){return <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Icon className="h-5 w-5"/></div><div className="mt-4 text-2xl font-black">{Number(value||0).toLocaleString()}</div><div className="mt-1 text-xs font-semibold text-slate-500">{label}</div></div>}
+function Field({value,onChange,placeholder}:any){return <input value={value??""} onChange={(e)=>onChange(e.target.value)} placeholder={placeholder} className="h-10 min-w-0 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-500"/>}
+function Empty({text}:{text:string}){return <div className="rounded-xl border border-dashed border-slate-200 p-5 text-center text-xs text-slate-400">{text}</div>}
+function formatBytes(value:number){if(!value)return"0 B";const units=["B","KB","MB","GB","TB"];let n=value,i=0;while(n>=1024&&i<units.length-1){n/=1024;i++}return`${n.toFixed(i>1?1:0)} ${units[i]}`}
