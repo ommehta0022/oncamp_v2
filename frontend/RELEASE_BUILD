@@ -1,4 +1,4 @@
 OnCampus 1.6.0
 runtime=1.6.0
 channel=production
-reason=final production APK rebuild after merged UI, Studio sync, global loaders and Android launch hardening
+reason=final optimized ARM production APK after all merged UI, Studio sync, loading and Android launch fixes
