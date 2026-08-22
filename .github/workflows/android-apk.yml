@@ -29,7 +29,7 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     outputs:
       version: ${{ steps.app_version.outputs.version }}
     defaults:
@@ -82,7 +82,7 @@ jobs:
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a --no-daemon
 
       - name: Verify APK exists
         run: test -s android/app/build/outputs/apk/release/app-release.apk
