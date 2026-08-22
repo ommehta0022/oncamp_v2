@@ -3,8 +3,12 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.5.0"
-def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "150").toInteger()
+def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.6.0"
+def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "10600").toInteger()
+
+if (onCampusVersionCode <= 150) {
+    throw new GradleException("OnCampus versionCode must remain above legacy builds to prevent Android INSTALL_FAILED_VERSION_DOWNGRADE")
+}
 
 react {
     // Keep the native JS engine consistent between embedded and OTA updates.
@@ -42,9 +46,9 @@ android {
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
 
-    // The currently distributed QA APKs use this signing identity. Keeping it
-    // here preserves Android upgrade compatibility for this testing channel.
-    // Production store distribution should migrate to a private Play App Signing key.
+    // Keep one repository-owned signing identity for every direct APK build so
+    // Android can upgrade an existing OnCampus installation instead of treating
+    // a rebuild as a different application.
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
