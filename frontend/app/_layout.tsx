@@ -2,7 +2,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, LogBox, Text, View } from "react-native";
+import { LogBox, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -16,18 +16,19 @@ import { NotificationProvider } from "@/src/context/NotificationProvider";
 import { PushNotificationProvider } from "@/src/context/PushNotificationProvider";
 import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
 import { ToastProvider } from "@/src/components/Toast";
+import CampusLoader from "@/src/components/CampusLoader";
+import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import AppUpdateGate from "@/src/components/AppUpdateGate";
 import ServerUpdateCoordinator from "@/src/components/ServerUpdateCoordinator";
 import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
 import { api } from "@/src/lib/api";
 import { installAlertPromptCompat } from "@/src/lib/alertPromptCompat";
 
-const STARTUP_BACKGROUND = "#2E5C4E";
+const STARTUP_BACKGROUND = "#1267F4";
 
 installAlertPromptCompat();
 LogBox.ignoreAllLogs(true);
-void SystemUI.setBackgroundColorAsync(STARTUP_BACKGROUND).catch(() => undefined);
-SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function ThemedStack() {
   const { colors, isDark } = useTheme();
@@ -40,19 +41,30 @@ function ThemedStack() {
 
   useEffect(() => {
     let mounted = true;
+    const fallback = setTimeout(() => {
+      if (mounted) setCheckingSettings(false);
+    }, 3500);
+
     api.platform
       .settings()
       .then((settings) => { if (mounted) setPlatformSettings(settings); })
       .catch(() => { if (mounted) setPlatformSettings(null); })
-      .finally(() => { if (mounted) setCheckingSettings(false); });
-    return () => { mounted = false; };
+      .finally(() => {
+        clearTimeout(fallback);
+        if (mounted) setCheckingSettings(false);
+      });
+
+    return () => {
+      mounted = false;
+      clearTimeout(fallback);
+    };
   }, []);
 
   if (checkingSettings) {
     return (
-      <View style={{ flex: 1, width: "100%", alignItems: "center", justifyContent: "center", backgroundColor: STARTUP_BACKGROUND }}>
+      <View style={{ flex: 1, width: "100%", backgroundColor: STARTUP_BACKGROUND }}>
         <StatusBar hidden animated={false} />
-        <ActivityIndicator color="#FFFFFF" />
+        <CampusLoader fullScreen inverse label="Opening OnCampus…" />
       </View>
     );
   }
@@ -61,8 +73,8 @@ function ThemedStack() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.surface, padding: 24, justifyContent: "center" }}>
         <StatusBar style={isDark ? "light" : "dark"} translucent backgroundColor="transparent" />
-        <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "700", textAlign: "center" }}>{platformSettings.appName || "OnCampus"}</Text>
-        <Text style={{ color: colors.onSurface, fontSize: 18, fontWeight: "600", textAlign: "center", marginTop: 20 }}>Maintenance Mode</Text>
+        <Text style={{ color: colors.onSurface, fontSize: 24, fontWeight: "800", textAlign: "center" }}>{platformSettings.appName || "OnCampus"}</Text>
+        <Text style={{ color: colors.onSurface, fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 20 }}>Maintenance Mode</Text>
         <Text style={{ color: colors.muted, fontSize: 15, lineHeight: 22, textAlign: "center", marginTop: 10 }}>{platformSettings.maintenanceMessage || "System under maintenance. We'll be back soon!"}</Text>
       </View>
     );
@@ -79,33 +91,42 @@ function ThemedStack() {
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
 
-  useEffect(() => { if (loaded || error) SplashScreen.hideAsync(); }, [loaded, error]);
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(STARTUP_BACKGROUND).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (loaded || error) void SplashScreen.hideAsync().catch(() => undefined);
+  }, [loaded, error]);
+
   if (!loaded && !error) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, width: "100%", backgroundColor: STARTUP_BACKGROUND }}>
-      <SafeAreaProvider>
-        <ActionSheetProvider>
-          <ThemeProvider>
-            <LanguageProvider>
-              <RoleProvider>
-                <FeatureFlagsProvider>
-                  <NotificationProvider>
-                    <PushNotificationProvider>
-                      <ToastProvider>
-                        <ThemedStack />
-                        <AppUpdateGate />
-                        <ServerUpdateCoordinator />
-                        <SessionExpiredModal />
-                      </ToastProvider>
-                    </PushNotificationProvider>
-                  </NotificationProvider>
-                </FeatureFlagsProvider>
-              </RoleProvider>
-            </LanguageProvider>
-          </ThemeProvider>
-        </ActionSheetProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <AppErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1, width: "100%", backgroundColor: STARTUP_BACKGROUND }}>
+        <SafeAreaProvider>
+          <ActionSheetProvider>
+            <ThemeProvider>
+              <LanguageProvider>
+                <RoleProvider>
+                  <FeatureFlagsProvider>
+                    <NotificationProvider>
+                      <PushNotificationProvider>
+                        <ToastProvider>
+                          <ThemedStack />
+                          <AppUpdateGate />
+                          <ServerUpdateCoordinator />
+                          <SessionExpiredModal />
+                        </ToastProvider>
+                      </PushNotificationProvider>
+                    </NotificationProvider>
+                  </FeatureFlagsProvider>
+                </RoleProvider>
+              </LanguageProvider>
+            </ThemeProvider>
+          </ActionSheetProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </AppErrorBoundary>
   );
 }

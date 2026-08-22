@@ -67,8 +67,8 @@ class InviteQrUiTests(unittest.TestCase):
     def test_native_release_has_camera_deep_link_and_current_runtime(self):
         self.assertIn('"scheme": "oncampus"', APP_CONFIG)
         self.assertIn('"CAMERA"', APP_CONFIG)
-        self.assertIn('"version": "1.5.1"', APP_CONFIG)
-        self.assertIn('"runtimeVersion": "1.5.0"', APP_CONFIG)
+        self.assertIn('"version": "1.6.0"', APP_CONFIG)
+        self.assertIn('"runtimeVersion": "1.6.0"', APP_CONFIG)
 
 
 class AiProviderSafetyTests(unittest.TestCase):

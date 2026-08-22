@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -9,7 +9,7 @@ import PostCard from "@/src/components/PostCard";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
 import { normalizePost } from "@/src/lib/mappers";
-import SkeletonLoader from "@/src/components/SkeletonLoader";
+import CampusLoader from "@/src/components/CampusLoader";
 import EmptyState from "@/src/components/EmptyState";
 import { NetworkError } from "@/src/components/NetworkError";
 import { useToast } from "@/src/components/Toast";
@@ -66,16 +66,16 @@ export default function Feed() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="feed-screen">
-      <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surfaceSecondary }} edges={["top"]} testID="feed-screen">
+      <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
         <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={styles.iconBtn} testID="feed-search-btn"><Ionicons name="search" size={22} color={colors.onSurface} /></Pressable>
-          <Pressable onPress={() => router.push("/saved")} style={styles.iconBtn} testID="feed-saved-btn"><Ionicons name="bookmark-outline" size={22} color={colors.onSurface} /></Pressable>
+          <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={[styles.iconBtn, { backgroundColor: colors.surfaceTertiary }]} testID="feed-search-btn"><Ionicons name="search" size={21} color={colors.onSurface} /></Pressable>
+          <Pressable onPress={() => router.push("/saved")} style={[styles.iconBtn, { backgroundColor: colors.surfaceTertiary }]} testID="feed-saved-btn"><Ionicons name="bookmark-outline" size={21} color={colors.onSurface} /></Pressable>
         </View>
       </View>
 
-      {loading && posts.length === 0 ? <SkeletonLoader type="post" count={3} /> : error && posts.length === 0 ? (
+      {loading && posts.length === 0 ? <CampusLoader fullScreen label="Loading your campus feed…" /> : error && posts.length === 0 ? (
         <NetworkError onRetry={() => void loadPosts()} message={error} />
       ) : (
         <FlatList
@@ -85,7 +85,7 @@ export default function Feed() {
           contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: 120, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.brandPrimary} />}
           ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here automatically." />}
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.brandPrimary} style={{ paddingVertical: spacing.lg }} /> : null}
+          ListFooterComponent={loadingMore ? <CampusLoader compact label="Loading more…" /> : null}
           renderItem={({ item }) => <PostCard post={item} onChange={(updated) => setPosts((current) => current.map((post) => post.id === updated.id ? updated : post))} onDeleted={(id) => setPosts((current) => current.filter((post) => post.id !== id))} style={{ marginHorizontal: spacing.lg }} />}
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
           onEndReached={loadMore}
@@ -97,8 +97,8 @@ export default function Feed() {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 56 },
-  brand: { fontSize: 22, fontWeight: "500" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 58 },
+  brand: { fontSize: 23, fontWeight: "900", letterSpacing: -0.45 },
   headerActions: { flexDirection: "row", gap: spacing.sm },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 },
 });

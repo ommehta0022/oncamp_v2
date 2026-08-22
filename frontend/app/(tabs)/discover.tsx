@@ -1,6 +1,5 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,21 +16,35 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { campusApi } from "@/src/lib/campusApi";
 import { useRole } from "@/src/context/RoleProvider";
 import { useTheme } from "@/src/theme/ThemeProvider";
+import CampusLoader from "@/src/components/CampusLoader";
 import { radius, spacing } from "@/src/theme/colors";
 
-const TYPES = ["All", "University", "College", "School", "Academy"];
+const TYPES = ["University", "College", "School", "Academy"];
+const RECENTS_KEY = "oncampus.discover.recent.v2";
+
+type Campus = Record<string, any>;
 
 export default function DiscoverScreen() {
   const { colors } = useTheme();
   const { canManageInstitution } = useRole();
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [type, setType] = useState("All");
+  const [type, setType] = useState("University");
   const [verified, setVerified] = useState(false);
-  const [items, setItems] = useState<any[]>([]);
+  const [nearOnly, setNearOnly] = useState(false);
+  const [items, setItems] = useState<Campus[]>([]);
+  const [recent, setRecent] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+
+  const loadRecents = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(RECENTS_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setRecent(Array.isArray(parsed) ? parsed.slice(0, 8) : []);
+    } catch { setRecent([]); }
+  }, []);
 
   const load = useCallback(async (quiet = false) => {
     if (canManageInstitution) {
@@ -43,7 +57,7 @@ export default function DiscoverScreen() {
     try {
       const result = await campusApi.student.institutions({
         q: query.trim() || undefined,
-        type: type === "All" ? undefined : type,
+        type: type || undefined,
         verified: verified || undefined,
         limit: 60,
       });
@@ -56,192 +70,213 @@ export default function DiscoverScreen() {
     }
   }, [canManageInstitution, query, type, verified]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useEffect(() => { void loadRecents(); }, [loadRecents]);
+  useFocusEffect(useCallback(() => { void load(); void loadRecents(); }, [load, loadRecents]));
 
-  if (canManageInstitution) {
-    return <InstitutionMobileConsole />;
-  }
+  if (canManageInstitution) return <InstitutionMobileConsole />;
 
-  const featured = useMemo(() => items.slice(0, 6), [items]);
-  const trending = useMemo(() => [...items].sort((a, b) => (b.discoveryScore || 0) - (a.discoveryScore || 0)).slice(0, 8), [items]);
-  const nearby = useMemo(() => items.filter((item) => item.city).slice(0, 8), [items]);
+  const nearbyCity = items.find((item) => item.city)?.city;
+  const visible = nearOnly && nearbyCity ? items.filter((item) => item.city === nearbyCity) : items;
+  const featured = visible.slice(0, 6);
+  const trending = useMemo(() => [...visible].sort((a, b) => Number(b.discoveryScore || b.followersCount || 0) - Number(a.discoveryScore || a.followersCount || 0)).slice(0, 10), [visible]);
+  const nearby = visible.filter((item) => item.city).slice(0, 10);
 
-  const openInstitution = (id: string) => router.push(`/institution-profile/${encodeURIComponent(id)}` as any);
+  const openInstitution = async (item: Campus) => {
+    const snapshot = { id: item.id, name: item.name, logoUrl: item.logoUrl, type: item.type, city: item.city, state: item.state, verified: item.verified };
+    const next = [snapshot, ...recent.filter((entry) => entry.id !== item.id)].slice(0, 8);
+    setRecent(next);
+    void AsyncStorage.setItem(RECENTS_KEY, JSON.stringify(next)).catch(() => undefined);
+    router.push(`/institution-profile/${encodeURIComponent(item.id)}` as any);
+  };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="institution-discover-screen">
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surfaceSecondary }} edges={["top"]} testID="institution-discover-screen">
       <ScrollView
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true); }} tintColor={colors.brandPrimary} />}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={styles.page}
       >
         <View style={styles.header}>
-          <View>
-            <Text style={[styles.title, { color: colors.onSurface }]}>Discover</Text>
-            <Text style={{ color: colors.onSurfaceTertiary, marginTop: 3 }}>Explore verified campus communities</Text>
-          </View>
-          <View style={[styles.sparkle, { backgroundColor: colors.brandPrimary + "14" }]}><Ionicons name="sparkles" size={20} color={colors.brandPrimary} /></View>
+          <Text style={[styles.title, { color: colors.onSurface }]}>Discover</Text>
+          <View style={[styles.magic, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}><Ionicons name="sparkles" size={22} color={colors.brandPrimary} /></View>
         </View>
 
-        <View style={{ paddingHorizontal: spacing.lg }}>
-          <View style={[styles.search, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-            <Ionicons name="search" size={20} color={colors.onSurfaceTertiary} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              onSubmitEditing={() => void load()}
-              returnKeyType="search"
-              placeholder="Search universities, colleges, schools…"
-              placeholderTextColor={colors.muted}
-              style={{ flex: 1, color: colors.onSurface, fontSize: 15 }}
-              accessibilityLabel="Search institutions"
-            />
-            {query ? <Pressable onPress={() => setQuery("")} accessibilityRole="button" accessibilityLabel="Clear search"><Ionicons name="close-circle" size={20} color={colors.onSurfaceTertiary} /></Pressable> : null}
-          </View>
+        <View style={[styles.search, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+          <Ionicons name="search-outline" size={21} color={colors.onSurfaceTertiary} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={() => void load()}
+            returnKeyType="search"
+            placeholder="Search universities, colleges, schools..."
+            placeholderTextColor={colors.muted}
+            style={[styles.searchInput, { color: colors.onSurface }]}
+          />
+          {query ? <Pressable onPress={() => { setQuery(""); setTimeout(() => void load(), 0); }}><Ionicons name="close-circle" size={20} color={colors.muted} /></Pressable> : <Ionicons name="options-outline" size={21} color={colors.onSurfaceTertiary} />}
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          {TYPES.map((item) => {
-            const active = type === item;
-            return <Pressable key={item} onPress={() => setType(item)} style={[styles.chip, { borderColor: active ? colors.brandPrimary : colors.border, backgroundColor: active ? colors.brandPrimary : colors.surface }]}><Text style={{ color: active ? "#fff" : colors.onSurface, fontWeight: "700", fontSize: 12 }}>{item}</Text></Pressable>;
-          })}
-          <Pressable onPress={() => setVerified((value) => !value)} style={[styles.chip, { borderColor: verified ? colors.brandPrimary : colors.border, backgroundColor: verified ? colors.brandPrimary + "14" : colors.surface }]}>
-            <Ionicons name="checkmark-circle" size={14} color={verified ? colors.brandPrimary : colors.onSurfaceTertiary} />
-            <Text style={{ color: verified ? colors.brandPrimary : colors.onSurface, fontWeight: "700", fontSize: 12 }}>Verified</Text>
-          </Pressable>
+          {TYPES.map((item) => <Chip key={item} label={item} active={type === item} onPress={() => setType(item)} />)}
+          <Chip label="Verified" icon="checkmark-circle" active={verified} onPress={() => setVerified((v) => !v)} />
+          <Chip label="Near You" icon="location" active={nearOnly} onPress={() => setNearOnly((v) => !v)} />
         </ScrollView>
 
-        {loading ? <View style={styles.loading}><ActivityIndicator size="large" color={colors.brandPrimary} /><Text style={{ color: colors.onSurfaceTertiary, marginTop: 12 }}>Finding campuses…</Text></View> : null}
-        {!loading && error ? <View style={styles.loading}><Ionicons name="cloud-offline-outline" size={34} color={colors.onSurfaceTertiary} /><Text style={{ color: colors.onSurface, fontWeight: "700", marginTop: 10 }}>Discover is temporarily unavailable</Text><Text style={{ color: colors.onSurfaceTertiary, marginTop: 5, textAlign: "center" }}>{error}</Text><Pressable onPress={() => void load()} style={[styles.retry, { backgroundColor: colors.brandPrimary }]}><Text style={{ color: "#fff", fontWeight: "800" }}>Try again</Text></Pressable></View> : null}
+        {loading ? <CampusLoader label="Finding campuses for you…" /> : null}
+        {!loading && error ? <StateCard icon="cloud-offline-outline" title="Discover is temporarily unavailable" body={error} action="Try again" onPress={() => void load()} /> : null}
+        {!loading && !error && visible.length === 0 ? <StateCard icon="school-outline" title="No campuses found" body="Try another name, location, or institution type." action="Reset filters" onPress={() => { setQuery(""); setVerified(false); setNearOnly(false); setType("University"); }} /> : null}
 
-        {!loading && !error && items.length === 0 ? <View style={styles.loading}><Ionicons name="school-outline" size={38} color={colors.onSurfaceTertiary} /><Text style={{ color: colors.onSurface, fontWeight: "800", marginTop: 12 }}>No institutions found</Text><Text style={{ color: colors.onSurfaceTertiary, marginTop: 4 }}>Try another name, city or institution type.</Text></View> : null}
-
-        {!loading && !error && items.length > 0 ? <>
-          <SectionTitle title="Featured Institutions" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalCards}>
-            {featured.map((item) => <LargeInstitutionCard key={item.id} item={item} onPress={() => openInstitution(item.id)} />)}
+        {!loading && !error && visible.length > 0 ? <>
+          <SectionHeader title="Featured Institutions" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRow}>
+            {featured.map((item) => <FeaturedCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
           </ScrollView>
 
-          <SectionTitle title="Trending Campuses" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalCards}>
-            {trending.map((item) => <CompactInstitutionCard key={item.id} item={item} onPress={() => openInstitution(item.id)} />)}
+          <SectionHeader title="Trending Campuses" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingRow}>
+            {trending.map((item) => <TrendingCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
           </ScrollView>
 
-          {nearby.length > 0 ? <>
-            <SectionTitle title="Explore by Campus" />
-            <View style={{ paddingHorizontal: spacing.lg, gap: 10 }}>
-              {nearby.map((item) => <InstitutionRow key={item.id} item={item} onPress={() => openInstitution(item.id)} />)}
-            </View>
+          {nearby.length ? <>
+            <SectionHeader title="Popular Near You" />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nearRow}>
+              {nearby.map((item) => <NearCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
+            </ScrollView>
           </> : null}
+        </> : null}
+
+        {recent.length ? <>
+          <SectionHeader title="Recently Viewed" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
+            {recent.map((item) => <RecentCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
+          </ScrollView>
         </> : null}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function InstitutionMobileConsole() {
+function Chip({ label, active, onPress, icon }: { label: string; active: boolean; onPress: () => void; icon?: any }) {
   const { colors } = useTheme();
-  const router = useRouter();
-  const actions = [
-    { icon: "speedometer-outline", title: "Dashboard", subtitle: "Campus summary and actions", route: "/institution/dashboard" },
-    { icon: "business-outline", title: "Public profile", subtitle: "Edit essential campus identity", route: "/institution/branding" },
-    { icon: "newspaper-outline", title: "Content", subtitle: "Announcements and publishing", route: "/institution/content" },
-    { icon: "people-outline", title: "Students", subtitle: "Review student approvals", route: "/institution/campus-platform" },
-    { icon: "calendar-outline", title: "Events", subtitle: "Manage campus events", route: "/institution/campus-platform" },
-  ];
-  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
-    <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}>
-      <Text style={[styles.title, { color: colors.onSurface }]}>Institution</Text>
-      <Text style={{ color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 20 }}>Quick mobile controls. Full Institution Studio is available on the web dashboard.</Text>
-      <View style={{ gap: 10, marginTop: 22 }}>
-        {actions.map((action) => <Pressable key={action.title} onPress={() => router.push(action.route as any)} style={[styles.consoleCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-          <View style={[styles.consoleIcon, { backgroundColor: colors.brandPrimary + "12" }]}><Ionicons name={action.icon as any} size={22} color={colors.brandPrimary} /></View>
-          <View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontWeight: "800", fontSize: 15 }}>{action.title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 3 }}>{action.subtitle}</Text></View>
-          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-        </Pressable>)}
-      </View>
-      <View style={[styles.webNotice, { borderColor: colors.brandPrimary + "35", backgroundColor: colors.brandPrimary + "0C" }]}>
-        <Ionicons name="desktop-outline" size={26} color={colors.brandPrimary} />
-        <View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontWeight: "800" }}>Full Institution Studio</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 4, lineHeight: 18 }}>Story, gallery, departments, programs, analytics, moderation, governance, storage, backup and integrations stay on web for a better admin workflow.</Text></View>
-      </View>
-    </ScrollView>
-  </SafeAreaView>;
+  return <Pressable onPress={onPress} style={[styles.chip, { borderColor: active ? colors.brandPrimary : colors.border, backgroundColor: active ? colors.brandPrimary : colors.surfaceSecondary }]}>
+    {icon ? <Ionicons name={icon} size={15} color={active ? "#FFFFFF" : colors.brandPrimary} /> : null}
+    <Text style={{ color: active ? "#FFFFFF" : colors.onSurface, fontSize: 12, fontWeight: "700" }}>{label}</Text>
+  </Pressable>;
 }
 
-function SectionTitle({ title }: { title: string }) {
+function SectionHeader({ title }: { title: string }) {
   const { colors } = useTheme();
-  return <View style={styles.sectionTitle}><Text style={{ color: colors.onSurface, fontSize: 19, fontWeight: "900" }}>{title}</Text></View>;
+  return <View style={styles.sectionHeader}><Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{title}</Text><Text style={{ color: colors.brandPrimary, fontSize: 12, fontWeight: "800" }}>See All</Text></View>;
 }
 
-function CampusImage({ item, style }: { item: any; style: any }) {
+function Cover({ item, style }: { item: Campus; style: any }) {
   const { colors } = useTheme();
-  if (item.coverUrl) return <Image source={{ uri: item.coverUrl }} style={style} contentFit="cover" transition={180} />;
-  return <View style={[style, { backgroundColor: colors.brandPrimary + "12", alignItems: "center", justifyContent: "center" }]}><Ionicons name="school" size={32} color={colors.brandPrimary} /></View>;
+  if (item.coverUrl) return <Image source={{ uri: item.coverUrl }} style={style} contentFit="cover" transition={120} />;
+  return <View style={[style, { backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }]}><Ionicons name="business" size={28} color={colors.brandPrimary} /></View>;
 }
 
-function Logo({ item, size = 52 }: { item: any; size?: number }) {
+function Logo({ item, size = 48 }: { item: Campus; size?: number }) {
   const { colors } = useTheme();
-  if (item.logoUrl) return <Image source={{ uri: item.logoUrl }} style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: colors.surface }} contentFit="cover" />;
-  return <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: colors.surface, backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center" }}><Ionicons name="school" size={size * .45} color="#fff" /></View>;
+  if (item.logoUrl) return <Image source={{ uri: item.logoUrl }} style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: "#FFFFFF", backgroundColor: "#FFFFFF" }} contentFit="cover" />;
+  return <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: "#FFFFFF", backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center" }}><Ionicons name="school" size={size * .42} color="#FFFFFF" /></View>;
 }
 
-function VerifiedName({ item, compact = false }: { item: any; compact?: boolean }) {
+function Name({ item, small = false }: { item: Campus; small?: boolean }) {
   const { colors } = useTheme();
-  return <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: compact ? 14 : 16, fontWeight: "900", flexShrink: 1 }}>{item.name}</Text>{item.verified ? <Ionicons name="checkmark-circle" size={compact ? 14 : 16} color={colors.brandPrimary} /> : null}</View>;
+  return <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: small ? 13 : 15, lineHeight: small ? 16 : 19, fontWeight: "800", flexShrink: 1 }}>{item.name}</Text>{item.verified ? <Ionicons name="checkmark-circle" size={small ? 13 : 15} color={colors.brandPrimary} /> : null}</View>;
 }
 
-function LargeInstitutionCard({ item, onPress }: { item: any; onPress: () => void }) {
+function FeaturedCard({ item, onPress }: { item: Campus; onPress: () => void }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.largeCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]} accessibilityRole="button" accessibilityLabel={`View ${item.name}`}>
-    <CampusImage item={item} style={styles.largeCover} />
-    <View style={styles.largeLogo}><Logo item={item} /></View>
-    <View style={{ padding: 12, paddingTop: 30 }}>
-      <VerifiedName item={item} />
-      <Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 5 }}>{[item.city, item.state].filter(Boolean).join(", ")}</Text>
-      <View style={{ flexDirection: "row", gap: 7, marginTop: 9, alignItems: "center" }}><View style={[styles.typePill, { backgroundColor: colors.brandPrimary + "12" }]}><Text style={{ color: colors.brandPrimary, fontSize: 10, fontWeight: "800" }}>{item.type}</Text></View><Text style={{ color: colors.onSurfaceTertiary, fontSize: 11 }}>{item.followersCount || 0} followers</Text></View>
-      <View style={[styles.viewCampus, { borderColor: colors.brandPrimary + "65" }]}><Text style={{ color: colors.brandPrimary, fontWeight: "800", fontSize: 12 }}>View Campus</Text></View>
+  return <Pressable onPress={onPress} style={[styles.featuredCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+    <Cover item={item} style={styles.featuredCover} />
+    <View style={styles.featuredLogo}><Logo item={item} size={50} /></View>
+    <View style={styles.featuredBody}>
+      <Name item={item} />
+      <Text style={[styles.meta, { color: colors.onSurfaceTertiary }]}><Ionicons name="location-outline" size={11} /> {[item.city, item.state].filter(Boolean).join(", ") || item.country || "Campus"}</Text>
+      <View style={[styles.typePill, { backgroundColor: colors.brandTertiary }]}><Text style={{ color: colors.brandPrimary, fontSize: 10, fontWeight: "800" }}>{item.type || "Institution"}</Text></View>
+      <Text style={[styles.followers, { color: colors.onSurfaceTertiary }]}>{formatCount(item.followersCount)} followers</Text>
+      <View style={[styles.viewButton, { borderColor: `${colors.brandPrimary}60` }]}><Text style={{ color: colors.brandPrimary, fontSize: 12, fontWeight: "800" }}>View Campus</Text></View>
     </View>
   </Pressable>;
 }
 
-function CompactInstitutionCard({ item, onPress }: { item: any; onPress: () => void }) {
+function TrendingCard({ item, onPress }: { item: Campus; onPress: () => void }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.compactCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-    <CampusImage item={item} style={styles.compactCover} />
-    <View style={{ position: "absolute", top: 55, left: 10 }}><Logo item={item} size={40} /></View>
-    <View style={{ padding: 10, paddingTop: 22 }}><VerifiedName item={item} compact /><Text style={{ color: colors.onSurfaceTertiary, fontSize: 11, marginTop: 4 }}>{item.city || item.country || item.type}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{item.groupsCount || 0} campus groups</Text></View>
+  return <Pressable onPress={onPress} style={[styles.trendingCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+    <Cover item={item} style={styles.trendingCover} />
+    <View style={styles.trendingLogo}><Logo item={item} size={38} /></View>
+    <View style={{ padding: 9, paddingTop: 20 }}><Name item={item} small /><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 4 }}>{item.city || item.state || item.type}</Text><View style={[styles.miniType, { backgroundColor: colors.brandTertiary }]}><Text style={{ color: colors.brandPrimary, fontSize: 9, fontWeight: "800" }}>{item.type || "Campus"}</Text></View><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{formatCount(item.followersCount)} followers</Text></View>
   </Pressable>;
 }
 
-function InstitutionRow({ item, onPress }: { item: any; onPress: () => void }) {
+function NearCard({ item, onPress }: { item: Campus; onPress: () => void }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.row, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-    <Logo item={item} size={50} />
-    <View style={{ flex: 1 }}><VerifiedName item={item} compact /><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 4 }}>{[item.type, item.city, item.state].filter(Boolean).join(" · ")}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 11, marginTop: 4 }}>{item.followersCount || 0} followers · {item.groupsCount || 0} groups · {item.eventsCount || 0} events</Text></View>
-    <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-  </Pressable>;
+  return <Pressable onPress={onPress} style={[styles.nearCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><Logo item={item} size={40} /><View style={{ flex: 1 }}><Name item={item} small /><Text numberOfLines={1} style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 3 }}>{item.city || item.state || item.country}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{formatCount(item.followersCount)} followers</Text></View></Pressable>;
+}
+
+function RecentCard({ item, onPress }: { item: Campus; onPress: () => void }) {
+  const { colors } = useTheme();
+  return <Pressable onPress={onPress} style={[styles.recentCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><Logo item={item} size={32} /><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: 11, lineHeight: 14, fontWeight: "800", flex: 1 }}>{item.name}</Text><Ionicons name="chevron-forward" size={14} color={colors.onSurfaceTertiary} /></Pressable>;
+}
+
+function StateCard({ icon, title, body, action, onPress }: { icon: any; title: string; body: string; action: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  return <View style={styles.state}><View style={[styles.stateIcon, { backgroundColor: colors.brandTertiary }]}><Ionicons name={icon} size={28} color={colors.brandPrimary} /></View><Text style={{ color: colors.onSurface, fontSize: 16, fontWeight: "800", marginTop: 12 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, lineHeight: 18, textAlign: "center", marginTop: 5 }}>{body}</Text><Pressable onPress={onPress} style={[styles.retry, { backgroundColor: colors.brandPrimary }]}><Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12 }}>{action}</Text></Pressable></View>;
+}
+
+function InstitutionMobileConsole() {
+  const { colors } = useTheme();
+  const router = useRouter();
+  const actions = [
+    ["speedometer-outline", "Dashboard", "Campus summary and actions", "/institution/dashboard"],
+    ["business-outline", "Public profile", "Edit the campus profile shown to students", "/institution/branding"],
+    ["newspaper-outline", "Content Studio", "Announcements, media and publishing", "/institution/content"],
+    ["people-outline", "Students & Groups", "Approvals and campus communities", "/institution/campus-platform"],
+    ["calendar-outline", "Events & Opportunities", "Manage campus activity", "/institution/campus-platform"],
+  ];
+  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}><ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}><Text style={[styles.title, { color: colors.onSurface }]}>Institution</Text><Text style={{ color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 20 }}>Mobile controls stay synchronized with Institution Studio.</Text><View style={{ gap: 10, marginTop: 22 }}>{actions.map(([icon, title, subtitle, route]) => <Pressable key={title} onPress={() => router.push(route as any)} style={[styles.consoleCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><View style={[styles.consoleIcon, { backgroundColor: colors.brandTertiary }]}><Ionicons name={icon as any} size={22} color={colors.brandPrimary} /></View><View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontWeight: "800", fontSize: 15 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 3 }}>{subtitle}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></Pressable>)}</View></ScrollView></SafeAreaView>;
+}
+
+function formatCount(value: any) {
+  const n = Number(value || 0);
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
+  return String(n);
 }
 
 const styles = StyleSheet.create({
-  header: { paddingHorizontal: spacing.lg, paddingTop: 8, paddingBottom: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { fontSize: 30, fontWeight: "900", letterSpacing: -0.7 },
-  sparkle: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
-  search: { height: 52, borderWidth: 1, borderRadius: 16, paddingHorizontal: 15, flexDirection: "row", gap: 10, alignItems: "center" },
-  filters: { paddingHorizontal: spacing.lg, paddingVertical: 15, gap: 8 },
-  chip: { height: 36, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 5 },
-  loading: { minHeight: 260, paddingHorizontal: 30, alignItems: "center", justifyContent: "center" },
-  retry: { marginTop: 16, borderRadius: 12, paddingVertical: 11, paddingHorizontal: 20 },
-  sectionTitle: { paddingHorizontal: spacing.lg, paddingTop: 14, paddingBottom: 12 },
-  horizontalCards: { paddingHorizontal: spacing.lg, gap: 12, paddingBottom: 8 },
-  largeCard: { width: 238, borderRadius: radius.lg, overflow: "hidden", borderWidth: 1 },
-  largeCover: { width: "100%", height: 112 },
-  largeLogo: { position: "absolute", top: 86, left: 12 },
-  typePill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  viewCampus: { height: 36, borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 12 },
-  compactCard: { width: 170, minHeight: 168, borderRadius: 16, overflow: "hidden", borderWidth: 1 },
-  compactCover: { width: "100%", height: 75 },
-  row: { minHeight: 76, borderWidth: 1, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 12, padding: 12 },
-  consoleCard: { minHeight: 72, borderWidth: 1, borderRadius: 16, padding: 12, flexDirection: "row", alignItems: "center", gap: 12 },
+  page: { paddingBottom: 118 },
+  header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  title: { fontSize: 31, fontWeight: "900", letterSpacing: -0.9 },
+  magic: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center", shadowColor: "#0B1947", shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  search: { marginHorizontal: 18, height: 54, borderRadius: 15, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16 },
+  searchInput: { flex: 1, fontSize: 14 },
+  filters: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 4, gap: 8 },
+  chip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, flexDirection: "row", gap: 5, alignItems: "center", justifyContent: "center" },
+  sectionHeader: { paddingHorizontal: 18, marginTop: 26, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sectionTitle: { fontSize: 18, fontWeight: "900", letterSpacing: -0.25 },
+  featuredRow: { paddingHorizontal: 18, gap: 10 },
+  featuredCard: { width: 202, borderRadius: 15, borderWidth: 1, overflow: "hidden", shadowColor: "#0B1947", shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  featuredCover: { width: "100%", height: 92 },
+  featuredLogo: { position: "absolute", top: 68, left: 13 },
+  featuredBody: { padding: 13, paddingTop: 30 },
+  meta: { fontSize: 10, marginTop: 5 },
+  typePill: { alignSelf: "flex-start", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 4, marginTop: 8 },
+  followers: { fontSize: 10, marginTop: 7 },
+  viewButton: { height: 36, borderRadius: 18, borderWidth: 1, marginTop: 10, alignItems: "center", justifyContent: "center" },
+  trendingRow: { paddingHorizontal: 18, gap: 10 },
+  trendingCard: { width: 146, borderRadius: 14, borderWidth: 1, overflow: "hidden" },
+  trendingCover: { width: "100%", height: 70 },
+  trendingLogo: { position: "absolute", top: 51, left: 9 },
+  miniType: { alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5 },
+  nearRow: { paddingHorizontal: 18, gap: 9 },
+  nearCard: { width: 178, minHeight: 88, borderRadius: 14, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 9, padding: 11 },
+  recentRow: { paddingHorizontal: 18, gap: 9 },
+  recentCard: { width: 164, minHeight: 58, borderRadius: 13, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 8, padding: 9 },
+  state: { alignItems: "center", paddingHorizontal: 28, paddingVertical: 46 },
+  stateIcon: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12 },
+  consoleCard: { minHeight: 78, borderWidth: 1, borderRadius: radius.md, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 },
   consoleIcon: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
-  webNotice: { marginTop: 20, borderWidth: 1, borderRadius: 18, padding: 15, flexDirection: "row", gap: 12, alignItems: "flex-start" },
 });

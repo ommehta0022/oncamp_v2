@@ -7,6 +7,7 @@ UPDATE_GATE = (ROOT / "frontend" / "src" / "components" / "AppUpdateGate.tsx").r
 COORDINATOR = (ROOT / "frontend" / "src" / "components" / "ServerUpdateCoordinator.tsx").read_text(encoding="utf-8")
 APP_JSON = json.loads((ROOT / "frontend" / "app.json").read_text(encoding="utf-8"))
 MANIFEST = (ROOT / "frontend" / "android" / "app" / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8")
+STRINGS = (ROOT / "frontend" / "android" / "app" / "src" / "main" / "res" / "values" / "strings.xml").read_text(encoding="utf-8")
 
 
 class UpdateLifecycleV15Tests(unittest.TestCase):
@@ -32,11 +33,12 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
         self.assertIn('if (mode === "manual")', UPDATE_GATE)
         self.assertIn("No update available", UPDATE_GATE)
 
-    def test_v15_native_runtime_and_microphone_permission(self):
+    def test_v16_native_runtime_and_microphone_permission(self):
         expo = APP_JSON["expo"]
-        self.assertEqual(expo["version"], "1.5.1")
-        self.assertEqual(expo["runtimeVersion"], "1.5.0")
-        self.assertEqual(expo["extra"]["otaRuntimeVersion"], "1.5.0")
+        self.assertEqual(expo["version"], "1.6.0")
+        self.assertEqual(expo["runtimeVersion"], "1.6.0")
+        self.assertEqual(expo["extra"]["otaRuntimeVersion"], "1.6.0")
+        self.assertIn('<string name="expo_runtime_version" translatable="false">1.6.0</string>', STRINGS)
         self.assertIn("RECORD_AUDIO", expo["android"]["permissions"])
         self.assertIn("android.permission.RECORD_AUDIO", MANIFEST)
 

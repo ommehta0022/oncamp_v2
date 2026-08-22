@@ -1,83 +1,55 @@
 import { useEffect } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useTheme } from "@/src/theme/ThemeProvider";
-import { font, spacing } from "@/src/theme/colors";
+import CampusLoader from "@/src/components/CampusLoader";
+import { spacing } from "@/src/theme/colors";
 
 export default function Splash() {
   const router = useRouter();
-  const { colors } = useTheme();
 
   useEffect(() => {
-    const t = setTimeout(async () => {
-      const authed = await AsyncStorage.getItem("oncampus.authed");
-      if (authed === "true") router.replace("/(tabs)/feed");
-      else router.replace("/(auth)/welcome");
-    }, 1200);
-    return () => clearTimeout(t);
+    let mounted = true;
+    const boot = async () => {
+      try {
+        const authed = await AsyncStorage.getItem("oncampus.authed");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        if (!mounted) return;
+        router.replace(authed === "true" ? "/(tabs)/feed" : "/(auth)/welcome");
+      } catch {
+        if (mounted) router.replace("/(auth)/welcome");
+      }
+    };
+    void boot();
+    return () => { mounted = false; };
   }, [router]);
 
   return (
     <View style={styles.root} testID="splash-screen">
       <StatusBar hidden animated={false} />
-      <LinearGradient
-        colors={[colors.brandPrimary, colors.gradientEnd || "#1B382F"]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+      <LinearGradient colors={["#1267F4", "#0B49BD"]} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={StyleSheet.absoluteFill} />
+      <View style={styles.glowOne} />
+      <View style={styles.glowTwo} />
       <View style={styles.center}>
-        <View style={[styles.logoWrap, { backgroundColor: "#ffffff22", borderColor: "#ffffff33" }]}>
-          <Ionicons name="school" size={44} color="#fff" />
-        </View>
+        <View style={styles.logoWrap}><Ionicons name="school" size={42} color="#1267F4" /></View>
         <Text style={styles.brand}>OnCampus</Text>
         <Text style={styles.tagline}>Your campus, connected.</Text>
-        <ActivityIndicator color="#ffffffaa" style={styles.loader} />
+        <CampusLoader compact inverse label="Getting campus ready…" style={styles.loader} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    width: "100%",
-    alignSelf: "stretch",
-    overflow: "hidden",
-    backgroundColor: "#2E5C4E",
-  },
-  center: {
-    flex: 1,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.xl,
-  },
-  logoWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  brand: {
-    color: "#fff",
-    fontSize: 32,
-    fontWeight: "500",
-    marginTop: spacing.lg,
-    letterSpacing: 0,
-    textAlign: "center",
-  },
-  tagline: {
-    color: "#ffffffcc",
-    fontSize: font.base,
-    marginTop: spacing.xs,
-    textAlign: "center",
-  },
-  loader: { marginTop: spacing["2xl"] },
+  root: { flex: 1, width: "100%", overflow: "hidden", backgroundColor: "#1267F4" },
+  glowOne: { position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "rgba(255,255,255,0.08)", top: -70, right: -90 },
+  glowTwo: { position: "absolute", width: 220, height: 220, borderRadius: 110, backgroundColor: "rgba(255,255,255,0.05)", bottom: -50, left: -80 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl },
+  logoWrap: { width: 88, height: 88, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", shadowColor: "#041C56", shadowOpacity: 0.18, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 7 },
+  brand: { color: "#FFFFFF", fontSize: 34, fontWeight: "800", marginTop: 18, letterSpacing: -0.7 },
+  tagline: { color: "rgba(255,255,255,0.82)", fontSize: 14, marginTop: 5 },
+  loader: { marginTop: 12, paddingVertical: 18 },
 });
