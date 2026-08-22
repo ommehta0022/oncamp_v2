@@ -46,6 +46,14 @@ android {
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
 
+    // Release lint-vital previously exhausted CI metaspace and, when its producer
+    // tasks were excluded, the final lintVitalRelease aggregator failed because
+    // its report inputs did not exist. JS/type preflight plus APK validation run
+    // separately in CI, so keep lint-vital out of the release packaging graph.
+    lint {
+        checkReleaseBuilds false
+    }
+
     // Keep one repository-owned signing identity for every direct APK build so
     // Android can upgrade an existing OnCampus installation instead of treating
     // a rebuild as a different application.
