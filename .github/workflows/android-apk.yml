@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 75
     outputs:
       version: ${{ steps.app_version.outputs.version }}
+      version_code: ${{ steps.app_version.outputs.version_code }}
     defaults:
       run:
         working-directory: frontend
@@ -58,11 +59,22 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Read app version
+      - name: Validate native release identity
         id: app_version
         run: |
           VERSION=$(node -e "process.stdout.write(require('./app.json').expo.version)")
+          RUNTIME=$(node -e "process.stdout.write(require('./app.json').expo.runtimeVersion)")
+          VERSION_CODE=$(node -e "const c=require('./app.json').expo.android.versionCode; if(!Number.isInteger(c)||c<=150) process.exit(2); process.stdout.write(String(c))")
+          EXPECTED_CODE=$(node -e "const p=require('./app.json').expo.version.split('.').map(Number); if(p.length!==3||p.some(n=>!Number.isInteger(n)||n<0||n>99)) process.exit(2); process.stdout.write(String(p[0]*10000+p[1]*100+p[2]))")
+          if [ "$VERSION_CODE" != "$EXPECTED_CODE" ]; then
+            echo "Android versionCode $VERSION_CODE must match semantic version $VERSION as $EXPECTED_CODE" >&2
+            exit 1
+          fi
+          test -s android/app/debug.keystore
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "runtime=$RUNTIME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Building OnCampus $VERSION (versionCode $VERSION_CODE, runtime $RUNTIME)"
 
       - name: Install JavaScript dependencies
         run: npm ci --legacy-peer-deps
@@ -73,22 +85,71 @@ jobs:
       - name: Preflight JavaScript bundle
         run: npx expo export --platform android --output-dir /tmp/oncampus-expo-bundle
 
-      - name: Build release APK
+      - name: Build universal ARM release APK
         env:
           APP_VERSION_NAME: ${{ steps.app_version.outputs.version }}
-          APP_VERSION_CODE: ${{ github.run_number }}
+          APP_VERSION_CODE: ${{ steps.app_version.outputs.version_code }}
         run: |
           chmod +x android/gradlew
           cd android
           ./gradlew assembleRelease \
-            -PreactNativeArchitectures=arm64-v8a \
+            -PreactNativeArchitectures=armeabi-v7a,arm64-v8a \
             --no-daemon \
             --no-parallel \
-            --max-workers=2 \
+            --max-workers=1 \
             --stacktrace
 
       - name: Verify APK exists
         run: test -s android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Validate phone installation and launch metadata
+        env:
+          VERSION: ${{ steps.app_version.outputs.version }}
+          RUNTIME: ${{ steps.app_version.outputs.runtime }}
+          VERSION_CODE: ${{ steps.app_version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          BUILD_TOOLS=$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
+          ZIPALIGN="$ANDROID_HOME/build-tools/$BUILD_TOOLS/zipalign"
+          AAPT="$ANDROID_HOME/build-tools/$BUILD_TOOLS/aapt"
+
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apksigner.txt
+          "$ZIPALIGN" -c -P 16 -v 4 "$APK"
+          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
+
+          grep -F "package: name='com.oncampus.app'" /tmp/apk-badging.txt
+          grep -F "versionCode='$VERSION_CODE'" /tmp/apk-badging.txt
+          grep -F "launchable-activity: name='com.oncampus.app.MainActivity'" /tmp/apk-badging.txt
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
+
+          CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' /tmp/apksigner.txt | head -1 | tr 'A-F' 'a-f')
+          test -n "$CERT_SHA"
+
+          PREVIOUS_CODE=$(node -e "try{const s=require('./APK_RELEASE_STATUS.json'); process.stdout.write(String(s.versionCode||0))}catch{process.stdout.write('0')}")
+          PREVIOUS_CERT=$(node -e "try{const s=require('./APK_RELEASE_STATUS.json'); process.stdout.write(String(s.signingCertificateSha256||''))}catch{}")
+          if [ "$PREVIOUS_CODE" -gt 0 ] && [ "$VERSION_CODE" -lt "$PREVIOUS_CODE" ]; then
+            echo "Refusing downgrade: versionCode $VERSION_CODE is below published $PREVIOUS_CODE" >&2
+            exit 1
+          fi
+          if [ -n "$PREVIOUS_CERT" ] && [ "$CERT_SHA" != "$PREVIOUS_CERT" ]; then
+            echo "Refusing incompatible signature change; existing installs would fail to upgrade" >&2
+            exit 1
+          fi
+
+          cat > APK_INSTALL_INFO.txt <<EOF
+          package=com.oncampus.app
+          version=$VERSION
+          runtimeVersion=$RUNTIME
+          versionCode=$VERSION_CODE
+          abis=armeabi-v7a,arm64-v8a
+          signingCertificateSha256=$CERT_SHA
+          zipAlignment=16KB-compatible
+          launchActivity=com.oncampus.app.MainActivity
+          EOF
+          cat APK_INSTALL_INFO.txt
 
       - name: Prepare release APK
         run: cp android/app/build/outputs/apk/release/app-release.apk OnCampus.apk
@@ -96,13 +157,14 @@ jobs:
       - name: Generate SHA-256
         run: sha256sum OnCampus.apk | tee OnCampus.apk.sha256
 
-      - name: Upload build artifact
+      - name: Upload verified build artifact
         uses: actions/upload-artifact@v4
         with:
           name: OnCampus-${{ steps.app_version.outputs.version }}-Android
           path: |
             frontend/OnCampus.apk
             frontend/OnCampus.apk.sha256
+            frontend/APK_INSTALL_INFO.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -133,24 +195,53 @@ jobs:
           files: |
             release/OnCampus.apk
             release/OnCampus.apk.sha256
+            release/APK_INSTALL_INFO.txt
 
       - name: Record verified APK release metadata
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build-apk.outputs.version }}
+          VERSION_CODE: ${{ needs.build-apk.outputs.version_code }}
         run: |
           CHECKSUM=$(awk '{print $1}' release/OnCampus.apk.sha256)
           SIZE=$(stat -c%s release/OnCampus.apk)
+          RUNTIME=$(awk -F= '/^runtimeVersion=/{print $2}' release/APK_INSTALL_INFO.txt)
+          ABIS=$(awk -F= '/^abis=/{print $2}' release/APK_INSTALL_INFO.txt)
+          CERT_SHA=$(awk -F= '/^signingCertificateSha256=/{print $2}' release/APK_INSTALL_INFO.txt)
           PUBLISHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          printf '{\n  "version": "%s",\n  "runtimeVersion": "%s",\n  "tag": "v%s",\n  "apk": "OnCampus.apk",\n  "sha256": "%s",\n  "size": %s,\n  "publishedAt": "%s",\n  "sourceCommit": "%s"\n}\n' "$VERSION" "$VERSION" "$VERSION" "$CHECKSUM" "$SIZE" "$PUBLISHED_AT" "${{ github.sha }}" > /tmp/apk-status.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const status = {
+            version: process.env.VERSION,
+            runtimeVersion: process.env.RUNTIME,
+            versionCode: Number(process.env.VERSION_CODE),
+            tag: `v${process.env.VERSION}`,
+            apk: 'OnCampus.apk',
+            sha256: process.env.CHECKSUM,
+            size: Number(process.env.SIZE),
+            abis: process.env.ABIS.split(','),
+            signingCertificateSha256: process.env.CERT_SHA,
+            installValidated: true,
+            launchActivity: 'com.oncampus.app.MainActivity',
+            publishedAt: process.env.PUBLISHED_AT,
+            sourceCommit: process.env.GITHUB_SHA
+          };
+          fs.writeFileSync('/tmp/apk-status.json', JSON.stringify(status, null, 2) + '\n');
+          NODE
+        shell: bash
+
+      - name: Persist release status to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           CONTENT=$(base64 -w0 /tmp/apk-status.json)
           EXISTING_SHA=$(gh api "repos/${{ github.repository }}/contents/frontend/APK_RELEASE_STATUS.json?ref=main" --jq '.sha' 2>/dev/null || true)
           if [ -n "$EXISTING_SHA" ]; then
             gh api --method PUT "repos/${{ github.repository }}/contents/frontend/APK_RELEASE_STATUS.json" \
-              -f message="release(android): record verified OnCampus $VERSION APK" \
+              -f message="release(android): record verified OnCampus ${{ needs.build-apk.outputs.version }} APK" \
               -f content="$CONTENT" -f sha="$EXISTING_SHA" -f branch=main >/dev/null
           else
             gh api --method PUT "repos/${{ github.repository }}/contents/frontend/APK_RELEASE_STATUS.json" \
-              -f message="release(android): record verified OnCampus $VERSION APK" \
+              -f message="release(android): record verified OnCampus ${{ needs.build-apk.outputs.version }} APK" \
               -f content="$CONTENT" -f branch=main >/dev/null
           fi
