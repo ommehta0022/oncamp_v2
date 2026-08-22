@@ -18,9 +18,10 @@ class MobileResilienceTests(unittest.TestCase):
         self.assertNotIn('emergency: () => campusRequest<any[]>("/campus/emergency", { cacheTtlMs:', CAMPUS_API)
 
     def test_get_retry_uses_new_timeout_controller_per_attempt(self):
-        self.assertIn('const attempts = method === "GET" ? 3 : 1', CAMPUS_API)
+        self.assertIn('const attempts = method === "GET" ? 2 : 1', CAMPUS_API)
         self.assertIn('const controller = new AbortController()', CAMPUS_API)
-        self.assertIn('300 * (2 ** attempt)', CAMPUS_API)
+        self.assertIn('setTimeout(resolve, 200)', CAMPUS_API)
+        self.assertIn('options.timeoutMs || 15000', CAMPUS_API)
 
     def test_photos_are_recompressed_but_non_photo_media_are_preserved(self):
         self.assertIn('ImageManipulator.manipulateAsync', IMAGE_UPLOAD)
