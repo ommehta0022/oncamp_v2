@@ -17,8 +17,6 @@ on:
     paths:
       - "frontend/RELEASE_BUILD"
 
-# Only the newest APK build is useful. Any later APK run replaces an older one,
-# including PR validation runs that are superseded by the merged main release.
 concurrency:
   group: oncampus-android-apk
   cancel-in-progress: true
@@ -130,3 +128,24 @@ jobs:
           files: |
             release/OnCampus.apk
             release/OnCampus.apk.sha256
+
+      - name: Record verified APK release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build-apk.outputs.version }}
+        run: |
+          CHECKSUM=$(awk '{print $1}' release/OnCampus.apk.sha256)
+          SIZE=$(stat -c%s release/OnCampus.apk)
+          PUBLISHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf '{\n  "version": "%s",\n  "runtimeVersion": "%s",\n  "tag": "v%s",\n  "apk": "OnCampus.apk",\n  "sha256": "%s",\n  "size": %s,\n  "publishedAt": "%s",\n  "sourceCommit": "%s"\n}\n' "$VERSION" "$VERSION" "$VERSION" "$CHECKSUM" "$SIZE" "$PUBLISHED_AT" "${{ github.sha }}" > /tmp/apk-status.json
+          CONTENT=$(base64 -w0 /tmp/apk-status.json)
+          EXISTING_SHA=$(gh api "repos/${{ github.repository }}/contents/frontend/APK_RELEASE_STATUS.json?ref=main" --jq '.sha' 2>/dev/null || true)
+          if [ -n "$EXISTING_SHA" ]; then
+            gh api --method PUT "repos/${{ github.repository }}/contents/frontend/APK_RELEASE_STATUS.json" \
+              -f message="release(android): record verified OnCampus $VERSION APK" \
+              -f content="$CONTENT" -f sha="$EXISTING_SHA" -f branch=main >/dev/null
+          else
+            gh api --method PUT "repos/${{ github.repository }}/contents/frontend/APK_RELEASE_STATUS.json" \
+              -f message="release(android): record verified OnCampus $VERSION APK" \
+              -f content="$CONTENT" -f branch=main >/dev/null
+          fi
