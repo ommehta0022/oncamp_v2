@@ -2,4 +2,4 @@ OnCampus 1.6.0
 runtime=1.6.0
 versionCode=10600
 channel=production
-reason=install-safe universal ARM APK with monotonic Android versionCode, stable signing, package/ABI/signature/alignment validation and launch metadata checks
+reason=low-memory arm64 production APK retry with release lint excluded, single-worker Gradle, install validation, stable signing and observable build status
