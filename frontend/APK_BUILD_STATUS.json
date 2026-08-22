@@ -2,6 +2,6 @@
   "runId": 32568291108,
   "runNumber": 35,
   "sourceCommit": "645f7cee5685eee69ccd960119488eec727ff5a4",
-  "status": "running",
-  "startedAt": "2026-08-22T10:42:02Z"
+  "status": "failure",
+  "finishedAt": "2026-08-22T10:43:03Z"
 }
