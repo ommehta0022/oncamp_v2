@@ -1,10 +1,17 @@
 {
   "version": "1.6.0",
   "runtimeVersion": "1.6.0",
+  "versionCode": 10600,
   "tag": "v1.6.0",
   "apk": "OnCampus.apk",
-  "sha256": "44b9457ac5b4169839e71a2f30c4a774179cbb0362480ab74de36ed434fd9a0a",
-  "size": 51235816,
-  "publishedAt": "2026-08-22T08:49:29Z",
-  "sourceCommit": "b35dec8dd7768eb20a6f64c4bec1c566c8ddc664"
+  "sha256": "4251a9809b8255d9428ef1334ffac44e1d5fabfd81c878d2ab653582c5f268ce",
+  "size": 51314160,
+  "abis": [
+    "arm64-v8a"
+  ],
+  "signingCertificateSha256": "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+  "installValidated": true,
+  "launchActivity": "com.oncampus.app.MainActivity",
+  "publishedAt": "2026-08-22T10:57:31Z",
+  "sourceCommit": "1af294bd972e08575357ca394add3cbe98bd90a6"
 }
