@@ -209,6 +209,7 @@ jobs:
           ABIS=$(awk -F= '/^abis=/{print $2}' release/APK_INSTALL_INFO.txt)
           CERT_SHA=$(awk -F= '/^signingCertificateSha256=/{print $2}' release/APK_INSTALL_INFO.txt)
           PUBLISHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export CHECKSUM SIZE RUNTIME ABIS CERT_SHA PUBLISHED_AT
           node - <<'NODE'
           const fs = require('fs');
           const status = {
@@ -228,7 +229,6 @@ jobs:
           };
           fs.writeFileSync('/tmp/apk-status.json', JSON.stringify(status, null, 2) + '\n');
           NODE
-        shell: bash
 
       - name: Persist release status to main
         env:
