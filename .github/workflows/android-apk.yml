@@ -38,7 +38,6 @@ jobs:
       run:
         working-directory: frontend
     env:
-      NODE_ENV: production
       EXPO_NO_TELEMETRY: "1"
       EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -109,18 +108,28 @@ jobs:
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "Building OnCampus $VERSION (versionCode $VERSION_CODE, runtime $RUNTIME)"
 
-      - name: Install JavaScript dependencies
-        run: npm ci --legacy-peer-deps
+      - name: Install JavaScript dependencies including build tools
+        env:
+          NODE_ENV: development
+        run: npm ci --include=dev --legacy-peer-deps
+
+      - name: Verify Expo build dependency graph
+        run: |
+          set -euo pipefail
+          node -e "require.resolve('babel-preset-expo'); require.resolve('@babel/core'); require.resolve('expo-router'); console.log('Expo/Babel build toolchain OK')"
 
       - name: Type-check release source
         run: npx tsc --noEmit
 
       - name: Preflight JavaScript bundle
+        env:
+          NODE_ENV: production
         run: npx expo export --platform android --output-dir /tmp/oncampus-expo-bundle
 
       - name: Build deterministic arm64 release APK
         timeout-minutes: 55
         env:
+          NODE_ENV: production
           APP_VERSION_NAME: ${{ steps.app_version.outputs.version }}
           APP_VERSION_CODE: ${{ steps.app_version.outputs.version_code }}
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dkotlin.compiler.execution.strategy=in-process"
@@ -211,13 +220,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload Gradle diagnostics on failure
+      - name: Upload build diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: OnCampus-Android-build-diagnostics-${{ github.run_id }}
           path: |
-            frontend/android/build/reports/problems/
+            frontend/android/build/reports/
             frontend/android/app/build/reports/
             frontend/android/app/build/outputs/logs/
           if-no-files-found: ignore
