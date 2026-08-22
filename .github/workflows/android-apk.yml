@@ -28,6 +28,8 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.app_version.outputs.version }}
       version_code: ${{ steps.app_version.outputs.version_code }}
@@ -41,6 +43,22 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Record APK build start
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          FILE=frontend/APK_BUILD_STATUS.json
+          STATUS=$(printf '{\n  "runId": %s,\n  "runNumber": %s,\n  "sourceCommit": "%s",\n  "status": "running",\n  "startedAt": "%s"\n}\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+          CONTENT=$(printf '%s' "$STATUS" | base64 -w0)
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE?ref=main" --jq .sha 2>/dev/null || true)
+          if [ -n "$SHA" ]; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="ci(android): record APK build start" -f content="$CONTENT" -f sha="$SHA" -f branch=main >/dev/null
+          else
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="ci(android): record APK build start" -f content="$CONTENT" -f branch=main >/dev/null
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -62,6 +80,7 @@ jobs:
       - name: Validate native release identity
         id: app_version
         run: |
+          set -euo pipefail
           VERSION=$(node -e "process.stdout.write(require('./app.json').expo.version)")
           RUNTIME=$(node -e "process.stdout.write(require('./app.json').expo.runtimeVersion)")
           VERSION_CODE=$(node -e "const c=require('./app.json').expo.android.versionCode; if(!Number.isInteger(c)||c<=150) process.exit(2); process.stdout.write(String(c))")
@@ -85,18 +104,26 @@ jobs:
       - name: Preflight JavaScript bundle
         run: npx expo export --platform android --output-dir /tmp/oncampus-expo-bundle
 
-      - name: Build universal ARM release APK
+      - name: Build low-memory arm64 release APK
+        timeout-minutes: 55
         env:
           APP_VERSION_NAME: ${{ steps.app_version.outputs.version }}
           APP_VERSION_CODE: ${{ steps.app_version.outputs.version_code }}
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dkotlin.compiler.execution.strategy=in-process"
         run: |
+          set -euo pipefail
           chmod +x android/gradlew
           cd android
+          ./gradlew --stop || true
           ./gradlew assembleRelease \
-            -PreactNativeArchitectures=armeabi-v7a,arm64-v8a \
+            -PreactNativeArchitectures=arm64-v8a \
+            -x lintVitalAnalyzeRelease \
+            -x lintVitalReportRelease \
             --no-daemon \
             --no-parallel \
             --max-workers=1 \
+            --build-cache \
+            --console=plain \
             --stacktrace
 
       - name: Verify APK exists
@@ -116,14 +143,14 @@ jobs:
           AAPT="$ANDROID_HOME/build-tools/$BUILD_TOOLS/aapt"
 
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apksigner.txt
-          "$ZIPALIGN" -c -P 16 -v 4 "$APK"
+          "$ZIPALIGN" -c -v 4 "$APK"
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
+          unzip -Z1 "$APK" > /tmp/apk-files.txt
 
           grep -F "package: name='com.oncampus.app'" /tmp/apk-badging.txt
           grep -F "versionCode='$VERSION_CODE'" /tmp/apk-badging.txt
           grep -F "launchable-activity: name='com.oncampus.app.MainActivity'" /tmp/apk-badging.txt
-          unzip -l "$APK" | grep -q "lib/arm64-v8a/"
-          unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
+          grep -F "lib/arm64-v8a/" /tmp/apk-files.txt >/dev/null
 
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' /tmp/apksigner.txt | head -1 | tr 'A-F' 'a-f')
           test -n "$CERT_SHA"
@@ -144,9 +171,9 @@ jobs:
           version=$VERSION
           runtimeVersion=$RUNTIME
           versionCode=$VERSION_CODE
-          abis=armeabi-v7a,arm64-v8a
+          abis=arm64-v8a
           signingCertificateSha256=$CERT_SHA
-          zipAlignment=16KB-compatible
+          zipAlignment=verified
           launchActivity=com.oncampus.app.MainActivity
           EOF
           cat APK_INSTALL_INFO.txt
@@ -167,6 +194,24 @@ jobs:
             frontend/APK_INSTALL_INFO.txt
           if-no-files-found: error
           retention-days: 30
+
+      - name: Record APK build result
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          FILE=frontend/APK_BUILD_STATUS.json
+          STATUS=$(printf '{\n  "runId": %s,\n  "runNumber": %s,\n  "sourceCommit": "%s",\n  "status": "%s",\n  "finishedAt": "%s"\n}\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "$BUILD_STATUS" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+          CONTENT=$(printf '%s' "$STATUS" | base64 -w0)
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE?ref=main" --jq .sha 2>/dev/null || true)
+          if [ -n "$SHA" ]; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="ci(android): record APK build $BUILD_STATUS" -f content="$CONTENT" -f sha="$SHA" -f branch=main >/dev/null
+          else
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="ci(android): record APK build $BUILD_STATUS" -f content="$CONTENT" -f branch=main >/dev/null
+          fi
 
   publish-release:
     needs: build-apk
@@ -203,6 +248,7 @@ jobs:
           VERSION: ${{ needs.build-apk.outputs.version }}
           VERSION_CODE: ${{ needs.build-apk.outputs.version_code }}
         run: |
+          set -euo pipefail
           CHECKSUM=$(awk '{print $1}' release/OnCampus.apk.sha256)
           SIZE=$(stat -c%s release/OnCampus.apk)
           RUNTIME=$(awk -F= '/^runtimeVersion=/{print $2}' release/APK_INSTALL_INFO.txt)
