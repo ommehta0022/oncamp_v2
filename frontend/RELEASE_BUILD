@@ -1,4 +1,4 @@
 OnCampus 1.6.0
 runtime=1.6.0
 channel=production
-reason=verified final ARM production APK with published checksum metadata after all OnCampus 1.6 changes
+reason=retry final arm64 production APK after Gradle heap/metaspace and worker-concurrency hardening
