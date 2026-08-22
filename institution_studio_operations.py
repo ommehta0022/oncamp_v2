@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 import server
+import institution_studio as studio_core
 
 router = APIRouter(prefix="/v1/campus/institution/studio", tags=["institution-studio-operations"])
 
@@ -168,3 +170,96 @@ def delete_place(item_id: str, user: server.CurrentUser = Depends(server.current
     iid, _ = context(user); owned("campus_places", item_id, iid)
     server.db.delete("campus_places", {"id": f"eq.{item_id}", "institution_id": f"eq.{iid}"})
     return {"success": True}
+
+
+# These optimized read routes are registered directly on server.app while this module
+# is imported. production_server imports this module before it includes the legacy
+# Institution Studio router, so Starlette resolves these exact GET paths first. Writes
+# remain on the original routers, keeping immediate read-after-write behavior without
+# stale server-side caching.
+def _rows(table: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+    result = server.safe_get(table, params)
+    return result if isinstance(result, list) else []
+
+
+def _parallel_public_bundle(institution_id: str, user_id: Optional[str], include_studio: bool = False) -> dict[str, Any]:
+    common = {"institution_id": f"eq.{institution_id}"}
+    jobs: dict[str, tuple[str, dict[str, Any]]] = {
+        "institution": ("institutions", {"id": f"eq.{institution_id}", "status": "eq.approved", "select": "*", "limit": "1"}),
+        "followers": ("institution_followers", {**common, "select": "user_id"}),
+        "groups": ("groups", {**common, "deleted_at": "is.null", "visibility": "eq.public", "select": "id,name,description,category,avatar_url,official,is_official,join_policy,member_limit,department_id,studio_category,featured,created_at", "order": "featured.desc,created_at.desc", "limit": "100"}),
+        "events": ("campus_events", {**common, "status": "eq.published", "select": "*", "order": "start_at.asc", "limit": "50"}),
+        "opportunities": ("campus_opportunities", {**common, "status": "eq.published", "select": "*", "order": "deadline.asc", "limit": "50"}),
+        "announcements": ("scheduled_announcements", {**common, "status": "eq.published", "select": "*", "order": "publish_at.desc", "limit": "30"}),
+        "departments": ("institution_departments", {**common, "active": "eq.true", "select": "*", "order": "sort_order.asc,name.asc", "limit": "100"}),
+        "story": ("institution_story_milestones", {**common, "published": "eq.true", "select": "*", "order": "sort_order.asc,year.asc", "limit": "100"}),
+        "gallery": ("institution_profile_media", {**common, "published": "eq.true", "select": "*", "order": "featured.desc,sort_order.asc,created_at.desc", "limit": "100"}),
+        "sections": ("institution_profile_sections", {**common, "enabled": "eq.true", "select": "*", "order": "sort_order.asc", "limit": "100"}),
+        "programs": ("institution_programs", {**common, "status": "eq.published", "select": "*", "order": "sort_order.asc,name.asc", "limit": "100"}),
+        "achievements": ("institution_achievements", {**common, "published": "eq.true", "select": "*", "order": "featured.desc,sort_order.asc,created_at.desc", "limit": "100"}),
+        "places": ("campus_places", {**common, "select": "*", "order": "name.asc", "limit": "100"}),
+        "staff": ("institution_staff", {**common, "status": "eq.active", "select": "id,name,title,department_id,metadata", "order": "name.asc", "limit": "30"}),
+    }
+    if include_studio:
+        jobs["versions"] = ("institution_profile_versions", {**common, "select": "id,version,status,created_by,created_at", "order": "version.desc", "limit": "50"})
+        jobs["mediaAssets"] = ("institution_media_assets", {**common, "select": "*", "order": "created_at.desc", "limit": "100"})
+
+    results: dict[str, list[dict[str, Any]]] = {}
+    with ThreadPoolExecutor(max_workers=min(16, len(jobs))) as pool:
+        futures = {name: pool.submit(_rows, table, params) for name, (table, params) in jobs.items()}
+        for name, future in futures.items():
+            results[name] = future.result()
+
+    institution_rows = results["institution"]
+    if not institution_rows:
+        raise HTTPException(status_code=404, detail="Institution not found")
+    institution = institution_rows[0]
+    groups = results["groups"]
+    group_ids = [row.get("id") for row in groups if row.get("id")]
+    members = _rows("group_members", {"group_id": studio_core.ids_filter(group_ids), "select": "group_id"}) if group_ids else []
+    member_counts = studio_core.counts_by(members, "group_id")
+    for group in groups:
+        group["memberCount"] = member_counts.get(group.get("id"), 0)
+        group["verified"] = bool(group.get("official") or group.get("is_official"))
+
+    followers = results["followers"]
+    following = bool(user_id and any(row.get("user_id") == user_id for row in followers))
+    profile = studio_core.public_institution(
+        institution,
+        {"followers": len(followers), "groups": len(groups), "events": len(results["events"])},
+        following,
+    )
+    bundle: dict[str, Any] = {
+        "institution": profile,
+        "story": results["story"],
+        "gallery": results["gallery"],
+        "sections": results["sections"],
+        "groups": groups,
+        "departments": results["departments"],
+        "events": results["events"],
+        "announcements": results["announcements"],
+        "opportunities": results["opportunities"],
+        "programs": results["programs"],
+        "achievements": results["achievements"],
+        "places": results["places"],
+        "staffHighlights": results["staff"],
+    }
+    if include_studio:
+        bundle["institution"]["officialEmail"] = institution.get("official_email")
+        bundle["versions"] = results.get("versions", [])
+        bundle["mediaAssets"] = results.get("mediaAssets", [])
+    return bundle
+
+
+@server.app.get("/v1/campus/directory/institutions/{institution_id}", include_in_schema=False)
+def fast_directory_institution_profile(
+    institution_id: str,
+    user: server.CurrentUser = Depends(server.current_user),
+) -> dict[str, Any]:
+    return _parallel_public_bundle(institution_id, user.id, include_studio=False)
+
+
+@server.app.get("/v1/campus/institution/studio", include_in_schema=False)
+def fast_studio_bundle(user: server.CurrentUser = Depends(server.current_user)) -> dict[str, Any]:
+    iid, _ = context(user)
+    return _parallel_public_bundle(iid, user.id, include_studio=True)
