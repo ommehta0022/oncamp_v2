@@ -16,6 +16,7 @@ on:
     branches: [main]
     paths:
       - "frontend/RELEASE_BUILD"
+      - ".github/workflows/android-apk.yml"
 
 permissions:
   contents: read
@@ -23,7 +24,7 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     outputs:
       version: ${{ steps.app_version.outputs.version }}
     defaults:
@@ -32,6 +33,7 @@ jobs:
     env:
       EXPO_NO_TELEMETRY: "1"
       EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx4096m"
 
     steps:
       - name: Check out source
@@ -70,13 +72,16 @@ jobs:
         run: npx expo export --platform android --output-dir /tmp/oncampus-expo-bundle
 
       - name: Build release APK
+        timeout-minutes: 42
         env:
           APP_VERSION_NAME: ${{ steps.app_version.outputs.version }}
           APP_VERSION_CODE: ${{ github.run_number }}
         run: |
+          set -euo pipefail
           chmod +x android/gradlew
           cd android
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew --stop || true
+          timeout 40m ./gradlew assembleRelease --no-daemon --no-parallel --max-workers=2 --build-cache --stacktrace --console=plain -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
 
       - name: Verify APK exists
         run: test -s android/app/build/outputs/apk/release/app-release.apk
