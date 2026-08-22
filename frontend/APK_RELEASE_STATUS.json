@@ -1,0 +1,10 @@
+{
+  "version": "1.6.0",
+  "runtimeVersion": "1.6.0",
+  "tag": "v1.6.0",
+  "apk": "OnCampus.apk",
+  "sha256": "44b9457ac5b4169839e71a2f30c4a774179cbb0362480ab74de36ed434fd9a0a",
+  "size": 51235816,
+  "publishedAt": "2026-08-22T08:49:29Z",
+  "sourceCommit": "b35dec8dd7768eb20a6f64c4bec1c566c8ddc664"
+}
