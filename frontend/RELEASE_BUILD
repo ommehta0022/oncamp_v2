@@ -2,4 +2,4 @@ OnCampus 1.6.0
 runtime=1.6.0
 versionCode=10600
 channel=production
-reason=hardened production APK rebuild using deterministic Android SDK/NDK/CMake toolchain, scoped :app:assembleRelease, no brittle lint task exclusions, Node/Java v5 actions, install/signature validation and failure diagnostics
+reason=production APK rebuild with dev build dependencies explicitly installed, Expo/Babel dependency verification, production-only bundling env, deterministic Android SDK/NDK/CMake, scoped :app:assembleRelease and APK install/signature validation
