@@ -2,4 +2,4 @@ OnCampus 1.6.0
 runtime=1.6.0
 versionCode=10600
 channel=production
-reason=retry after disabling Android release lint-vital aggregator that expected skipped lint report files; keep low-memory single-worker build and install validation
+reason=hardened production APK rebuild using deterministic Android SDK/NDK/CMake toolchain, scoped :app:assembleRelease, no brittle lint task exclusions, Node/Java v5 actions, install/signature validation and failure diagnostics
