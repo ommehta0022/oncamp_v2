@@ -27,7 +27,7 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 90
     permissions:
       contents: write
     outputs:
@@ -98,8 +98,18 @@ jobs:
           RUNTIME=$(node -e "process.stdout.write(require('./app.json').expo.runtimeVersion)")
           VERSION_CODE=$(node -e "const c=require('./app.json').expo.android.versionCode; if(!Number.isInteger(c)||c<=150) process.exit(2); process.stdout.write(String(c))")
           EXPECTED_CODE=$(node -e "const p=require('./app.json').expo.version.split('.').map(Number); if(p.length!==3||p.some(n=>!Number.isInteger(n)||n<0||n>99)) process.exit(2); process.stdout.write(String(p[0]*10000+p[1]*100+p[2]))")
+          NATIVE_RUNTIME=$(sed -n 's/.*name="expo_runtime_version"[^>]*>\([^<]*\)<.*/\1/p' android/app/src/main/res/values/strings.xml)
+          MANIFEST_UPDATE_MODE=$(sed -n 's/.*EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="\([^"]*\)".*/\1/p' android/app/src/main/AndroidManifest.xml)
           if [ "$VERSION_CODE" != "$EXPECTED_CODE" ]; then
             echo "Android versionCode $VERSION_CODE must match semantic version $VERSION as $EXPECTED_CODE" >&2
+            exit 1
+          fi
+          if [ "$RUNTIME" != "$NATIVE_RUNTIME" ]; then
+            echo "Runtime mismatch: app.json=$RUNTIME native=$NATIVE_RUNTIME" >&2
+            exit 1
+          fi
+          if [ "$MANIFEST_UPDATE_MODE" != "NEVER" ]; then
+            echo "Release startup must launch embedded code before remote OTA checks" >&2
             exit 1
           fi
           test -s android/app/debug.keystore
@@ -121,12 +131,15 @@ jobs:
       - name: Type-check release source
         run: npx tsc --noEmit
 
+      - name: Run Expo project health checks
+        run: npx expo-doctor
+
       - name: Preflight JavaScript bundle
         env:
           NODE_ENV: production
         run: npx expo export --platform android --output-dir /tmp/oncampus-expo-bundle
 
-      - name: Build deterministic arm64 release APK
+      - name: Build deterministic universal release APK
         timeout-minutes: 55
         env:
           NODE_ENV: production
@@ -139,7 +152,7 @@ jobs:
           cd android
           ./gradlew --stop || true
           ./gradlew :app:assembleRelease \
-            -PreactNativeArchitectures=arm64-v8a \
+            -PreactNativeArchitectures=arm64-v8a,x86_64 \
             -Pandroid.enablePngCrunchInReleaseBuilds=false \
             --no-daemon \
             --no-parallel \
@@ -151,7 +164,7 @@ jobs:
       - name: Verify APK exists
         run: test -s android/app/build/outputs/apk/release/app-release.apk
 
-      - name: Validate phone installation and launch metadata
+      - name: Validate APK signing, bundle and launch metadata
         env:
           VERSION: ${{ steps.app_version.outputs.version }}
           RUNTIME: ${{ steps.app_version.outputs.runtime }}
@@ -174,8 +187,11 @@ jobs:
 
           grep -F "package: name='com.oncampus.app'" /tmp/apk-badging.txt
           grep -F "versionCode='$VERSION_CODE'" /tmp/apk-badging.txt
+          grep -F "versionName='$VERSION'" /tmp/apk-badging.txt
           grep -F "launchable-activity: name='com.oncampus.app.MainActivity'" /tmp/apk-badging.txt
           grep -F "lib/arm64-v8a/" /tmp/apk-files.txt >/dev/null
+          grep -F "lib/x86_64/" /tmp/apk-files.txt >/dev/null
+          grep -E '(^|/)assets/(index\.android\.bundle|.*\.hbc)$' /tmp/apk-files.txt >/dev/null
 
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' /tmp/apksigner.txt | head -1 | tr 'A-F' 'a-f')
           test -n "$CERT_SHA"
@@ -196,12 +212,55 @@ jobs:
           version=$VERSION
           runtimeVersion=$RUNTIME
           versionCode=$VERSION_CODE
-          abis=arm64-v8a
+          abis=arm64-v8a,x86_64
           signingCertificateSha256=$CERT_SHA
           zipAlignment=verified
+          embeddedBundle=verified
           launchActivity=com.oncampus.app.MainActivity
           EOF
           cat APK_INSTALL_INFO.txt
+
+      - name: Enable KVM for Android emulator
+        working-directory: ${{ github.workspace }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Install and cold-launch exact release APK on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            APK="$GITHUB_WORKSPACE/frontend/android/app/build/outputs/apk/release/app-release.apk"
+            LOG="$GITHUB_WORKSPACE/frontend/android-smoke-logcat.txt"
+            test -s "$APK"
+            adb wait-for-device
+            adb install -r "$APK"
+            adb shell am force-stop com.oncampus.app
+            adb logcat -c
+            adb shell am start -W -n com.oncampus.app/.MainActivity | tee "$GITHUB_WORKSPACE/frontend/android-smoke-start.txt"
+            sleep 12
+            PID=$(adb shell pidof com.oncampus.app | tr -d '\r' || true)
+            if [ -z "$PID" ]; then
+              adb logcat -d > "$LOG" || true
+              echo "OnCampus process exited during cold-start smoke test" >&2
+              tail -n 250 "$LOG" >&2 || true
+              exit 1
+            fi
+            adb shell dumpsys activity activities | grep -F "com.oncampus.app/.MainActivity"
+            adb logcat -d > "$LOG"
+            if grep -E "FATAL EXCEPTION|Process: com\.oncampus\.app.*PID|Unable to start activity|ReactNativeJS.*(TypeError|ReferenceError|Invariant Violation|Error:)" "$LOG"; then
+              echo "Fatal startup signature found in Android logcat" >&2
+              exit 1
+            fi
+            echo "Release APK cold-start passed; process $PID remained alive."
 
       - name: Prepare release APK
         run: cp android/app/build/outputs/apk/release/app-release.apk OnCampus.apk
@@ -217,6 +276,8 @@ jobs:
             frontend/OnCampus.apk
             frontend/OnCampus.apk.sha256
             frontend/APK_INSTALL_INFO.txt
+            frontend/android-smoke-start.txt
+            frontend/android-smoke-logcat.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -229,6 +290,8 @@ jobs:
             frontend/android/build/reports/
             frontend/android/app/build/reports/
             frontend/android/app/build/outputs/logs/
+            frontend/android-smoke-start.txt
+            frontend/android-smoke-logcat.txt
           if-no-files-found: ignore
           retention-days: 7
 
@@ -278,6 +341,7 @@ jobs:
             release/OnCampus.apk
             release/OnCampus.apk.sha256
             release/APK_INSTALL_INFO.txt
+            release/android-smoke-start.txt
 
       - name: Record verified APK release metadata
         env:
@@ -305,6 +369,7 @@ jobs:
             abis: process.env.ABIS.split(','),
             signingCertificateSha256: process.env.CERT_SHA,
             installValidated: true,
+            launchValidated: true,
             launchActivity: 'com.oncampus.app.MainActivity',
             publishedAt: process.env.PUBLISHED_AT,
             sourceCommit: process.env.GITHUB_SHA
