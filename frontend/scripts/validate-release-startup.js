@@ -27,6 +27,10 @@ expect(manifest.includes('EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="NEVER"'),
 expect(strings.includes('name="expo_runtime_version" translatable="false">1.6.2</string>'), 'native runtime string must be 1.6.2');
 expect(gradle.includes('?: "1.6.2"'), 'Gradle versionName default must be 1.6.2');
 expect(gradle.includes('?: "10602"'), 'Gradle versionCode default must be 10602');
+expect(gradle.includes("require.resolve('@expo/cli'"), 'Gradle must explicitly resolve the Expo CLI entry file');
+const cliFileAssignment = gradle.split('\n').find((line) => line.includes('cliFile =')) || '';
+expect(cliFileAssignment.includes('.getAbsoluteFile()'), 'Gradle cliFile must resolve to an absolute file');
+expect(!cliFileAssignment.includes('.getParentFile()'), 'Gradle cliFile must reference the Expo CLI file, not its parent directory');
 
 const expectedDeps = {
   expo: '54.0.37',
