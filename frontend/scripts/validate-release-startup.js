@@ -16,6 +16,11 @@ const accessibility = read('src/context/AccessibilityProvider.tsx');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const strings = read('android/app/src/main/res/values/strings.xml');
 const gradle = read('android/app/build.gradle');
+const baseStyles = read('android/app/src/main/res/values/styles.xml');
+const stylesV27 = read('android/app/src/main/res/values-v27/styles.xml');
+const stylesV28 = read('android/app/src/main/res/values-v28/styles.xml');
+const stylesV29 = read('android/app/src/main/res/values-v29/styles.xml');
+const stylesV33 = read('android/app/src/main/res/values-v33/styles.xml');
 
 expect(app.version === '1.6.2', `app version must be 1.6.2, found ${app.version}`);
 expect(app.runtimeVersion === '1.6.2', `runtimeVersion must be 1.6.2, found ${app.runtimeVersion}`);
@@ -24,6 +29,8 @@ expect(app.android?.package === 'com.oncampus.app', 'Android package changed une
 expect(app.updates?.checkAutomatically === 'NEVER', 'Expo Updates must not check during cold startup');
 expect(app.extra?.otaRuntimeVersion === '1.6.2', 'extra.otaRuntimeVersion must match runtime');
 expect(manifest.includes('EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="NEVER"'), 'native manifest must disable automatic Expo update checks');
+expect(manifest.includes('<uses-feature android:name="android.hardware.camera" android:required="false"/>'), 'camera hardware must be optional');
+expect(manifest.includes('<uses-feature android:name="android.hardware.microphone" android:required="false"/>'), 'microphone hardware must be optional');
 expect(strings.includes('name="expo_runtime_version" translatable="false">1.6.2</string>'), 'native runtime string must be 1.6.2');
 expect(gradle.includes('?: "1.6.2"'), 'Gradle versionName default must be 1.6.2');
 expect(gradle.includes('?: "10602"'), 'Gradle versionCode default must be 10602');
@@ -31,6 +38,15 @@ expect(gradle.includes("require.resolve('@expo/cli'"), 'Gradle must explicitly r
 const cliFileAssignment = gradle.split('\n').find((line) => line.includes('cliFile =')) || '';
 expect(cliFileAssignment.includes('.getAbsoluteFile()'), 'Gradle cliFile must resolve to an absolute file');
 expect(!cliFileAssignment.includes('.getParentFile()'), 'Gradle cliFile must reference the Expo CLI file, not its parent directory');
+
+expect(!baseStyles.includes('android:windowLightNavigationBar'), 'API 27 navigation attribute must not live in base values');
+expect(!baseStyles.includes('android:windowLayoutInDisplayCutoutMode'), 'API 28 cutout attribute must not live in base values');
+expect(!baseStyles.includes('android:enforceNavigationBarContrast'), 'API 29 contrast attribute must not live in base values');
+expect(!baseStyles.includes('android:windowSplashScreenBehavior'), 'API 33 splash behavior must not live in base values');
+expect(stylesV27.includes('android:windowLightNavigationBar'), 'API 27 navigation style missing');
+expect(stylesV28.includes('android:windowLayoutInDisplayCutoutMode'), 'API 28 cutout style missing');
+expect(stylesV29.includes('android:enforceNavigationBarContrast'), 'API 29 contrast style missing');
+expect(stylesV33.includes('android:windowSplashScreenBehavior'), 'API 33 splash behavior missing');
 
 const expectedDeps = {
   expo: '54.0.37',
