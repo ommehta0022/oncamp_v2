@@ -23,15 +23,28 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then((v) => {
-      if (v === "light" || v === "dark" || v === "system") setModeState(v);
-      setHydrated(true);
-    });
+    let mounted = true;
+
+    void AsyncStorage.getItem(STORAGE_KEY)
+      .then((v) => {
+        if (!mounted) return;
+        if (v === "light" || v === "dark" || v === "system") setModeState(v);
+      })
+      .catch(() => {
+        // Storage failures must never block the application shell.
+      })
+      .finally(() => {
+        if (mounted) setHydrated(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const setMode = useCallback((m: ThemeMode) => {
     setModeState(m);
-    void AsyncStorage.setItem(STORAGE_KEY, m);
+    void AsyncStorage.setItem(STORAGE_KEY, m).catch(() => undefined);
   }, []);
 
   const isDark = mode === "system" ? system === "dark" : mode === "dark";
