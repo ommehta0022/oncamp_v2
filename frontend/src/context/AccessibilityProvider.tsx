@@ -25,30 +25,47 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     let alive = true;
-    Promise.all([
+
+    void Promise.all([
       AsyncStorage.getItem(KEY),
       AccessibilityInfo.isReduceMotionEnabled().catch(() => false),
       AccessibilityInfo.isScreenReaderEnabled().catch(() => false),
-    ]).then(([stored, systemReduceMotion, reader]) => {
-      if (!alive) return;
-      let parsed: Partial<Preferences> = {};
-      try { parsed = stored ? JSON.parse(stored) : {}; } catch { parsed = {}; }
-      setPreferences({
-        highContrast: Boolean(parsed.highContrast),
-        reduceMotion: typeof parsed.reduceMotion === "boolean" ? parsed.reduceMotion : Boolean(systemReduceMotion),
+    ])
+      .then(([stored, systemReduceMotion, reader]) => {
+        if (!alive) return;
+        let parsed: Partial<Preferences> = {};
+        try {
+          parsed = stored ? JSON.parse(stored) : {};
+        } catch {
+          parsed = {};
+        }
+        setPreferences({
+          highContrast: Boolean(parsed.highContrast),
+          reduceMotion: typeof parsed.reduceMotion === "boolean" ? parsed.reduceMotion : Boolean(systemReduceMotion),
+        });
+        setScreenReaderEnabled(Boolean(reader));
+      })
+      .catch(() => {
+        // Defaults are safe when device accessibility/storage APIs are unavailable.
+      })
+      .finally(() => {
+        if (alive) setHydrated(true);
       });
-      setScreenReaderEnabled(Boolean(reader));
-      setHydrated(true);
-    });
 
     const reduceSubscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (enabled) => {
       if (!alive) return;
-      AsyncStorage.getItem(KEY).then((stored) => {
-        try {
-          const parsed = stored ? JSON.parse(stored) : {};
-          if (typeof parsed.reduceMotion !== "boolean") setPreferences((current) => ({ ...current, reduceMotion: enabled }));
-        } catch { /* keep current preference */ }
-      });
+      void AsyncStorage.getItem(KEY)
+        .then((stored) => {
+          try {
+            const parsed = stored ? JSON.parse(stored) : {};
+            if (typeof parsed.reduceMotion !== "boolean") {
+              setPreferences((current) => ({ ...current, reduceMotion: enabled }));
+            }
+          } catch {
+            // Keep the current preference when cached data is malformed.
+          }
+        })
+        .catch(() => undefined);
     });
     const readerSubscription = AccessibilityInfo.addEventListener("screenReaderChanged", setScreenReaderEnabled);
 
@@ -61,12 +78,15 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
 
   const persist = useCallback((next: Preferences) => {
     setPreferences(next);
-    void AsyncStorage.setItem(KEY, JSON.stringify(next));
+    void AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => undefined);
   }, []);
   const setHighContrast = useCallback((value: boolean) => persist({ ...preferences, highContrast: value }), [persist, preferences]);
   const setReduceMotion = useCallback((value: boolean) => persist({ ...preferences, reduceMotion: value }), [persist, preferences]);
 
-  const value = useMemo(() => ({ ...preferences, screenReaderEnabled, hydrated, setHighContrast, setReduceMotion }), [preferences, screenReaderEnabled, hydrated, setHighContrast, setReduceMotion]);
+  const value = useMemo(
+    () => ({ ...preferences, screenReaderEnabled, hydrated, setHighContrast, setReduceMotion }),
+    [preferences, screenReaderEnabled, hydrated, setHighContrast, setReduceMotion],
+  );
   return <AccessibilityContext.Provider value={value}>{children}</AccessibilityContext.Provider>;
 }
 
