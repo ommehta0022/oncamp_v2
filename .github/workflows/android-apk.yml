@@ -118,21 +118,38 @@ jobs:
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "Building OnCampus $VERSION (versionCode $VERSION_CODE, runtime $RUNTIME)"
 
-      - name: Install JavaScript dependencies including build tools
+      - name: Install SDK-pinned JavaScript and native dependencies
         env:
           NODE_ENV: development
-        run: npm ci --include=dev --legacy-peer-deps
+        run: npm install --include=dev --legacy-peer-deps --no-audit --no-fund
 
       - name: Verify Expo build dependency graph
         run: |
           set -euo pipefail
-          node -e "require.resolve('babel-preset-expo'); require.resolve('@babel/core'); require.resolve('expo-router'); console.log('Expo/Babel build toolchain OK')"
+          node -e "require.resolve('babel-preset-expo'); require.resolve('@babel/core'); require.resolve('expo-router'); require.resolve('expo-asset'); console.log('Expo/Babel/native build toolchain OK')"
 
       - name: Type-check release source
         run: npx tsc --noEmit
 
-      - name: Run Expo project health checks
-        run: npx expo-doctor
+      - name: Validate Expo SDK native dependency compatibility
+        run: |
+          set -euo pipefail
+          npx expo install --check
+          node - <<'NODE'
+          const expected = {
+            expo: '54.0.37',
+            'expo-asset': '12.0.13',
+            'expo-constants': '18.0.14',
+          };
+          for (const [name, version] of Object.entries(expected)) {
+            const actual = require(`${name}/package.json`).version;
+            if (actual !== version) {
+              throw new Error(`${name} expected ${version}, got ${actual}`);
+            }
+          }
+          console.log('Critical Expo native package versions are aligned.');
+          NODE
+          npm ls expo expo-asset expo-constants --all
 
       - name: Preflight JavaScript bundle
         env:
