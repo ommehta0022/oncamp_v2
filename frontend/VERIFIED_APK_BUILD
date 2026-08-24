@@ -1,5 +1,6 @@
-OnCampus 1.6.1 verified build
-runtime=1.6.1
-versionCode=10601
-smoke=android-14-api34
-trigger=2026-08-24
+OnCampus 1.6.2 deterministic Android release
+runtime=1.6.2
+versionCode=10602
+validation=static-native-no-emulator
+startupProviderContract=required
+trigger=2026-08-24T15:23:00+05:30
