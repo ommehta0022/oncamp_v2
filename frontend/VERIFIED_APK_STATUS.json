@@ -1,1 +1,1 @@
-{"runId":32720044959,"status":"running","version":"1.6.2","sourceCommit":"740cf81fc4552b4bf41344ee6bdb049a248fa01e","validation":"deterministic-no-emulator","startedAt":"2026-08-24T11:05:25Z"}
+{"runId":32720044959,"status":"success","version":"1.6.2","sourceCommit":"740cf81fc4552b4bf41344ee6bdb049a248fa01e","validation":"deterministic-no-emulator","finishedAt":"2026-08-24T11:25:13Z"}
