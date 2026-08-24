@@ -32,28 +32,38 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v5
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - name: Record verified run start
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          FILE=frontend/VERIFIED_APK_STATUS.json
+          printf '{"runId":%s,"status":"running","sourceCommit":"%s","startedAt":"%s"}\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /tmp/status.json
+          CONTENT=$(base64 -w0 /tmp/status.json)
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE?ref=main" --jq .sha 2>/dev/null || true)
+          if [ -n "$SHA" ]; then gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="ci(android): verified APK run start" -f content="$CONTENT" -f sha="$SHA" -f branch=main >/dev/null; else gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="ci(android): verified APK run start" -f content="$CONTENT" -f branch=main >/dev/null; fi
+
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
 
-      - name: Install deterministic Android build toolchain
+      - name: Install Android build toolchain
         run: |
           set -euo pipefail
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
 
-      - name: Validate 1.6.1 release identity
+      - name: Validate release identity
         id: version
         run: |
           set -euo pipefail
@@ -61,42 +71,32 @@ jobs:
           RUNTIME=$(node -e "process.stdout.write(require('./app.json').expo.runtimeVersion)")
           CODE=$(node -e "process.stdout.write(String(require('./app.json').expo.android.versionCode))")
           NATIVE_RUNTIME=$(sed -n 's/.*name="expo_runtime_version"[^>]*>\([^<]*\)<.*/\1/p' android/app/src/main/res/values/strings.xml)
-          test "$VERSION" = "1.6.1"
-          test "$RUNTIME" = "1.6.1"
-          test "$CODE" = "10601"
-          test "$NATIVE_RUNTIME" = "$RUNTIME"
+          test "$VERSION" = "1.6.1"; test "$RUNTIME" = "1.6.1"; test "$CODE" = "10601"; test "$NATIVE_RUNTIME" = "$RUNTIME"
           grep -F 'EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="NEVER"' android/app/src/main/AndroidManifest.xml
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "runtime=$RUNTIME" >> "$GITHUB_OUTPUT"
-          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"; echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
       - name: Install SDK-pinned dependencies
         env:
           NODE_ENV: development
         run: npm install --include=dev --legacy-peer-deps --no-audit --no-fund
 
-      - name: Validate JavaScript and Expo native graph
+      - name: Validate JS and Expo native graph
         run: |
           set -euo pipefail
           npx tsc --noEmit
           npx expo install --check
           node - <<'NODE'
-          const expected = { expo: '54.0.37', 'expo-asset': '12.0.13', 'expo-constants': '18.0.14' };
-          for (const [name, version] of Object.entries(expected)) {
-            const actual = require(`${name}/package.json`).version;
-            if (actual !== version) throw new Error(`${name}: expected ${version}, got ${actual}`);
-          }
-          require.resolve('expo-router');
-          require.resolve('babel-preset-expo');
-          console.log('Expo standalone dependency graph verified');
+          const expected={expo:'54.0.37','expo-asset':'12.0.13','expo-constants':'18.0.14'};
+          for(const [n,v] of Object.entries(expected)){const a=require(`${n}/package.json`).version;if(a!==v)throw new Error(`${n}: ${a} != ${v}`)}
+          require.resolve('expo-router'); require.resolve('babel-preset-expo'); console.log('Expo native graph verified');
           NODE
 
-      - name: Export production Android bundle
+      - name: Export production bundle
         env:
           NODE_ENV: production
         run: npx expo export --platform android --output-dir /tmp/oncampus-export
 
-      - name: Build universal signed release APK
+      - name: Build universal signed APK
         timeout-minutes: 55
         env:
           NODE_ENV: production
@@ -108,15 +108,12 @@ jobs:
           chmod +x android/gradlew
           cd android
           ./gradlew --stop || true
-          ./gradlew :app:assembleRelease \
-            -PreactNativeArchitectures=arm64-v8a,x86_64 \
-            -Pandroid.enablePngCrunchInReleaseBuilds=false \
-            --no-daemon --no-parallel --max-workers=1 --build-cache --console=plain --stacktrace
+          ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a,x86_64 -Pandroid.enablePngCrunchInReleaseBuilds=false --no-daemon --no-parallel --max-workers=1 --build-cache --console=plain --stacktrace
 
-      - name: Validate exact APK package, signature and embedded bundle
+      - name: Validate exact APK
         run: |
           set -euo pipefail
-          APK="android/app/build/outputs/apk/release/app-release.apk"
+          APK=android/app/build/outputs/apk/release/app-release.apk
           test -s "$APK"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" | tee apk-signature.txt
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$APK"
@@ -126,17 +123,14 @@ jobs:
           grep -F "versionCode='10601'" apk-badging.txt
           grep -F "versionName='1.6.1'" apk-badging.txt
           grep -F "launchable-activity: name='com.oncampus.app.MainActivity'" apk-badging.txt
-          grep -F "lib/arm64-v8a/" apk-files.txt >/dev/null
-          grep -F "lib/x86_64/" apk-files.txt >/dev/null
+          grep -F "lib/arm64-v8a/" apk-files.txt >/dev/null; grep -F "lib/x86_64/" apk-files.txt >/dev/null
           grep -E '(^|/)assets/(index\.android\.bundle|.*\.hbc)$' apk-files.txt >/dev/null
 
       - name: Enable KVM
         working-directory: ${{ github.workspace }}
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm || true
-          ls -l /dev/kvm || true
+          sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm || true; ls -l /dev/kvm || true
 
       - name: Cold-launch exact APK on Android 14
         uses: reactivecircus/android-emulator-runner@v2
@@ -149,54 +143,28 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           script: |
             set -uo pipefail
-            ROOT="$GITHUB_WORKSPACE/frontend"
-            APK="$ROOT/android/app/build/outputs/apk/release/app-release.apk"
-            INSTALL="$ROOT/android-smoke-install.txt"
-            START="$ROOT/android-smoke-start.txt"
-            LOG="$ROOT/android-smoke-logcat.txt"
-            STATE="$ROOT/android-smoke-state.txt"
-            diagnostics() {
-              adb devices -l > "$ROOT/android-smoke-devices.txt" 2>&1 || true
-              adb shell dumpsys activity activities > "$STATE" 2>&1 || true
-              adb logcat -d -v threadtime > "$LOG" 2>&1 || true
-            }
+            ROOT="$GITHUB_WORKSPACE/frontend"; APK="$ROOT/android/app/build/outputs/apk/release/app-release.apk"
+            INSTALL="$ROOT/android-smoke-install.txt"; START="$ROOT/android-smoke-start.txt"; LOG="$ROOT/android-smoke-logcat.txt"; STATE="$ROOT/android-smoke-state.txt"
+            diagnostics(){ adb devices -l > "$ROOT/android-smoke-devices.txt" 2>&1 || true; adb shell dumpsys activity activities > "$STATE" 2>&1 || true; adb logcat -d -v threadtime > "$LOG" 2>&1 || true; }
             trap diagnostics EXIT
             set -e
-            test -s "$APK"
-            adb wait-for-device
-            adb shell getprop sys.boot_completed | tee "$ROOT/android-smoke-boot.txt"
-            adb install -r "$APK" 2>&1 | tee "$INSTALL"
-            grep -F "Success" "$INSTALL"
+            test -s "$APK"; adb wait-for-device; adb shell getprop sys.boot_completed | tee "$ROOT/android-smoke-boot.txt"
+            adb install -r "$APK" 2>&1 | tee "$INSTALL"; grep -F Success "$INSTALL"
             adb shell pm path com.oncampus.app | tee "$ROOT/android-smoke-package.txt"
-            adb shell am force-stop com.oncampus.app
-            adb logcat -c
-            adb shell am start -W -n com.oncampus.app/.MainActivity 2>&1 | tee "$START"
-            grep -F "Status: ok" "$START"
+            adb shell am force-stop com.oncampus.app; adb logcat -c
+            adb shell am start -W -n com.oncampus.app/.MainActivity 2>&1 | tee "$START"; grep -F 'Status: ok' "$START"
             sleep 15
-            PID=$(adb shell pidof com.oncampus.app | tr -d '\r' || true)
-            test -n "$PID"
-            adb shell dumpsys activity activities | grep -F "com.oncampus.app/.MainActivity"
+            PID=$(adb shell pidof com.oncampus.app | tr -d '\r' || true); test -n "$PID"
+            adb shell dumpsys activity activities | grep -F 'com.oncampus.app/.MainActivity'
             diagnostics
-            if grep -E "FATAL EXCEPTION|Process: com\.oncampus\.app.*PID|Unable to start activity|ReactNativeJS.*(TypeError|ReferenceError|Invariant Violation|Error:)" "$LOG"; then
-              echo "Fatal OnCampus startup error found" >&2
-              exit 1
-            fi
+            if grep -E 'FATAL EXCEPTION|Process: com\.oncampus\.app.*PID|Unable to start activity|ReactNativeJS.*(TypeError|ReferenceError|Invariant Violation|Error:)' "$LOG"; then echo 'Fatal OnCampus startup error found' >&2; exit 1; fi
             echo "OnCampus 1.6.1 cold launch passed with PID $PID"
 
-      - name: Prepare verified APK artifact
+      - name: Prepare verified APK
         run: |
-          set -euo pipefail
           cp android/app/build/outputs/apk/release/app-release.apk OnCampus-1.6.1.apk
           sha256sum OnCampus-1.6.1.apk | tee OnCampus-1.6.1.apk.sha256
-          cat > APK_INSTALL_INFO.txt <<EOF
-          package=com.oncampus.app
-          version=1.6.1
-          runtimeVersion=1.6.1
-          versionCode=10601
-          abis=arm64-v8a,x86_64
-          embeddedBundle=verified
-          emulatorColdLaunch=verified-api34
-          EOF
+          printf 'package=com.oncampus.app\nversion=1.6.1\nruntimeVersion=1.6.1\nversionCode=10601\nabis=arm64-v8a,x86_64\nemulatorColdLaunch=verified-api34\n' > APK_INSTALL_INFO.txt
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
@@ -210,7 +178,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload smoke diagnostics on failure
+      - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -222,16 +190,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Publish verified GitHub release
+      - name: Publish verified release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v1.6.1
           name: OnCampus 1.6.1
           make_latest: true
           overwrite_files: true
-          body: |
-            Verified Android recovery release. The exact APK passed SDK/native dependency validation, production bundle validation, signing/alignment/package checks, and an Android 14 cold-launch process/logcat smoke test.
+          body: Verified Android recovery release; exact APK passed standalone dependency, bundle, signature/package, install, cold-launch, process-alive and logcat checks on Android 14.
           files: |
             frontend/OnCampus-1.6.1.apk
             frontend/OnCampus-1.6.1.apk.sha256
             frontend/APK_INSTALL_INFO.txt
+
+      - name: Record verified run result
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          FILE=frontend/VERIFIED_APK_STATUS.json
+          printf '{"runId":%s,"status":"%s","sourceCommit":"%s","finishedAt":"%s"}\n' "$GITHUB_RUN_ID" "$BUILD_STATUS" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /tmp/status.json
+          CONTENT=$(base64 -w0 /tmp/status.json); SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE?ref=main" --jq .sha 2>/dev/null || true)
+          if [ -n "$SHA" ]; then gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="ci(android): verified APK run $BUILD_STATUS" -f content="$CONTENT" -f sha="$SHA" -f branch=main >/dev/null; else gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$FILE" -f message="ci(android): verified APK run $BUILD_STATUS" -f content="$CONTENT" -f branch=main >/dev/null; fi
