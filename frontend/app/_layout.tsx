@@ -18,6 +18,7 @@ import { PushNotificationProvider } from "@/src/context/PushNotificationProvider
 import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
 import { ToastProvider } from "@/src/components/Toast";
 import AppErrorBoundary from "@/src/components/AppErrorBoundary";
+import OptionalFeatureBoundary from "@/src/components/OptionalFeatureBoundary";
 import AppUpdateGate from "@/src/components/AppUpdateGate";
 import ServerUpdateCoordinator from "@/src/components/ServerUpdateCoordinator";
 import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
@@ -101,9 +102,15 @@ export default function RootLayout() {
                         <PushNotificationProvider>
                           <ToastProvider>
                             <ThemedStack />
-                            <AppUpdateGate />
-                            <ServerUpdateCoordinator />
-                            <SessionExpiredModal />
+                            <OptionalFeatureBoundary name="app-update-gate">
+                              <AppUpdateGate />
+                            </OptionalFeatureBoundary>
+                            <OptionalFeatureBoundary name="server-update-coordinator">
+                              <ServerUpdateCoordinator />
+                            </OptionalFeatureBoundary>
+                            <OptionalFeatureBoundary name="session-expired-modal">
+                              <SessionExpiredModal />
+                            </OptionalFeatureBoundary>
                           </ToastProvider>
                         </PushNotificationProvider>
                       </NotificationProvider>
