@@ -2,4 +2,5 @@ OnCampus 1.6.1
 runtime=1.6.1
 versionCode=10601
 channel=production
-reason=startup recovery build: embedded bundle first, no OTA-on-launch, no artificial animated boot delay, non-blocking platform settings, version/runtime consistency validation, Expo health checks, deterministic universal Android release, signature/bundle validation, real emulator install/cold-launch/process-alive/logcat smoke test
+attempt=2
+reason=startup recovery build after Expo native peer repair: explicit SDK-compatible expo-asset, Expo/Constants patch alignment, embedded bundle first, no OTA-on-launch, no artificial animated boot delay, non-blocking platform settings, dependency/type/bundle/signature validation, and real emulator cold-launch/process-alive/logcat smoke test
