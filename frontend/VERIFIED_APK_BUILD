@@ -3,4 +3,5 @@ runtime=1.6.2
 versionCode=10602
 validation=static-native-no-emulator
 startupProviderContract=required
-trigger=2026-08-24T15:23:00+05:30
+expoCliFileContract=required
+trigger=2026-08-24T15:42:00+05:30
