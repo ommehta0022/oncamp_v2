@@ -16,7 +16,6 @@ import { NotificationProvider } from "@/src/context/NotificationProvider";
 import { PushNotificationProvider } from "@/src/context/PushNotificationProvider";
 import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
 import { ToastProvider } from "@/src/components/Toast";
-import CampusLoader from "@/src/components/CampusLoader";
 import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import AppUpdateGate from "@/src/components/AppUpdateGate";
 import ServerUpdateCoordinator from "@/src/components/ServerUpdateCoordinator";
@@ -37,37 +36,23 @@ function ThemedStack() {
     maintenanceMode?: boolean;
     maintenanceMessage?: string;
   } | null>(null);
-  const [checkingSettings, setCheckingSettings] = useState(true);
 
   useEffect(() => {
     let mounted = true;
-    const fallback = setTimeout(() => {
-      if (mounted) setCheckingSettings(false);
-    }, 3500);
 
     api.platform
       .settings()
-      .then((settings) => { if (mounted) setPlatformSettings(settings); })
-      .catch(() => { if (mounted) setPlatformSettings(null); })
-      .finally(() => {
-        clearTimeout(fallback);
-        if (mounted) setCheckingSettings(false);
+      .then((settings) => {
+        if (mounted) setPlatformSettings(settings);
+      })
+      .catch(() => {
+        // Startup must remain usable offline or when the platform settings API is unavailable.
       });
 
     return () => {
       mounted = false;
-      clearTimeout(fallback);
     };
   }, []);
-
-  if (checkingSettings) {
-    return (
-      <View style={{ flex: 1, width: "100%", backgroundColor: STARTUP_BACKGROUND }}>
-        <StatusBar hidden animated={false} />
-        <CampusLoader fullScreen inverse label="Opening OnCampus…" />
-      </View>
-    );
-  }
 
   if (platformSettings?.maintenanceMode) {
     return (
