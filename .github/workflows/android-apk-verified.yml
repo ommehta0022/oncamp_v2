@@ -26,6 +26,7 @@ jobs:
       EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      REACT_NATIVE_ARCHITECTURES: "arm64-v8a,x86_64"
 
     steps:
       - name: Check out source
@@ -135,8 +136,8 @@ jobs:
           chmod +x android/gradlew
           cd android
           ./gradlew --stop || true
-          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --no-daemon --console=plain > ../release-runtime-dependencies.txt
-          ./gradlew :app:lintRelease :app:testReleaseUnitTest --no-daemon --no-parallel --max-workers=1 --console=plain --stacktrace
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath -PreactNativeArchitectures="$REACT_NATIVE_ARCHITECTURES" --no-daemon --console=plain > ../release-runtime-dependencies.txt
+          ./gradlew :app:lintRelease :app:testReleaseUnitTest -PreactNativeArchitectures="$REACT_NATIVE_ARCHITECTURES" --no-daemon --no-parallel --max-workers=1 --console=plain --stacktrace
 
       - name: Build universal signed release APK
         timeout-minutes: 55
@@ -148,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           cd android
-          ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a,x86_64 -Pandroid.enablePngCrunchInReleaseBuilds=false --no-daemon --no-parallel --max-workers=1 --build-cache --console=plain --stacktrace
+          ./gradlew :app:assembleRelease -PreactNativeArchitectures="$REACT_NATIVE_ARCHITECTURES" -Pandroid.enablePngCrunchInReleaseBuilds=false --no-daemon --no-parallel --max-workers=1 --build-cache --console=plain --stacktrace
 
       - name: Deep-validate exact APK artifact
         run: |
@@ -170,6 +171,8 @@ jobs:
           grep -F "launchable-activity: name='com.oncampus.app.MainActivity'" apk-badging.txt
           grep -F "lib/arm64-v8a/" apk-files.txt >/dev/null
           grep -F "lib/x86_64/" apk-files.txt >/dev/null
+          ! grep -F "lib/armeabi-v7a/" apk-files.txt >/dev/null
+          ! grep -F "lib/x86/" apk-files.txt >/dev/null
           grep -E '(^|/)assets/(index\.android\.bundle|.*\.hbc)$' apk-files.txt >/dev/null
           grep -F 'classes.dex' apk-files.txt >/dev/null
 
