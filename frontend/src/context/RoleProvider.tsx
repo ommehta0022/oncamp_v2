@@ -32,16 +32,40 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(STORAGE_KEY), AsyncStorage.getItem(USER_CACHE_KEY)]).then(([storedRole, storedUser]) => {
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser) as SessionUser;
-        setUser(parsed);
-        setRoleState(resolveRole(parsed, storedRole as Role | null));
-      } else if (storedRole) {
-        setRoleState(storedRole as Role);
+    let mounted = true;
+
+    void (async () => {
+      try {
+        const [storedRole, storedUser] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEY),
+          AsyncStorage.getItem(USER_CACHE_KEY),
+        ]);
+        if (!mounted) return;
+
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser) as SessionUser;
+            setUser(parsed);
+            setRoleState(resolveRole(parsed, storedRole as Role | null));
+          } catch {
+            // A corrupt cache should be discarded rather than preventing startup.
+            await AsyncStorage.removeItem(USER_CACHE_KEY).catch(() => undefined);
+            setUser(null);
+            setRoleState("normal_user");
+          }
+        } else if (storedRole) {
+          setRoleState(storedRole as Role);
+        }
+      } catch {
+        // AsyncStorage can fail on individual devices; default identity remains usable.
+      } finally {
+        if (mounted) setHydrated(true);
       }
-      setHydrated(true);
-    });
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -78,8 +102,8 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
       if (e?.code === "UNAUTHENTICATED" || e?.status === 401 || e?.message === "Authentication failed") {
         setUser(null);
         setRoleState("normal_user");
-        await AsyncStorage.removeItem(USER_CACHE_KEY);
-        await AsyncStorage.removeItem(STORAGE_KEY);
+        await AsyncStorage.removeItem(USER_CACHE_KEY).catch(() => undefined);
+        await AsyncStorage.removeItem(STORAGE_KEY).catch(() => undefined);
       }
       throw e;
     }
@@ -88,7 +112,7 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
   const setRole = useCallback((r: Role) => {
     if (!__DEV__) return;
     setRoleState(r);
-    AsyncStorage.setItem(STORAGE_KEY, r);
+    void AsyncStorage.setItem(STORAGE_KEY, r).catch(() => undefined);
   }, []);
 
   // Institution-owned publishing: student and group roles never receive a post composer.
