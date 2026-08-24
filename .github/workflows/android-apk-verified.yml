@@ -1,0 +1,237 @@
+name: Verified Android APK 1.6.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-apk-verified.yml"
+      - "frontend/VERIFIED_APK_BUILD"
+
+concurrency:
+  group: oncampus-android-apk-verified
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install deterministic Android build toolchain
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Validate 1.6.1 release identity
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(node -e "process.stdout.write(require('./app.json').expo.version)")
+          RUNTIME=$(node -e "process.stdout.write(require('./app.json').expo.runtimeVersion)")
+          CODE=$(node -e "process.stdout.write(String(require('./app.json').expo.android.versionCode))")
+          NATIVE_RUNTIME=$(sed -n 's/.*name="expo_runtime_version"[^>]*>\([^<]*\)<.*/\1/p' android/app/src/main/res/values/strings.xml)
+          test "$VERSION" = "1.6.1"
+          test "$RUNTIME" = "1.6.1"
+          test "$CODE" = "10601"
+          test "$NATIVE_RUNTIME" = "$RUNTIME"
+          grep -F 'EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="NEVER"' android/app/src/main/AndroidManifest.xml
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "runtime=$RUNTIME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Install SDK-pinned dependencies
+        env:
+          NODE_ENV: development
+        run: npm install --include=dev --legacy-peer-deps --no-audit --no-fund
+
+      - name: Validate JavaScript and Expo native graph
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit
+          npx expo install --check
+          node - <<'NODE'
+          const expected = { expo: '54.0.37', 'expo-asset': '12.0.13', 'expo-constants': '18.0.14' };
+          for (const [name, version] of Object.entries(expected)) {
+            const actual = require(`${name}/package.json`).version;
+            if (actual !== version) throw new Error(`${name}: expected ${version}, got ${actual}`);
+          }
+          require.resolve('expo-router');
+          require.resolve('babel-preset-expo');
+          console.log('Expo standalone dependency graph verified');
+          NODE
+
+      - name: Export production Android bundle
+        env:
+          NODE_ENV: production
+        run: npx expo export --platform android --output-dir /tmp/oncampus-export
+
+      - name: Build universal signed release APK
+        timeout-minutes: 55
+        env:
+          NODE_ENV: production
+          APP_VERSION_NAME: ${{ steps.version.outputs.version }}
+          APP_VERSION_CODE: ${{ steps.version.outputs.code }}
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dkotlin.compiler.execution.strategy=in-process"
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --stop || true
+          ./gradlew :app:assembleRelease \
+            -PreactNativeArchitectures=arm64-v8a,x86_64 \
+            -Pandroid.enablePngCrunchInReleaseBuilds=false \
+            --no-daemon --no-parallel --max-workers=1 --build-cache --console=plain --stacktrace
+
+      - name: Validate exact APK package, signature and embedded bundle
+        run: |
+          set -euo pipefail
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" | tee apk-signature.txt
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
+          unzip -Z1 "$APK" | tee apk-files.txt
+          grep -F "package: name='com.oncampus.app'" apk-badging.txt
+          grep -F "versionCode='10601'" apk-badging.txt
+          grep -F "versionName='1.6.1'" apk-badging.txt
+          grep -F "launchable-activity: name='com.oncampus.app.MainActivity'" apk-badging.txt
+          grep -F "lib/arm64-v8a/" apk-files.txt >/dev/null
+          grep -F "lib/x86_64/" apk-files.txt >/dev/null
+          grep -E '(^|/)assets/(index\.android\.bundle|.*\.hbc)$' apk-files.txt >/dev/null
+
+      - name: Enable KVM
+        working-directory: ${{ github.workspace }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm || true
+
+      - name: Cold-launch exact APK on Android 14
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: |
+            set -uo pipefail
+            ROOT="$GITHUB_WORKSPACE/frontend"
+            APK="$ROOT/android/app/build/outputs/apk/release/app-release.apk"
+            INSTALL="$ROOT/android-smoke-install.txt"
+            START="$ROOT/android-smoke-start.txt"
+            LOG="$ROOT/android-smoke-logcat.txt"
+            STATE="$ROOT/android-smoke-state.txt"
+            diagnostics() {
+              adb devices -l > "$ROOT/android-smoke-devices.txt" 2>&1 || true
+              adb shell dumpsys activity activities > "$STATE" 2>&1 || true
+              adb logcat -d -v threadtime > "$LOG" 2>&1 || true
+            }
+            trap diagnostics EXIT
+            set -e
+            test -s "$APK"
+            adb wait-for-device
+            adb shell getprop sys.boot_completed | tee "$ROOT/android-smoke-boot.txt"
+            adb install -r "$APK" 2>&1 | tee "$INSTALL"
+            grep -F "Success" "$INSTALL"
+            adb shell pm path com.oncampus.app | tee "$ROOT/android-smoke-package.txt"
+            adb shell am force-stop com.oncampus.app
+            adb logcat -c
+            adb shell am start -W -n com.oncampus.app/.MainActivity 2>&1 | tee "$START"
+            grep -F "Status: ok" "$START"
+            sleep 15
+            PID=$(adb shell pidof com.oncampus.app | tr -d '\r' || true)
+            test -n "$PID"
+            adb shell dumpsys activity activities | grep -F "com.oncampus.app/.MainActivity"
+            diagnostics
+            if grep -E "FATAL EXCEPTION|Process: com\.oncampus\.app.*PID|Unable to start activity|ReactNativeJS.*(TypeError|ReferenceError|Invariant Violation|Error:)" "$LOG"; then
+              echo "Fatal OnCampus startup error found" >&2
+              exit 1
+            fi
+            echo "OnCampus 1.6.1 cold launch passed with PID $PID"
+
+      - name: Prepare verified APK artifact
+        run: |
+          set -euo pipefail
+          cp android/app/build/outputs/apk/release/app-release.apk OnCampus-1.6.1.apk
+          sha256sum OnCampus-1.6.1.apk | tee OnCampus-1.6.1.apk.sha256
+          cat > APK_INSTALL_INFO.txt <<EOF
+          package=com.oncampus.app
+          version=1.6.1
+          runtimeVersion=1.6.1
+          versionCode=10601
+          abis=arm64-v8a,x86_64
+          embeddedBundle=verified
+          emulatorColdLaunch=verified-api34
+          EOF
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnCampus-1.6.1-Verified-Android
+          path: |
+            frontend/OnCampus-1.6.1.apk
+            frontend/OnCampus-1.6.1.apk.sha256
+            frontend/APK_INSTALL_INFO.txt
+            frontend/android-smoke-*.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload smoke diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnCampus-1.6.1-Smoke-Diagnostics-${{ github.run_id }}
+          path: |
+            frontend/android-smoke-*.txt
+            frontend/apk-*.txt
+            frontend/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish verified GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v1.6.1
+          name: OnCampus 1.6.1
+          make_latest: true
+          overwrite_files: true
+          body: |
+            Verified Android recovery release. The exact APK passed SDK/native dependency validation, production bundle validation, signing/alignment/package checks, and an Android 14 cold-launch process/logcat smoke test.
+          files: |
+            frontend/OnCampus-1.6.1.apk
+            frontend/OnCampus-1.6.1.apk.sha256
+            frontend/APK_INSTALL_INFO.txt
