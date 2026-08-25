@@ -2,12 +2,12 @@
   "expo": {
     "name": "OnCampus",
     "slug": "oncampus",
-    "version": "1.6.3",
-    "runtimeVersion": "1.6.3",
+    "version": "1.6.4",
+    "runtimeVersion": "1.6.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "oncampus",
-    "backgroundColor": "#1267F4",
+    "backgroundColor": "#071A2F",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "updates": {
@@ -31,10 +31,10 @@
       }
     },
     "android": {
-      "versionCode": 10603,
+      "versionCode": 10604,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#1267F4"
+        "backgroundColor": "#EAF2F8"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.oncampus.app",
@@ -66,7 +66,7 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#1267F4"
+          "backgroundColor": "#071A2F"
         }
       ],
       [
@@ -82,7 +82,7 @@
     },
     "extra": {
       "apiBaseUrl": "https://oncampus-backend-production.up.railway.app/v1",
-      "otaRuntimeVersion": "1.6.3",
+      "otaRuntimeVersion": "1.6.4",
       "otaChannel": "production",
       "serverTriggeredUpdates": true,
       "nativeDirectInstaller": true,
