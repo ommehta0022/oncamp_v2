@@ -16,6 +16,7 @@ import { LanguageProvider } from "@/src/context/LanguageProvider";
 import { NotificationProvider } from "@/src/context/NotificationProvider";
 import { PushNotificationProvider } from "@/src/context/PushNotificationProvider";
 import { FeatureFlagsProvider } from "@/src/context/FeatureFlagsProvider";
+import { PinnedContentProvider } from "@/src/context/PinnedContentProvider";
 import { ToastProvider } from "@/src/components/Toast";
 import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import OptionalFeatureBoundary from "@/src/components/OptionalFeatureBoundary";
@@ -26,7 +27,7 @@ import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
 import { api } from "@/src/lib/api";
 import { installAlertPromptCompat } from "@/src/lib/alertPromptCompat";
 
-const STARTUP_BACKGROUND = "#1267F4";
+const STARTUP_BACKGROUND = "#071A2F";
 
 installAlertPromptCompat();
 LogBox.ignoreAllLogs(true);
@@ -42,7 +43,6 @@ function ThemedStack() {
 
   useEffect(() => {
     let mounted = true;
-
     api.platform
       .settings()
       .then((settings) => {
@@ -51,7 +51,6 @@ function ThemedStack() {
       .catch(() => {
         // Startup must remain usable offline or when the platform settings API is unavailable.
       });
-
     return () => {
       mounted = false;
     };
@@ -98,27 +97,29 @@ export default function RootLayout() {
               <ThemeProvider>
                 <LanguageProvider>
                   <RoleProvider>
-                    <FeatureFlagsProvider>
-                      <NotificationProvider>
-                        <PushNotificationProvider>
-                          <ToastProvider>
-                            <ThemedStack />
-                            <OptionalFeatureBoundary name="native-ota-startup-guard">
-                              <NativeOtaStartupGuard />
-                            </OptionalFeatureBoundary>
-                            <OptionalFeatureBoundary name="app-update-gate">
-                              <AppUpdateGate />
-                            </OptionalFeatureBoundary>
-                            <OptionalFeatureBoundary name="server-update-coordinator">
-                              <ServerUpdateCoordinator />
-                            </OptionalFeatureBoundary>
-                            <OptionalFeatureBoundary name="session-expired-modal">
-                              <SessionExpiredModal />
-                            </OptionalFeatureBoundary>
-                          </ToastProvider>
-                        </PushNotificationProvider>
-                      </NotificationProvider>
-                    </FeatureFlagsProvider>
+                    <PinnedContentProvider>
+                      <FeatureFlagsProvider>
+                        <NotificationProvider>
+                          <PushNotificationProvider>
+                            <ToastProvider>
+                              <ThemedStack />
+                              <OptionalFeatureBoundary name="native-ota-startup-guard">
+                                <NativeOtaStartupGuard />
+                              </OptionalFeatureBoundary>
+                              <OptionalFeatureBoundary name="app-update-gate">
+                                <AppUpdateGate />
+                              </OptionalFeatureBoundary>
+                              <OptionalFeatureBoundary name="server-update-coordinator">
+                                <ServerUpdateCoordinator />
+                              </OptionalFeatureBoundary>
+                              <OptionalFeatureBoundary name="session-expired-modal">
+                                <SessionExpiredModal />
+                              </OptionalFeatureBoundary>
+                            </ToastProvider>
+                          </PushNotificationProvider>
+                        </NotificationProvider>
+                      </FeatureFlagsProvider>
+                    </PinnedContentProvider>
                   </RoleProvider>
                 </LanguageProvider>
               </ThemeProvider>
