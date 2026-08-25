@@ -14,6 +14,9 @@ const theme = read('src/theme/ThemeProvider.tsx');
 const palette = read('src/theme/colors.ts');
 const role = read('src/context/RoleProvider.tsx');
 const accessibility = read('src/context/AccessibilityProvider.tsx');
+const pins = read('src/context/PinnedContentProvider.tsx');
+const updateGate = read('src/components/AppUpdateGate.tsx');
+const nativeGuard = read('src/components/NativeOtaStartupGuard.tsx');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const strings = read('android/app/src/main/res/values/strings.xml');
 const gradle = read('android/app/build.gradle');
@@ -58,13 +61,17 @@ expect(stylesV28.includes('android:windowLayoutInDisplayCutoutMode'), 'API 28 cu
 expect(stylesV29.includes('android:enforceNavigationBarContrast'), 'API 29 contrast style missing');
 expect(stylesV33.includes('android:windowSplashScreenBehavior'), 'API 33 splash behavior missing');
 
+const lightPalette = palette.split('export const lightColors = {')[1]?.split('};')[0] || '';
 const darkPalette = palette.split('export const darkColors = {')[1]?.split('};')[0] || '';
-expect(darkPalette.includes('surface: "#0A0A0A"'), 'dark mode surface must remain professional near-black');
-expect(darkPalette.includes('background: "#0A0A0A"'), 'dark mode background must remain professional near-black');
-expect(darkPalette.includes('card: "#121214"'), 'dark mode cards must remain charcoal');
-expect(darkPalette.includes('brandPrimary: "#E7E7EA"'), 'dark mode primary brand action must remain neutral silver');
-expect(darkPalette.includes('bubbleOwn: "#2A2A2E"'), 'dark mode own chat bubble must remain charcoal');
-expect(darkPalette.includes('gradientStart: "#2A2A2F"') && darkPalette.includes('gradientEnd: "#111113"'), 'dark mode gradients must remain neutral charcoal');
+expect(lightPalette.includes('surface: "#F7F4EE"'), 'light mode must keep the premium warm pearl surface');
+expect(lightPalette.includes('luxuryGold: "#B68A3A"') && lightPalette.includes('luxuryTeal: "#078F92"'), 'light luxury accents missing');
+expect(darkPalette.includes('surface: "#061019"'), 'dark mode must keep the obsidian/navy surface');
+expect(darkPalette.includes('card: "#0B1824"'), 'dark mode cards must remain deep navy');
+expect(darkPalette.includes('brandPrimary: "#4AA8FF"'), 'dark primary action must remain luminous blue');
+expect(darkPalette.includes('luxuryGold: "#D7B66C"') && darkPalette.includes('luxuryTeal: "#38BEC1"'), 'dark luxury accents missing');
+expect(darkPalette.includes('gradientStart: "#0B3763"') && darkPalette.includes('gradientEnd: "#087D82"'), 'dark premium gradient contract changed');
+expect(theme.includes('export type ThemeMode = "light" | "dark"'), 'appearance must expose exactly Light and Dark modes');
+expect(!theme.includes('type ThemeMode = "light" | "dark" | "system"'), 'System mode must not return');
 
 const expectedDeps = {
   expo: '54.0.37',
@@ -78,7 +85,8 @@ for (const [name, pinned] of Object.entries(expectedDeps)) {
 }
 
 expect(layout.includes('import { AccessibilityProvider }'), 'RootLayout must import AccessibilityProvider');
-expect(layout.includes('NativeOtaStartupGuard'), 'RootLayout must mount the native OTA startup guard');
+expect(layout.includes('NativeOtaStartupGuard'), 'RootLayout must mount the native OTA startup observer');
+expect(layout.includes('PinnedContentProvider'), 'RootLayout must mount personal pin persistence');
 const aOpen = layout.indexOf('<AccessibilityProvider>');
 const tOpen = layout.indexOf('<ThemeProvider>');
 const tClose = layout.indexOf('</ThemeProvider>');
@@ -89,14 +97,26 @@ expect(theme.includes('.catch(() =>'), 'Theme storage hydration must have a fail
 expect(theme.includes('.finally(() =>'), 'Theme storage hydration must always complete');
 expect(role.includes('finally') && role.includes('setHydrated(true)'), 'Role hydration must always complete');
 expect(accessibility.includes('.catch(() =>') && accessibility.includes('.finally(() =>'), 'Accessibility bootstrap must be fail-safe');
+expect(pins.includes('oncampus.personal-pins.v1'), 'personal pin storage key missing');
+expect(pins.includes('togglePostPin') && pins.includes('toggleGroupPin'), 'post/group pin controls missing');
 
 for (const feature of ['native-ota-startup-guard', 'app-update-gate', 'server-update-coordinator', 'session-expired-modal']) {
   expect(layout.includes(`<OptionalFeatureBoundary name="${feature}">`), `${feature} must be isolated from the app shell`);
 }
+
+expect(updateGate.includes('DEFER_MS = 6 * 60 * 60 * 1000'), 'OTA Later quiet-period contract missing');
+expect(updateGate.includes('phase: "available"'), 'unified update available UI missing');
+expect(updateGate.includes('Update now'), 'OTA Update now action missing');
+expect(updateGate.includes('Updates.fetchUpdateAsync()'), 'OTA download step missing');
+expect(updateGate.includes('Updates.reloadAsync()'), 'OTA one-tap apply/reload step missing');
+expect(updateGate.includes('phase: "current"'), 'manual up-to-date state missing');
+expect(updateGate.includes('SUCCESS_SHOWN_KEY'), 'one-time update-success acknowledgement missing');
+expect(updateGate.includes('serverOtaId()'), 'OTA server/native acceptance cross-check missing');
+expect(!nativeGuard.includes('Alert.alert'), 'native OTA observer must not create duplicate user prompts');
 
 expect(!layout.includes('CampusLoader'), 'RootLayout must not block startup with CampusLoader');
 expect(!index.includes('CampusLoader'), 'Startup route must not use CampusLoader');
 expect(!index.includes('setTimeout('), 'Startup route must not contain artificial delays');
 expect(index.includes('router.replace(target)'), 'Startup route must deterministically leave the splash route');
 
-console.log(`OnCampus release/startup contracts verified for ${version} with native ON_LOAD OTA`);
+console.log(`OnCampus release/startup contracts verified for ${version} with luxury UI, personal pins and unified native ON_LOAD OTA`);
