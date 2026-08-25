@@ -75,6 +75,12 @@ def _version_tuple(value: Optional[str]) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
 
 
+def _asset_digest_sha256(asset: Optional[dict[str, Any]]) -> Optional[str]:
+    raw = str((asset or {}).get("digest") or "").strip().lower()
+    match = re.fullmatch(r"sha256:([a-f0-9]{64})", raw)
+    return match.group(1) if match else None
+
+
 def _fetch_native_release(force: bool = False) -> Optional[dict[str, Any]]:
     global _native_release_cache
     now = time.monotonic()
@@ -89,7 +95,8 @@ def _fetch_native_release(force: bool = False) -> Optional[dict[str, Any]]:
             headers={
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "OnCampus-Native-Updater/1.0",
+                "User-Agent": "OnCampus-Native-Updater/2.0",
+                "Cache-Control": "no-cache",
             },
             timeout=8,
         )
@@ -97,22 +104,34 @@ def _fetch_native_release(force: bool = False) -> Optional[dict[str, Any]]:
             raw = response.json()
             tag = str(raw.get("tag_name") or "").strip()
             if re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+                version = tag[1:]
                 prefix = f"{NATIVE_RELEASE_PREFIX}{tag}/"
                 assets = raw.get("assets") if isinstance(raw.get("assets"), list) else []
-                apk = next((a for a in assets if a.get("name") == "OnCampus.apk"), None)
-                checksum_asset = next((a for a in assets if a.get("name") == "OnCampus.apk.sha256"), None)
+                apk_names = (f"OnCampus-{version}.apk", "OnCampus.apk")
+                checksum_names = (f"OnCampus-{version}.apk.sha256", "OnCampus.apk.sha256")
+                apk = next((a for a in assets if a.get("name") in apk_names), None)
+                checksum_asset = next((a for a in assets if a.get("name") in checksum_names), None)
+                apk_name = str((apk or {}).get("name") or "")
+                checksum_name = str((checksum_asset or {}).get("name") or "")
                 apk_url = str((apk or {}).get("browser_download_url") or "")
                 checksum_url = str((checksum_asset or {}).get("browser_download_url") or "")
-                if apk_url == f"{prefix}OnCampus.apk" and checksum_url == f"{prefix}OnCampus.apk.sha256":
-                    checksum_response = requests.get(
-                        checksum_url,
-                        headers={"Accept": "text/plain", "User-Agent": "OnCampus-Native-Updater/1.0"},
-                        timeout=8,
-                    )
-                    checksum_match = re.search(r"\b([A-Fa-f0-9]{64})\b", checksum_response.text if checksum_response.ok else "")
-                    if checksum_match:
+
+                if apk_name and apk_url == f"{prefix}{apk_name}":
+                    checksum = _asset_digest_sha256(apk)
+                    if not checksum and checksum_name and checksum_url == f"{prefix}{checksum_name}":
+                        checksum_response = requests.get(
+                            checksum_url,
+                            headers={"Accept": "text/plain", "User-Agent": "OnCampus-Native-Updater/2.0", "Cache-Control": "no-cache"},
+                            timeout=8,
+                        )
+                        checksum_match = re.search(
+                            r"\b([A-Fa-f0-9]{64})\b",
+                            checksum_response.text if checksum_response.ok else "",
+                        )
+                        checksum = checksum_match.group(1).lower() if checksum_match else None
+
+                    if checksum:
                         body = str(raw.get("body") or "")
-                        version = tag[1:]
                         release = {
                             "version": version,
                             "tag": tag,
@@ -120,13 +139,17 @@ def _fetch_native_release(force: bool = False) -> Optional[dict[str, Any]]:
                             "notes": _clean_release_notes(body),
                             "minVersion": _release_flag(body, "min-version") or "0.0.0",
                             "forceUpdate": str(_release_flag(body, "force-update") or "false").lower() == "true",
-                            "sha256": checksum_match.group(1).lower(),
+                            "sha256": checksum,
                             "size": int((apk or {}).get("size") or 0),
                             "githubApkUrl": apk_url,
                         }
+        else:
+            server.logger.warning("Native release metadata unavailable: GitHub status %s", response.status_code)
     except Exception as exc:
         server.logger.warning("Native release metadata unavailable: %s", type(exc).__name__)
 
+    if not release:
+        server.logger.warning("Native release metadata rejected: compatible APK/checksum asset not found")
     _native_release_cache = (now, release)
     return release
 
