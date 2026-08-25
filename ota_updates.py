@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any, Optional
@@ -19,12 +20,12 @@ router = APIRouter(tags=["OTA Updates"])
 REPO = "ommehta0022/oncamp_v2"
 DEFAULT_RUNTIME = os.getenv("OTA_RUNTIME_VERSION", "1.3.0")
 SIGNING_KEY_ID = os.getenv("OTA_CODE_SIGNING_KEY_ID", "oncampus-main")
-SOURCE_CACHE_TTL_SECONDS = int(os.getenv("OTA_SOURCE_CACHE_TTL_SECONDS", "20"))
-GITHUB_API_BASE = f"https://api.github.com/repos/{REPO}"
+SOURCE_CACHE_TTL_SECONDS = max(15, int(os.getenv("OTA_SOURCE_CACHE_TTL_SECONDS", "60")))
 LOGGER = logging.getLogger("oncampus")
 
 _cache_lock = threading.Lock()
 _source_cache: dict[str, tuple[float, Optional[dict[str, Any]]]] = {}
+_source_refresh_locks: dict[str, threading.Lock] = {}
 
 
 def supported_runtime_versions() -> set[str]:
@@ -45,91 +46,56 @@ def _allowed_asset_prefix(runtime_version: str) -> str:
     return f"https://github.com/{REPO}/releases/download/{_release_tag(runtime_version)}/"
 
 
-def _github_headers(accept: str = "application/vnd.github+json") -> dict[str, str]:
-    return {
-        "Accept": accept,
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "OnCampus-OTA/3.0",
-        "Cache-Control": "no-cache",
-    }
-
-
-def _release_asset(runtime_version: str, asset_name: str) -> Optional[dict[str, Any]]:
-    tag = _release_tag(runtime_version)
-    try:
-        response = requests.get(
-            f"{GITHUB_API_BASE}/releases/tags/{tag}",
-            headers=_github_headers(),
-            timeout=8,
-        )
-        if not response.ok:
-            LOGGER.warning("OTA release metadata unavailable runtime=%s status=%s", runtime_version, response.status_code)
-            return None
-        release = response.json()
-        assets = release.get("assets") if isinstance(release.get("assets"), list) else []
-        asset = next((value for value in assets if value.get("name") == asset_name), None)
-        return asset if isinstance(asset, dict) else None
-    except Exception as exc:
-        LOGGER.warning("OTA release metadata failed runtime=%s error=%s", runtime_version, type(exc).__name__)
+def _release_asset_url(runtime_version: str, asset_name: str) -> Optional[str]:
+    # Runtime values are allow-listed before this function is used. Asset names
+    # are also restricted so the OTA server can never be turned into an open
+    # proxy or URL-construction primitive.
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,160}", asset_name):
         return None
+    return f"{_allowed_asset_prefix(runtime_version)}{asset_name}"
 
 
 def _download_release_asset(runtime_version: str, asset_name: str) -> Optional[bytes]:
-    asset = _release_asset(runtime_version, asset_name)
-    if not asset:
-        LOGGER.warning("OTA release asset missing runtime=%s asset=%s", runtime_version, asset_name)
+    """Download a deterministic release asset without GitHub REST discovery.
+
+    The previous implementation called /releases/tags/{tag} before every asset
+    fetch. Production clients and the auto-campaign loop could therefore exhaust
+    GitHub's unauthenticated REST rate limit and make the OTA endpoint return 204.
+    Runtime release assets already have stable URLs, so REST discovery is both
+    unnecessary and a reliability risk.
+    """
+    browser_url = _release_asset_url(runtime_version, asset_name)
+    if not browser_url:
+        LOGGER.warning("OTA release asset rejected runtime=%s asset=%s", runtime_version, asset_name)
         return None
 
-    api_url = str(asset.get("url") or "")
-    browser_url = str(asset.get("browser_download_url") or "")
-    allowed_prefix = _allowed_asset_prefix(runtime_version)
-    if browser_url and not browser_url.startswith(allowed_prefix):
-        LOGGER.warning("OTA release asset rejected runtime=%s asset=%s reason=untrusted_url", runtime_version, asset_name)
-        return None
-
-    if api_url.startswith(f"{GITHUB_API_BASE}/releases/assets/"):
-        try:
-            response = requests.get(
-                api_url,
-                headers=_github_headers("application/octet-stream"),
-                timeout=10,
-                allow_redirects=True,
-            )
-            if response.ok:
-                content_type = str(response.headers.get("content-type") or "").lower()
-                if "application/json" not in content_type or not response.content.lstrip().startswith(b"{"):
-                    return response.content
-        except Exception as exc:
-            LOGGER.warning(
-                "OTA asset API download failed runtime=%s asset=%s error=%s",
-                runtime_version,
-                asset_name,
-                type(exc).__name__,
-            )
-
-    if browser_url:
-        try:
-            response = requests.get(
-                browser_url,
-                headers={"Accept": "application/json", "User-Agent": "OnCampus-OTA/3.0", "Cache-Control": "no-cache"},
-                timeout=10,
-                allow_redirects=True,
-            )
-            if response.ok:
-                return response.content
-            LOGGER.warning(
-                "OTA browser asset download unavailable runtime=%s asset=%s status=%s",
-                runtime_version,
-                asset_name,
-                response.status_code,
-            )
-        except Exception as exc:
-            LOGGER.warning(
-                "OTA browser asset download failed runtime=%s asset=%s error=%s",
-                runtime_version,
-                asset_name,
-                type(exc).__name__,
-            )
+    try:
+        response = requests.get(
+            browser_url,
+            headers={
+                "Accept": "application/json" if asset_name.endswith(".json") else "application/octet-stream",
+                "User-Agent": "OnCampus-OTA/4.0",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
+            timeout=10,
+            allow_redirects=True,
+        )
+        if response.ok:
+            return response.content
+        LOGGER.warning(
+            "OTA direct asset unavailable runtime=%s asset=%s status=%s",
+            runtime_version,
+            asset_name,
+            response.status_code,
+        )
+    except Exception as exc:
+        LOGGER.warning(
+            "OTA direct asset failed runtime=%s asset=%s error=%s",
+            runtime_version,
+            asset_name,
+            type(exc).__name__,
+        )
     return None
 
 
@@ -176,28 +142,63 @@ def _validate_source(source: Any, runtime_version: str) -> Optional[dict[str, An
     }
 
 
+def _refresh_lock(runtime_version: str) -> threading.Lock:
+    with _cache_lock:
+        lock = _source_refresh_locks.get(runtime_version)
+        if lock is None:
+            lock = threading.Lock()
+            _source_refresh_locks[runtime_version] = lock
+        return lock
+
+
 def fetch_latest_source(runtime_version: str, force: bool = False) -> Optional[dict[str, Any]]:
     if runtime_version not in supported_runtime_versions():
         return None
+
     now = time.monotonic()
     with _cache_lock:
         cached = _source_cache.get(runtime_version)
         if not force and cached and now - cached[0] < SOURCE_CACHE_TTL_SECONDS:
             return cached[1]
 
-    source: Optional[dict[str, Any]] = None
-    payload = _download_release_asset(runtime_version, "ota-source.json")
-    if payload:
-        try:
-            source = _validate_source(json.loads(payload.decode("utf-8")), runtime_version)
-            if not source:
-                LOGGER.warning("OTA source validation failed runtime=%s", runtime_version)
-        except Exception as exc:
-            LOGGER.warning("OTA source decode failed runtime=%s error=%s", runtime_version, type(exc).__name__)
+    # Collapse concurrent manifest/campaign/status refreshes for a runtime into a
+    # single upstream request. This also protects the release host from bursts.
+    with _refresh_lock(runtime_version):
+        now = time.monotonic()
+        with _cache_lock:
+            cached = _source_cache.get(runtime_version)
+            if not force and cached and now - cached[0] < SOURCE_CACHE_TTL_SECONDS:
+                return cached[1]
+            last_good = cached[1] if cached else None
 
-    with _cache_lock:
-        _source_cache[runtime_version] = (now, source)
-    return source
+        source: Optional[dict[str, Any]] = None
+        payload = _download_release_asset(runtime_version, "ota-source.json")
+        if payload:
+            try:
+                source = _validate_source(json.loads(payload.decode("utf-8")), runtime_version)
+                if not source:
+                    LOGGER.warning("OTA source validation failed runtime=%s", runtime_version)
+            except Exception as exc:
+                LOGGER.warning("OTA source decode failed runtime=%s error=%s", runtime_version, type(exc).__name__)
+
+        refreshed_at = time.monotonic()
+        if source:
+            with _cache_lock:
+                _source_cache[runtime_version] = (refreshed_at, source)
+            return source
+
+        # Never convert a transient upstream problem into "there is no update"
+        # after this process has already verified a good source. Serving the last
+        # signed/validated pointer is safer and keeps existing APKs updateable.
+        if last_good:
+            LOGGER.warning("OTA source refresh failed runtime=%s; serving last verified source", runtime_version)
+            with _cache_lock:
+                _source_cache[runtime_version] = (refreshed_at, last_good)
+            return last_good
+
+        with _cache_lock:
+            _source_cache[runtime_version] = (refreshed_at, None)
+        return None
 
 
 def _sign_manifest(body: bytes) -> Optional[str]:
@@ -266,4 +267,6 @@ def expo_updates_status(runtimeVersion: Optional[str] = Query(default=None, max_
         "releaseAvailable": source is not None,
         "updateId": source.get("id") if source else None,
         "signed": bool(os.getenv("OTA_CODE_SIGNING_PRIVATE_KEY")),
+        "sourceMode": "deterministic-release-asset",
+        "cacheTtlSeconds": SOURCE_CACHE_TTL_SECONDS,
     }
