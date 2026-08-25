@@ -132,7 +132,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Publish production OTA pointer and immutable assets
+      - name: Publish immutable OTA assets
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v3
         with:
@@ -143,8 +143,67 @@ jobs:
           overwrite_files: true
           body: |
             Signed production OTA channel for OnCampus runtime ${{ needs.classify.outputs.runtime }}.
-            This release is consumed by the in-app updater and is not a native APK release.
+            Immutable bundles and assets live here; the exact live pointer is promoted separately.
           files: frontend/ota-release/*
+
+      - name: Atomically promote exact production pointer
+        if: github.event_name != 'pull_request'
+        working-directory: frontend
+        env:
+          RUNTIME_VERSION: ${{ needs.classify.outputs.runtime }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const runtime = process.env.RUNTIME_VERSION;
+          const repository = process.env.GH_REPOSITORY;
+          const token = process.env.GH_TOKEN;
+          const source = JSON.parse(fs.readFileSync('ota-release/ota-source.json', 'utf8'));
+          if (!runtime || !repository || !token || source.runtimeVersion !== runtime || !source.id) {
+            throw new Error('Invalid OTA promotion inputs');
+          }
+
+          const path = `ota-pointers/runtime-${runtime}.json`;
+          const api = `https://api.github.com/repos/${repository}/contents/${path}`;
+          const headers = {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${token}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'OnCampus-OTA-Promoter/1.0',
+          };
+
+          (async () => {
+            let sha;
+            const current = await fetch(`${api}?ref=main`, { headers });
+            if (current.ok) {
+              sha = (await current.json()).sha;
+            } else if (current.status !== 404) {
+              throw new Error(`Could not inspect current OTA pointer: ${current.status}`);
+            }
+
+            const payload = {
+              message: `Promote OTA ${source.id} for runtime ${runtime}`,
+              content: Buffer.from(`${JSON.stringify(source, null, 2)}\n`).toString('base64'),
+              branch: 'main',
+              ...(sha ? { sha } : {}),
+            };
+            const promoted = await fetch(api, {
+              method: 'PUT',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            if (!promoted.ok) {
+              throw new Error(`OTA pointer promotion failed: ${promoted.status} ${await promoted.text()}`);
+            }
+            console.log(`Promoted runtime=${runtime} update=${source.id}`);
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
 
       - name: Verify production OTA delivery end to end
         if: github.event_name != 'pull_request'
@@ -160,7 +219,7 @@ jobs:
           MANIFEST_URL="${OTA_API_BASE}/updates/manifest"
 
           VERIFIED="false"
-          for attempt in $(seq 1 18); do
+          for attempt in $(seq 1 24); do
             STATUS=$(curl -fsS --connect-timeout 5 --max-time 15 "$STATUS_URL" || true)
             if [ -n "$STATUS" ]; then
               ACTUAL_ID=$(printf '%s' "$STATUS" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);process.stdout.write(j.releaseAvailable ? String(j.updateId||'') : '')}catch{}})")
@@ -173,7 +232,7 @@ jobs:
           done
 
           if [ "$VERIFIED" != "true" ]; then
-            echo "Production OTA status never exposed expected update $EXPECTED_ID for runtime $RUNTIME_VERSION" >&2
+            echo "Production OTA status never exposed promoted update $EXPECTED_ID for runtime $RUNTIME_VERSION" >&2
             exit 1
           fi
 
