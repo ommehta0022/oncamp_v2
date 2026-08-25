@@ -17,6 +17,18 @@ let currentCampaignInMemory: string | null = null;
 let currentCampaignTargetInMemory: string | null = null;
 let currentNativeReleaseInMemory: string | null = null;
 
+// expo-notifications does not display a foreground notification unless a
+// handler opts in. Update pushes should remain visible even while OnCampus is
+// open, while the listener below simultaneously starts the OTA check.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
 function makeInstallationId() {
   return `install-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 }
@@ -34,6 +46,9 @@ async function notificationRegistration() {
     return { permission: "unknown" as const, pushToken: null as string | null };
   }
 
+  // Android 13+ does not surface the notification permission prompt until a
+  // channel exists. Create the update channel first, then request once while
+  // the permission is still undecided. A prior denial is never nagged again.
   await Notifications.setNotificationChannelAsync("updates", {
     name: "App updates",
     description: "Critical and feature updates for OnCampus",
@@ -42,13 +57,18 @@ async function notificationRegistration() {
     sound: "default",
   });
 
-  // Never turn a background update check into a permission nag. Registration
-  // reflects the current permission; the normal notification settings flow owns
-  // any explicit permission request.
-  const existing = await Notifications.getPermissionsAsync();
-  const permission = existing.status === "granted"
+  let permissions = await Notifications.getPermissionsAsync();
+  if (permissions.status !== "granted" && permissions.status !== "denied") {
+    try {
+      permissions = await Notifications.requestPermissionsAsync();
+    } catch {
+      // Registration remains best effort; polling still guarantees OTA checks.
+    }
+  }
+
+  const permission = permissions.status === "granted"
     ? "granted"
-    : existing.status === "denied"
+    : permissions.status === "denied"
       ? "denied"
       : "unknown";
 
@@ -174,6 +194,12 @@ export default function ServerUpdateCoordinator() {
       if (data?.type === "ota_update" || data?.type === "native_update") void checkServerCampaign(true);
     });
 
+    // Native FCM tokens can rotate. Re-register immediately so a previously
+    // healthy installation does not silently stop receiving update pushes.
+    const tokenChanged = Notifications.addPushTokenListener(() => {
+      void registerInstallation();
+    });
+
     const appState = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void registerInstallation();
@@ -189,6 +215,7 @@ export default function ServerUpdateCoordinator() {
       cancelled = true;
       received.remove();
       tapped.remove();
+      tokenChanged.remove();
       appState.remove();
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = null;
