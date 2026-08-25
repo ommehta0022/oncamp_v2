@@ -11,6 +11,7 @@ const pkg = JSON.parse(read('package.json'));
 const layout = read('app/_layout.tsx');
 const index = read('app/index.tsx');
 const theme = read('src/theme/ThemeProvider.tsx');
+const palette = read('src/theme/colors.ts');
 const role = read('src/context/RoleProvider.tsx');
 const accessibility = read('src/context/AccessibilityProvider.tsx');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
@@ -47,6 +48,17 @@ expect(stylesV27.includes('android:windowLightNavigationBar'), 'API 27 navigatio
 expect(stylesV28.includes('android:windowLayoutInDisplayCutoutMode'), 'API 28 cutout style missing');
 expect(stylesV29.includes('android:enforceNavigationBarContrast'), 'API 29 contrast style missing');
 expect(stylesV33.includes('android:windowSplashScreenBehavior'), 'API 33 splash behavior missing');
+
+const darkPalette = palette.split('export const darkColors = {')[1]?.split('};')[0] || '';
+expect(darkPalette.includes('surface: "#0A0A0A"'), 'dark mode surface must remain professional near-black');
+expect(darkPalette.includes('background: "#0A0A0A"'), 'dark mode background must remain professional near-black');
+expect(darkPalette.includes('card: "#121214"'), 'dark mode cards must remain charcoal');
+expect(darkPalette.includes('brandPrimary: "#E7E7EA"'), 'dark mode primary brand action must remain neutral silver');
+expect(darkPalette.includes('bubbleOwn: "#2A2A2E"'), 'dark mode own chat bubble must remain charcoal');
+expect(darkPalette.includes('gradientStart: "#2A2A2F"') && darkPalette.includes('gradientEnd: "#111113"'), 'dark mode gradients must remain neutral charcoal');
+for (const legacyBlue of ['#091126', '#101A34', '#172342', '#4C8DFF', '#245FD5', '#142B59', '#79A9FF', '#132D69']) {
+  expect(!darkPalette.includes(legacyBlue), `legacy blue dark-mode color ${legacyBlue} must not be reintroduced`);
+}
 
 const expectedDeps = {
   expo: '54.0.37',
