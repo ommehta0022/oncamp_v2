@@ -54,7 +54,7 @@ async function notificationRegistration() {
   // be useful. Ask only while the permission is undecided; never nag a denial.
   await Notifications.setNotificationChannelAsync("updates", {
     name: "App updates",
-    description: "Critical and feature updates for OnCampus",
+    description: "OnCampus app update alerts",
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 180, 120, 180],
     sound: "default",
