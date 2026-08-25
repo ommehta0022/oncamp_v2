@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 
@@ -9,6 +10,7 @@ SETTINGS = (ROOT / "frontend" / "app" / "institution" / "settings.tsx").read_tex
 GOVERNANCE = (ROOT / "frontend" / "app" / "institution" / "governance.tsx").read_text(encoding="utf-8")
 JOIN = (ROOT / "frontend" / "app" / "join.tsx").read_text(encoding="utf-8")
 APP_CONFIG = (ROOT / "frontend" / "app.json").read_text(encoding="utf-8")
+APP_JSON = json.loads(APP_CONFIG)
 
 
 class GovernanceBackendTests(unittest.TestCase):
@@ -65,10 +67,12 @@ class InviteQrUiTests(unittest.TestCase):
         self.assertIn("extractInviteCode", JOIN)
 
     def test_native_release_has_camera_deep_link_and_current_runtime(self):
-        self.assertIn('"scheme": "oncampus"', APP_CONFIG)
-        self.assertIn('"CAMERA"', APP_CONFIG)
-        self.assertIn('"version": "1.6.0"', APP_CONFIG)
-        self.assertIn('"runtimeVersion": "1.6.0"', APP_CONFIG)
+        expo = APP_JSON["expo"]
+        self.assertEqual(expo["scheme"], "oncampus")
+        self.assertIn("CAMERA", expo["android"]["permissions"])
+        self.assertRegex(expo["version"], r"^\d+\.\d+\.\d+$")
+        self.assertEqual(expo["runtimeVersion"], expo["version"])
+        self.assertEqual(expo["extra"]["otaRuntimeVersion"], expo["runtimeVersion"])
 
 
 class AiProviderSafetyTests(unittest.TestCase):
