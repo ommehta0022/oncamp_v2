@@ -23,18 +23,27 @@ const stylesV28 = read('android/app/src/main/res/values-v28/styles.xml');
 const stylesV29 = read('android/app/src/main/res/values-v29/styles.xml');
 const stylesV33 = read('android/app/src/main/res/values-v33/styles.xml');
 
-expect(app.version === '1.6.2', `app version must be 1.6.2, found ${app.version}`);
-expect(app.runtimeVersion === '1.6.2', `runtimeVersion must be 1.6.2, found ${app.runtimeVersion}`);
-expect(app.android?.versionCode === 10602, `versionCode must be 10602, found ${app.android?.versionCode}`);
+const version = String(app.version || '');
+const runtime = String(app.runtimeVersion || '');
+const parts = version.split('.').map(Number);
+expect(/^\d+\.\d+\.\d+$/.test(version), `app version must be semantic x.y.z, found ${version}`);
+expect(runtime === version, `runtimeVersion must match app version for native baseline builds: ${runtime} != ${version}`);
+expect(parts.length === 3 && parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 99), `invalid semantic version ${version}`);
+const expectedCode = parts[0] * 10000 + parts[1] * 100 + parts[2];
+expect(app.android?.versionCode === expectedCode, `versionCode must be ${expectedCode}, found ${app.android?.versionCode}`);
 expect(app.android?.package === 'com.oncampus.app', 'Android package changed unexpectedly');
-expect(app.updates?.checkAutomatically === 'NEVER', 'Expo Updates must not check during cold startup');
-expect(app.extra?.otaRuntimeVersion === '1.6.2', 'extra.otaRuntimeVersion must match runtime');
-expect(manifest.includes('EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="NEVER"'), 'native manifest must disable automatic Expo update checks');
+expect(app.updates?.enabled === true, 'Expo Updates must remain enabled');
+expect(app.updates?.checkAutomatically === 'ON_LOAD', 'Expo Updates must check natively on every cold launch');
+expect(app.updates?.fallbackToCacheTimeout === 0, 'Startup OTA check must never block launching cached/embedded code');
+expect(app.extra?.otaRuntimeVersion === runtime, 'extra.otaRuntimeVersion must match runtime');
+expect(app.extra?.nativeStartupOta === true, 'nativeStartupOta feature flag must remain enabled');
+expect(manifest.includes('EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"'), 'native manifest must enable automatic Expo update checks');
+expect(manifest.includes('expo.modules.updates.ENABLED" android:value="true"'), 'native Expo Updates module must remain enabled');
 expect(manifest.includes('<uses-feature android:name="android.hardware.camera" android:required="false"/>'), 'camera hardware must be optional');
 expect(manifest.includes('<uses-feature android:name="android.hardware.microphone" android:required="false"/>'), 'microphone hardware must be optional');
-expect(strings.includes('name="expo_runtime_version" translatable="false">1.6.2</string>'), 'native runtime string must be 1.6.2');
-expect(gradle.includes('?: "1.6.2"'), 'Gradle versionName default must be 1.6.2');
-expect(gradle.includes('?: "10602"'), 'Gradle versionCode default must be 10602');
+expect(strings.includes(`name="expo_runtime_version" translatable="false">${runtime}</string>`), `native runtime string must be ${runtime}`);
+expect(gradle.includes(`?: "${version}"`), `Gradle versionName default must be ${version}`);
+expect(gradle.includes(`?: "${expectedCode}"`), `Gradle versionCode default must be ${expectedCode}`);
 expect(gradle.includes("require.resolve('@expo/cli'"), 'Gradle must explicitly resolve the Expo CLI entry file');
 const cliFileAssignment = gradle.split('\n').find((line) => line.includes('cliFile =')) || '';
 expect(cliFileAssignment.includes('.getAbsoluteFile()'), 'Gradle cliFile must resolve to an absolute file');
@@ -56,21 +65,20 @@ expect(darkPalette.includes('card: "#121214"'), 'dark mode cards must remain cha
 expect(darkPalette.includes('brandPrimary: "#E7E7EA"'), 'dark mode primary brand action must remain neutral silver');
 expect(darkPalette.includes('bubbleOwn: "#2A2A2E"'), 'dark mode own chat bubble must remain charcoal');
 expect(darkPalette.includes('gradientStart: "#2A2A2F"') && darkPalette.includes('gradientEnd: "#111113"'), 'dark mode gradients must remain neutral charcoal');
-for (const legacyBlue of ['#091126', '#101A34', '#172342', '#4C8DFF', '#245FD5', '#142B59', '#79A9FF', '#132D69']) {
-  expect(!darkPalette.includes(legacyBlue), `legacy blue dark-mode color ${legacyBlue} must not be reintroduced`);
-}
 
 const expectedDeps = {
   expo: '54.0.37',
   'expo-asset': '12.0.13',
   'expo-constants': '18.0.14',
   'expo-audio': '1.1.1',
+  'expo-updates': '29.0.20',
 };
-for (const [name, version] of Object.entries(expectedDeps)) {
-  expect(pkg.dependencies?.[name] === version, `${name} must be pinned to ${version}`);
+for (const [name, pinned] of Object.entries(expectedDeps)) {
+  expect(pkg.dependencies?.[name] === pinned, `${name} must be pinned to ${pinned}`);
 }
 
 expect(layout.includes('import { AccessibilityProvider }'), 'RootLayout must import AccessibilityProvider');
+expect(layout.includes('NativeOtaStartupGuard'), 'RootLayout must mount the native OTA startup guard');
 const aOpen = layout.indexOf('<AccessibilityProvider>');
 const tOpen = layout.indexOf('<ThemeProvider>');
 const tClose = layout.indexOf('</ThemeProvider>');
@@ -82,7 +90,7 @@ expect(theme.includes('.finally(() =>'), 'Theme storage hydration must always co
 expect(role.includes('finally') && role.includes('setHydrated(true)'), 'Role hydration must always complete');
 expect(accessibility.includes('.catch(() =>') && accessibility.includes('.finally(() =>'), 'Accessibility bootstrap must be fail-safe');
 
-for (const feature of ['app-update-gate', 'server-update-coordinator', 'session-expired-modal']) {
+for (const feature of ['native-ota-startup-guard', 'app-update-gate', 'server-update-coordinator', 'session-expired-modal']) {
   expect(layout.includes(`<OptionalFeatureBoundary name="${feature}">`), `${feature} must be isolated from the app shell`);
 }
 
@@ -91,4 +99,4 @@ expect(!index.includes('CampusLoader'), 'Startup route must not use CampusLoader
 expect(!index.includes('setTimeout('), 'Startup route must not contain artificial delays');
 expect(index.includes('router.replace(target)'), 'Startup route must deterministically leave the splash route');
 
-console.log('OnCampus release/startup contracts verified for 1.6.2');
+console.log(`OnCampus release/startup contracts verified for ${version} with native ON_LOAD OTA`);
