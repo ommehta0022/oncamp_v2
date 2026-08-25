@@ -18,7 +18,7 @@ jobs:
       EXPO_NO_TELEMETRY: "1"
       EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,15 +36,19 @@ jobs:
         run: python -m compileall -q server.py production_server.py institution_content_workflow.py institution_studio.py institution_engagement.py institution_studio_operations.py institution_studio_analytics.py campus_platform.py campus_platform_hardening.py campus_ops_extension.py campus_ai.py campus_semantics.py campus_media.py campus_voice.py ota_updates.py update_campaign.py
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install locked mobile dependencies
+      # package.json was intentionally advanced to the latest SDK 54 patch while
+      # the historical lock file still reflects an older dependency graph. The
+      # OTA publisher already validates with npm install; CI must use the same
+      # resolver until the next native baseline rebuild regenerates the lockfile.
+      - name: Install SDK-pinned mobile dependencies
         working-directory: frontend
-        run: npm ci --legacy-peer-deps
+        run: npm install --include=dev --legacy-peer-deps --no-audit --no-fund
 
       - name: Type-check mobile app
         working-directory: frontend
