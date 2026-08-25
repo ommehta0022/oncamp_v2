@@ -1,0 +1,6 @@
+OnCampus OTA baseline build
+version=1.6.3
+runtime=1.6.3
+versionCode=10603
+updateMode=ON_LOAD
+reason=native startup OTA guarantee + server campaign fallback + visible native update-state guard
