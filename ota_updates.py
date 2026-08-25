@@ -47,34 +47,29 @@ def _allowed_asset_prefix(runtime_version: str) -> str:
 
 
 def _release_asset_url(runtime_version: str, asset_name: str) -> Optional[str]:
-    # Runtime values are allow-listed before this function is used. Asset names
-    # are also restricted so the OTA server can never be turned into an open
-    # proxy or URL-construction primitive.
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,160}", asset_name):
         return None
     return f"{_allowed_asset_prefix(runtime_version)}{asset_name}"
 
 
-def _download_release_asset(runtime_version: str, asset_name: str) -> Optional[bytes]:
-    """Download a deterministic release asset without GitHub REST discovery.
+def _pointer_url(runtime_version: str) -> str:
+    # The workflow commits this tiny pointer only *after* all immutable release
+    # assets are uploaded. A cache-busting query avoids the stale mutable release
+    # asset behavior that previously caused production to miss new update IDs.
+    stamp = int(time.time() // SOURCE_CACHE_TTL_SECONDS)
+    return (
+        f"https://raw.githubusercontent.com/{REPO}/main/"
+        f"ota-pointers/runtime-{runtime_version}.json?v={stamp}"
+    )
 
-    The previous implementation called /releases/tags/{tag} before every asset
-    fetch. Production clients and the auto-campaign loop could therefore exhaust
-    GitHub's unauthenticated REST rate limit and make the OTA endpoint return 204.
-    Runtime release assets already have stable URLs, so REST discovery is both
-    unnecessary and a reliability risk.
-    """
-    browser_url = _release_asset_url(runtime_version, asset_name)
-    if not browser_url:
-        LOGGER.warning("OTA release asset rejected runtime=%s asset=%s", runtime_version, asset_name)
-        return None
 
+def _download_url(url: str, *, accept: str, label: str) -> Optional[bytes]:
     try:
         response = requests.get(
-            browser_url,
+            url,
             headers={
-                "Accept": "application/json" if asset_name.endswith(".json") else "application/octet-stream",
-                "User-Agent": "OnCampus-OTA/4.0",
+                "Accept": accept,
+                "User-Agent": "OnCampus-OTA/5.0",
                 "Cache-Control": "no-cache",
                 "Pragma": "no-cache",
             },
@@ -83,20 +78,32 @@ def _download_release_asset(runtime_version: str, asset_name: str) -> Optional[b
         )
         if response.ok:
             return response.content
-        LOGGER.warning(
-            "OTA direct asset unavailable runtime=%s asset=%s status=%s",
-            runtime_version,
-            asset_name,
-            response.status_code,
-        )
+        LOGGER.warning("OTA %s unavailable status=%s", label, response.status_code)
     except Exception as exc:
-        LOGGER.warning(
-            "OTA direct asset failed runtime=%s asset=%s error=%s",
-            runtime_version,
-            asset_name,
-            type(exc).__name__,
-        )
+        LOGGER.warning("OTA %s failed error=%s", label, type(exc).__name__)
     return None
+
+
+def _download_promoted_source(runtime_version: str) -> Optional[bytes]:
+    payload = _download_url(
+        _pointer_url(runtime_version),
+        accept="application/json",
+        label=f"promoted pointer runtime={runtime_version}",
+    )
+    if payload:
+        return payload
+
+    # Transitional fallback for APKs while the first promoted pointer is being
+    # created. This is deliberately not the primary source because GitHub release
+    # asset overwrite URLs can remain stale after a successful publish.
+    fallback = _release_asset_url(runtime_version, "ota-source.json")
+    if not fallback:
+        return None
+    return _download_url(
+        fallback,
+        accept="application/json",
+        label=f"legacy release pointer runtime={runtime_version}",
+    )
 
 
 def _is_valid_asset(asset: Any, runtime_version: str) -> bool:
@@ -161,8 +168,6 @@ def fetch_latest_source(runtime_version: str, force: bool = False) -> Optional[d
         if not force and cached and now - cached[0] < SOURCE_CACHE_TTL_SECONDS:
             return cached[1]
 
-    # Collapse concurrent manifest/campaign/status refreshes for a runtime into a
-    # single upstream request. This also protects the release host from bursts.
     with _refresh_lock(runtime_version):
         now = time.monotonic()
         with _cache_lock:
@@ -172,7 +177,7 @@ def fetch_latest_source(runtime_version: str, force: bool = False) -> Optional[d
             last_good = cached[1] if cached else None
 
         source: Optional[dict[str, Any]] = None
-        payload = _download_release_asset(runtime_version, "ota-source.json")
+        payload = _download_promoted_source(runtime_version)
         if payload:
             try:
                 source = _validate_source(json.loads(payload.decode("utf-8")), runtime_version)
@@ -187,9 +192,6 @@ def fetch_latest_source(runtime_version: str, force: bool = False) -> Optional[d
                 _source_cache[runtime_version] = (refreshed_at, source)
             return source
 
-        # Never convert a transient upstream problem into "there is no update"
-        # after this process has already verified a good source. Serving the last
-        # signed/validated pointer is safer and keeps existing APKs updateable.
         if last_good:
             LOGGER.warning("OTA source refresh failed runtime=%s; serving last verified source", runtime_version)
             with _cache_lock:
@@ -215,9 +217,6 @@ def _sign_manifest(body: bytes) -> Optional[str]:
 
 
 def _manifest_headers(signature: str) -> dict[str, str]:
-    # Expo Structured Field Values encode byte sequences as :base64: rather
-    # than quoted strings. expo-updates rejects a syntactically invalid
-    # expo-signature even when the HTTP response itself is 200.
     return {
         "expo-protocol-version": "1",
         "expo-sfv-version": "0",
@@ -267,6 +266,6 @@ def expo_updates_status(runtimeVersion: Optional[str] = Query(default=None, max_
         "releaseAvailable": source is not None,
         "updateId": source.get("id") if source else None,
         "signed": bool(os.getenv("OTA_CODE_SIGNING_PRIVATE_KEY")),
-        "sourceMode": "deterministic-release-asset",
+        "sourceMode": "promoted-repository-pointer",
         "cacheTtlSeconds": SOURCE_CACHE_TTL_SECONDS,
     }
