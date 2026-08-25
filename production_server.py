@@ -83,6 +83,11 @@ def _local_rate_allowed(key: str, limit: int) -> bool:
     return count <= limit
 
 
+@app.post("/v1/updates/promote", include_in_schema=False)
+def production_ota_promote(payload: ota_updates.PromoteSourceDto, request: Request) -> dict:
+    return ota_updates.promote_ota_source(payload, request)
+
+
 @app.get("/v1/updates/manifest", include_in_schema=False)
 def production_ota_manifest(request: Request) -> Response:
     return ota_updates.expo_updates_manifest(request)
@@ -98,6 +103,7 @@ async def verify_production_routes() -> None:
     global _auto_campaign_task, _campus_scheduler_task, _semantics_task
     route_paths = {getattr(route, "path", "") for route in app.routes}
     required = {
+        "/v1/updates/promote",
         "/v1/updates/manifest",
         "/v1/updates/status",
         "/v1/updates/installations",
@@ -218,23 +224,10 @@ async def institution_only_publishing(request: Request, call_next):
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": "Institution admin access required"})
         except Exception:
-            return JSONResponse(status_code=401, content={"detail": "Authentication required"})
-    return await call_next(request)
-
-
-@app.middleware("http")
-async def protect_institution_branding_uploads(request: Request, call_next):
-    """Require a live institution-admin session for institution branding uploads."""
-    protected_paths = {"/v1/upload/institution-logo", "/v1/upload/institution-cover"}
-    if request.method == "POST" and request.url.path in protected_paths:
-        try:
-            institution_admin_or_error(request)
-        except HTTPException as exc:
-            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-        except Exception:
-            return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+            return JSONResponse(status_code=403, content={"detail": "Institution admin access required"})
     return await call_next(request)
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")), proxy_headers=True, forwarded_allow_ips="*")
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("production_server:app", host="0.0.0.0", port=port, reload=False)
