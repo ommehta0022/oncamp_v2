@@ -87,8 +87,6 @@ def _download_release_asset(runtime_version: str, asset_name: str) -> Optional[b
         LOGGER.warning("OTA release asset rejected runtime=%s asset=%s reason=untrusted_url", runtime_version, asset_name)
         return None
 
-    # Prefer GitHub's release-asset API. It is more reliable for server-to-server
-    # traffic than depending solely on the browser download redirect URL.
     if api_url.startswith(f"{GITHUB_API_BASE}/releases/assets/"):
         try:
             response = requests.get(
@@ -101,15 +99,6 @@ def _download_release_asset(runtime_version: str, asset_name: str) -> Optional[b
                 content_type = str(response.headers.get("content-type") or "").lower()
                 if "application/json" not in content_type or not response.content.lstrip().startswith(b"{"):
                     return response.content
-                # Some GitHub/API combinations return asset metadata despite the
-                # octet-stream accept header. Fall through to browser_download_url.
-            else:
-                LOGGER.warning(
-                    "OTA asset API download unavailable runtime=%s asset=%s status=%s",
-                    runtime_version,
-                    asset_name,
-                    response.status_code,
-                )
         except Exception as exc:
             LOGGER.warning(
                 "OTA asset API download failed runtime=%s asset=%s error=%s",
@@ -174,13 +163,15 @@ def _validate_source(source: Any, runtime_version: str) -> Optional[dict[str, An
     extra = source.get("extra")
     if extra is not None and not isinstance(extra, dict):
         return None
+    metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
+    metadata = {str(key): str(value) for key, value in metadata.items()}
     return {
         "id": update_id,
         "createdAt": created_at,
         "runtimeVersion": runtime_version,
         "launchAsset": launch_asset,
         "assets": assets,
-        "metadata": source.get("metadata") if isinstance(source.get("metadata"), dict) else {},
+        "metadata": metadata,
         "extra": extra or {},
     }
 
@@ -217,8 +208,24 @@ def _sign_manifest(body: bytes) -> Optional[str]:
         private_key = serialization.load_pem_private_key(private_key_pem.encode("utf-8"), password=None)
         signature = private_key.sign(body, padding.PKCS1v15(), hashes.SHA256())
         return base64.b64encode(signature).decode("ascii")
-    except Exception:
+    except Exception as exc:
+        LOGGER.error("OTA manifest signing failed error=%s", type(exc).__name__)
         return None
+
+
+def _manifest_headers(signature: str) -> dict[str, str]:
+    # Expo Structured Field Values encode byte sequences as :base64: rather
+    # than quoted strings. expo-updates rejects a syntactically invalid
+    # expo-signature even when the HTTP response itself is 200.
+    return {
+        "expo-protocol-version": "1",
+        "expo-sfv-version": "0",
+        "expo-manifest-filters": 'channel="production"',
+        "expo-server-defined-headers": 'expo-channel-name="production"',
+        "cache-control": "private, max-age=0, no-store",
+        "expo-signature": f'sig=:{signature}:, keyid="{SIGNING_KEY_ID}", alg="rsa-v1_5-sha256"',
+        "x-content-type-options": "nosniff",
+    }
 
 
 @router.get("/v1/updates/manifest")
@@ -240,14 +247,11 @@ def expo_updates_manifest(request: Request) -> Response:
     signature = _sign_manifest(body)
     if not signature:
         return JSONResponse(status_code=503, content={"error": "Signed OTA updates are temporarily unavailable"})
-    headers = {
-        "expo-protocol-version": "1",
-        "expo-sfv-version": "0",
-        "cache-control": "private, max-age=0, no-store",
-        "expo-signature": f'sig="{signature}", keyid="{SIGNING_KEY_ID}", alg="rsa-v1_5-sha256"',
-        "x-content-type-options": "nosniff",
-    }
-    return Response(content=body, media_type="application/expo+json", headers=headers)
+    return Response(
+        content=body,
+        media_type="application/expo+json",
+        headers=_manifest_headers(signature),
+    )
 
 
 @router.get("/v1/updates/status")
