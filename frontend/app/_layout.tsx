@@ -20,6 +20,7 @@ import { ToastProvider } from "@/src/components/Toast";
 import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import OptionalFeatureBoundary from "@/src/components/OptionalFeatureBoundary";
 import AppUpdateGate from "@/src/components/AppUpdateGate";
+import NativeOtaStartupGuard from "@/src/components/NativeOtaStartupGuard";
 import ServerUpdateCoordinator from "@/src/components/ServerUpdateCoordinator";
 import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
 import { api } from "@/src/lib/api";
@@ -102,6 +103,9 @@ export default function RootLayout() {
                         <PushNotificationProvider>
                           <ToastProvider>
                             <ThemedStack />
+                            <OptionalFeatureBoundary name="native-ota-startup-guard">
+                              <NativeOtaStartupGuard />
+                            </OptionalFeatureBoundary>
                             <OptionalFeatureBoundary name="app-update-gate">
                               <AppUpdateGate />
                             </OptionalFeatureBoundary>
