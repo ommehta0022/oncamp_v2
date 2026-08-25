@@ -1,0 +1,170 @@
+name: Android Direct APK Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/DIRECT_APK_BUILD"
+
+concurrency:
+  group: oncampus-android-ota-baseline
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-sign-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      REACT_NATIVE_ARCHITECTURES: "arm64-v8a,x86_64"
+
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v5
+
+      - name: Read release identity
+        id: identity
+        run: |
+          set -euo pipefail
+          VERSION=$(node -e "process.stdout.write(require('./app.json').expo.version)")
+          RUNTIME=$(node -e "process.stdout.write(String(require('./app.json').expo.runtimeVersion))")
+          CODE=$(node -e "process.stdout.write(String(require('./app.json').expo.android.versionCode))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "runtime=$RUNTIME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Android toolchain
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Install locked dependencies
+        env:
+          NODE_ENV: development
+        run: npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
+
+      - name: Validate source and OTA contracts
+        run: |
+          set -euo pipefail
+          node scripts/validate-release-startup.js
+          npx tsc --noEmit
+          npx expo install --check
+
+      - name: Export production Android bundle
+        env:
+          NODE_ENV: production
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/oncampus-direct-export
+          npx expo export --platform android --output-dir /tmp/oncampus-direct-export
+          test -s /tmp/oncampus-direct-export/metadata.json
+
+      - name: Build universal signed release APK
+        timeout-minutes: 55
+        env:
+          NODE_ENV: production
+          APP_VERSION_NAME: ${{ steps.identity.outputs.version }}
+          APP_VERSION_CODE: ${{ steps.identity.outputs.code }}
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dkotlin.compiler.execution.strategy=in-process"
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --stop || true
+          ./gradlew :app:assembleRelease \
+            -PreactNativeArchitectures="$REACT_NATIVE_ARCHITECTURES" \
+            -Pandroid.enablePngCrunchInReleaseBuilds=false \
+            --no-daemon --no-parallel --max-workers=1 --build-cache --console=plain --stacktrace
+
+      - name: Verify APK identity, ABI, alignment and signing continuity
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          RUNTIME: ${{ steps.identity.outputs.runtime }}
+          VERSION_CODE: ${{ steps.identity.outputs.code }}
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          test -s "$APK"
+          test "$(stat -c%s "$APK")" -gt 10000000
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee apk-signature.txt
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$APK" > apk-zipalign.txt
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | tee apk-badging.txt
+          unzip -Z1 "$APK" > apk-files.txt
+          grep -F "package: name='com.oncampus.app'" apk-badging.txt
+          grep -F "versionCode='$VERSION_CODE'" apk-badging.txt
+          grep -F "versionName='$VERSION'" apk-badging.txt
+          grep -F "launchable-activity: name='com.oncampus.app.MainActivity'" apk-badging.txt
+          grep -F "lib/arm64-v8a/" apk-files.txt >/dev/null
+          grep -F "lib/x86_64/" apk-files.txt >/dev/null
+          grep -E '(^|/)assets/(index\.android\.bundle|.*\.hbc)$' apk-files.txt >/dev/null
+          CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' apk-signature.txt | head -1 | tr 'A-F' 'a-f')
+          PREVIOUS_CERT=$(node -e "try{process.stdout.write(require('./APK_RELEASE_STATUS.json').signingCertificateSha256||'')}catch{}")
+          PREVIOUS_CODE=$(node -e "try{process.stdout.write(String(require('./APK_RELEASE_STATUS.json').versionCode||0))}catch{process.stdout.write('0')}")
+          test -n "$CERT_SHA"
+          if [ -n "$PREVIOUS_CERT" ] && [ "$CERT_SHA" != "$PREVIOUS_CERT" ]; then
+            echo "Signing certificate changed; refusing unsafe upgrade APK" >&2
+            exit 1
+          fi
+          if [ "$VERSION_CODE" -le "$PREVIOUS_CODE" ]; then
+            echo "versionCode $VERSION_CODE must be greater than published $PREVIOUS_CODE" >&2
+            exit 1
+          fi
+          printf 'package=com.oncampus.app\nversion=%s\nruntimeVersion=%s\nversionCode=%s\nabis=arm64-v8a,x86_64\nsigningCertificateSha256=%s\nlaunchValidated=false\n' "$VERSION" "$RUNTIME" "$VERSION_CODE" "$CERT_SHA" > APK_INSTALL_INFO.txt
+
+      - name: Prepare direct APK artifact
+        run: |
+          set -euo pipefail
+          cp android/app/build/outputs/apk/release/app-release.apk OnCampus.apk
+          sha256sum OnCampus.apk | tee OnCampus.apk.sha256
+
+      - name: Upload direct APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnCampus-${{ steps.identity.outputs.version }}-Direct-APK
+          path: |
+            frontend/OnCampus.apk
+            frontend/OnCampus.apk.sha256
+            frontend/APK_INSTALL_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish direct APK release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.identity.outputs.version }}
+          name: OnCampus ${{ steps.identity.outputs.version }}
+          body: |
+            Direct signed APK build for runtime ${{ steps.identity.outputs.runtime }}.
+            Package identity, ABI, zip alignment, bundle presence, version and signing-certificate continuity were verified.
+            Emulator cold-launch validation was intentionally not a release blocker for this build.
+          make_latest: true
+          overwrite_files: true
+          files: |
+            frontend/OnCampus.apk
+            frontend/OnCampus.apk.sha256
+            frontend/APK_INSTALL_INFO.txt
