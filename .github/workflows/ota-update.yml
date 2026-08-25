@@ -145,3 +145,51 @@ jobs:
             Signed production OTA channel for OnCampus runtime ${{ needs.classify.outputs.runtime }}.
             This release is consumed by the in-app updater and is not a native APK release.
           files: frontend/ota-release/*
+
+      - name: Verify production OTA delivery end to end
+        if: github.event_name != 'pull_request'
+        working-directory: frontend
+        env:
+          RUNTIME_VERSION: ${{ needs.classify.outputs.runtime }}
+          OTA_API_BASE: "https://oncampus-backend-production.up.railway.app/v1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_ID=$(node -e "const s=require('./ota-release/ota-source.json'); process.stdout.write(String(s.id))")
+          STATUS_URL="${OTA_API_BASE}/updates/status?runtimeVersion=${RUNTIME_VERSION}"
+          MANIFEST_URL="${OTA_API_BASE}/updates/manifest"
+
+          VERIFIED="false"
+          for attempt in $(seq 1 18); do
+            STATUS=$(curl -fsS --connect-timeout 5 --max-time 15 "$STATUS_URL" || true)
+            if [ -n "$STATUS" ]; then
+              ACTUAL_ID=$(printf '%s' "$STATUS" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);process.stdout.write(j.releaseAvailable ? String(j.updateId||'') : '')}catch{}})")
+              if [ "$ACTUAL_ID" = "$EXPECTED_ID" ]; then
+                VERIFIED="true"
+                break
+              fi
+            fi
+            sleep 5
+          done
+
+          if [ "$VERIFIED" != "true" ]; then
+            echo "Production OTA status never exposed expected update $EXPECTED_ID for runtime $RUNTIME_VERSION" >&2
+            exit 1
+          fi
+
+          HTTP_CODE=$(curl -sS --connect-timeout 5 --max-time 20 \
+            -D /tmp/ota-headers.txt \
+            -o /tmp/ota-manifest.json \
+            -w '%{http_code}' \
+            -H 'expo-protocol-version: 1' \
+            -H 'expo-platform: android' \
+            -H "expo-runtime-version: ${RUNTIME_VERSION}" \
+            -H 'Accept: application/expo+json,application/json' \
+            "$MANIFEST_URL")
+
+          test "$HTTP_CODE" = "200"
+          grep -qi '^expo-signature:' /tmp/ota-headers.txt
+          grep -qi '^expo-protocol-version: 1' /tmp/ota-headers.txt
+          ACTUAL_MANIFEST_ID=$(node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('/tmp/ota-manifest.json','utf8'));process.stdout.write(String(j.id||''))")
+          test "$ACTUAL_MANIFEST_ID" = "$EXPECTED_ID"
+          echo "Production OTA verified: runtime=$RUNTIME_VERSION update=$EXPECTED_ID"
