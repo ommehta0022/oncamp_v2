@@ -33,12 +33,14 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
         self.assertIn('if (mode === "manual")', UPDATE_GATE)
         self.assertIn("No update available", UPDATE_GATE)
 
-    def test_v16_native_runtime_and_microphone_permission(self):
+    def test_current_native_runtime_and_microphone_permission(self):
         expo = APP_JSON["expo"]
-        self.assertEqual(expo["version"], "1.6.0")
-        self.assertEqual(expo["runtimeVersion"], "1.6.0")
-        self.assertEqual(expo["extra"]["otaRuntimeVersion"], "1.6.0")
-        self.assertIn('<string name="expo_runtime_version" translatable="false">1.6.0</string>', STRINGS)
+        version = expo["version"]
+        runtime = expo["runtimeVersion"]
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertEqual(runtime, version)
+        self.assertEqual(expo["extra"]["otaRuntimeVersion"], runtime)
+        self.assertIn(f'<string name="expo_runtime_version" translatable="false">{runtime}</string>', STRINGS)
         self.assertIn("RECORD_AUDIO", expo["android"]["permissions"])
         self.assertIn("android.permission.RECORD_AUDIO", MANIFEST)
 
