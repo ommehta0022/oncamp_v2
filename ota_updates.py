@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import threading
 import time
@@ -19,6 +20,8 @@ REPO = "ommehta0022/oncamp_v2"
 DEFAULT_RUNTIME = os.getenv("OTA_RUNTIME_VERSION", "1.3.0")
 SIGNING_KEY_ID = os.getenv("OTA_CODE_SIGNING_KEY_ID", "oncampus-main")
 SOURCE_CACHE_TTL_SECONDS = int(os.getenv("OTA_SOURCE_CACHE_TTL_SECONDS", "20"))
+GITHUB_API_BASE = f"https://api.github.com/repos/{REPO}"
+LOGGER = logging.getLogger("oncampus")
 
 _cache_lock = threading.Lock()
 _source_cache: dict[str, tuple[float, Optional[dict[str, Any]]]] = {}
@@ -38,14 +41,107 @@ def _release_tag(runtime_version: str) -> str:
     return f"ota-runtime-{runtime_version}"
 
 
-def _source_url(runtime_version: str) -> str:
-    tag = _release_tag(runtime_version)
-    bucket = int(time.time() // max(SOURCE_CACHE_TTL_SECONDS, 1))
-    return f"https://github.com/{REPO}/releases/download/{tag}/ota-source.json?v={bucket}"
-
-
 def _allowed_asset_prefix(runtime_version: str) -> str:
     return f"https://github.com/{REPO}/releases/download/{_release_tag(runtime_version)}/"
+
+
+def _github_headers(accept: str = "application/vnd.github+json") -> dict[str, str]:
+    return {
+        "Accept": accept,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "OnCampus-OTA/3.0",
+        "Cache-Control": "no-cache",
+    }
+
+
+def _release_asset(runtime_version: str, asset_name: str) -> Optional[dict[str, Any]]:
+    tag = _release_tag(runtime_version)
+    try:
+        response = requests.get(
+            f"{GITHUB_API_BASE}/releases/tags/{tag}",
+            headers=_github_headers(),
+            timeout=8,
+        )
+        if not response.ok:
+            LOGGER.warning("OTA release metadata unavailable runtime=%s status=%s", runtime_version, response.status_code)
+            return None
+        release = response.json()
+        assets = release.get("assets") if isinstance(release.get("assets"), list) else []
+        asset = next((value for value in assets if value.get("name") == asset_name), None)
+        return asset if isinstance(asset, dict) else None
+    except Exception as exc:
+        LOGGER.warning("OTA release metadata failed runtime=%s error=%s", runtime_version, type(exc).__name__)
+        return None
+
+
+def _download_release_asset(runtime_version: str, asset_name: str) -> Optional[bytes]:
+    asset = _release_asset(runtime_version, asset_name)
+    if not asset:
+        LOGGER.warning("OTA release asset missing runtime=%s asset=%s", runtime_version, asset_name)
+        return None
+
+    api_url = str(asset.get("url") or "")
+    browser_url = str(asset.get("browser_download_url") or "")
+    allowed_prefix = _allowed_asset_prefix(runtime_version)
+    if browser_url and not browser_url.startswith(allowed_prefix):
+        LOGGER.warning("OTA release asset rejected runtime=%s asset=%s reason=untrusted_url", runtime_version, asset_name)
+        return None
+
+    # Prefer GitHub's release-asset API. It is more reliable for server-to-server
+    # traffic than depending solely on the browser download redirect URL.
+    if api_url.startswith(f"{GITHUB_API_BASE}/releases/assets/"):
+        try:
+            response = requests.get(
+                api_url,
+                headers=_github_headers("application/octet-stream"),
+                timeout=10,
+                allow_redirects=True,
+            )
+            if response.ok:
+                content_type = str(response.headers.get("content-type") or "").lower()
+                if "application/json" not in content_type or not response.content.lstrip().startswith(b"{"):
+                    return response.content
+                # Some GitHub/API combinations return asset metadata despite the
+                # octet-stream accept header. Fall through to browser_download_url.
+            else:
+                LOGGER.warning(
+                    "OTA asset API download unavailable runtime=%s asset=%s status=%s",
+                    runtime_version,
+                    asset_name,
+                    response.status_code,
+                )
+        except Exception as exc:
+            LOGGER.warning(
+                "OTA asset API download failed runtime=%s asset=%s error=%s",
+                runtime_version,
+                asset_name,
+                type(exc).__name__,
+            )
+
+    if browser_url:
+        try:
+            response = requests.get(
+                browser_url,
+                headers={"Accept": "application/json", "User-Agent": "OnCampus-OTA/3.0", "Cache-Control": "no-cache"},
+                timeout=10,
+                allow_redirects=True,
+            )
+            if response.ok:
+                return response.content
+            LOGGER.warning(
+                "OTA browser asset download unavailable runtime=%s asset=%s status=%s",
+                runtime_version,
+                asset_name,
+                response.status_code,
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "OTA browser asset download failed runtime=%s asset=%s error=%s",
+                runtime_version,
+                asset_name,
+                type(exc).__name__,
+            )
+    return None
 
 
 def _is_valid_asset(asset: Any, runtime_version: str) -> bool:
@@ -89,24 +185,25 @@ def _validate_source(source: Any, runtime_version: str) -> Optional[dict[str, An
     }
 
 
-def fetch_latest_source(runtime_version: str) -> Optional[dict[str, Any]]:
+def fetch_latest_source(runtime_version: str, force: bool = False) -> Optional[dict[str, Any]]:
     if runtime_version not in supported_runtime_versions():
         return None
     now = time.monotonic()
     with _cache_lock:
         cached = _source_cache.get(runtime_version)
-        if cached and now - cached[0] < SOURCE_CACHE_TTL_SECONDS:
+        if not force and cached and now - cached[0] < SOURCE_CACHE_TTL_SECONDS:
             return cached[1]
-    try:
-        response = requests.get(
-            _source_url(runtime_version),
-            headers={"Accept": "application/json", "User-Agent": "OnCampus-OTA/2.0"},
-            timeout=8,
-            allow_redirects=True,
-        )
-        source = None if response.status_code >= 400 else _validate_source(response.json(), runtime_version)
-    except Exception:
-        source = None
+
+    source: Optional[dict[str, Any]] = None
+    payload = _download_release_asset(runtime_version, "ota-source.json")
+    if payload:
+        try:
+            source = _validate_source(json.loads(payload.decode("utf-8")), runtime_version)
+            if not source:
+                LOGGER.warning("OTA source validation failed runtime=%s", runtime_version)
+        except Exception as exc:
+            LOGGER.warning("OTA source decode failed runtime=%s error=%s", runtime_version, type(exc).__name__)
+
     with _cache_lock:
         _source_cache[runtime_version] = (now, source)
     return source
@@ -133,10 +230,12 @@ def expo_updates_manifest(request: Request) -> Response:
     if protocol_version not in {"1", "0"}:
         return JSONResponse(status_code=406, content={"error": "Unsupported Expo Updates protocol"})
     if platform != "android" or not runtime_version or runtime_version not in supported_runtime_versions():
-        return Response(status_code=204)
+        return Response(status_code=204, headers={"x-oncampus-update-reason": "incompatible-request"})
     manifest = fetch_latest_source(runtime_version)
-    if not manifest or (current_update_id and current_update_id == manifest.get("id")):
-        return Response(status_code=204)
+    if not manifest:
+        return Response(status_code=204, headers={"x-oncampus-update-reason": "source-unavailable"})
+    if current_update_id and current_update_id == manifest.get("id"):
+        return Response(status_code=204, headers={"x-oncampus-update-reason": "already-current"})
     body = json.dumps(manifest, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     signature = _sign_manifest(body)
     if not signature:
@@ -154,7 +253,7 @@ def expo_updates_manifest(request: Request) -> Response:
 @router.get("/v1/updates/status")
 def expo_updates_status(runtimeVersion: Optional[str] = Query(default=None, max_length=40)) -> dict[str, Any]:
     runtime = runtimeVersion or DEFAULT_RUNTIME
-    source = fetch_latest_source(runtime)
+    source = fetch_latest_source(runtime, force=True)
     return {
         "enabled": bool(os.getenv("OTA_CODE_SIGNING_PRIVATE_KEY")),
         "runtimeVersion": runtime,
@@ -162,5 +261,5 @@ def expo_updates_status(runtimeVersion: Optional[str] = Query(default=None, max_
         "platform": "android",
         "releaseAvailable": source is not None,
         "updateId": source.get("id") if source else None,
-        "signed": True,
+        "signed": bool(os.getenv("OTA_CODE_SIGNING_PRIVATE_KEY")),
     }
