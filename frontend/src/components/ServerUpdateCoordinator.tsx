@@ -10,8 +10,8 @@ import { checkForAppUpdate } from "./AppUpdateGate";
 
 const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
 const INSTALLATION_KEY = "oncampus.update.installation_id";
-const DEFAULT_POLL_SECONDS = 60;
-const MIN_POLL_SECONDS = 60;
+const DEFAULT_POLL_SECONDS = 30;
+const MIN_POLL_SECONDS = 30;
 const MAX_POLL_SECONDS = 5 * 60;
 
 let inFlight = false;
