@@ -69,18 +69,11 @@ export function PinnedContentProvider({ children }: { children: React.ReactNode 
   const togglePostPin = useCallback(async (id: string | number) => {
     const key = normalizedId(id);
     if (!key) return false;
-    let nextPinned = false;
-    let nextPosts = postIds;
-    setPostIds((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else {
-        next.add(key);
-        nextPinned = true;
-      }
-      nextPosts = next;
-      return next;
-    });
+    const nextPosts = new Set(postIds);
+    const nextPinned = !nextPosts.has(key);
+    if (nextPinned) nextPosts.add(key);
+    else nextPosts.delete(key);
+    setPostIds(nextPosts);
     await persist(nextPosts, groupIds);
     return nextPinned;
   }, [groupIds, persist, postIds]);
@@ -88,18 +81,11 @@ export function PinnedContentProvider({ children }: { children: React.ReactNode 
   const toggleGroupPin = useCallback(async (id: string | number) => {
     const key = normalizedId(id);
     if (!key) return false;
-    let nextPinned = false;
-    let nextGroups = groupIds;
-    setGroupIds((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else {
-        next.add(key);
-        nextPinned = true;
-      }
-      nextGroups = next;
-      return next;
-    });
+    const nextGroups = new Set(groupIds);
+    const nextPinned = !nextGroups.has(key);
+    if (nextPinned) nextGroups.add(key);
+    else nextGroups.delete(key);
+    setGroupIds(nextGroups);
     await persist(postIds, nextGroups);
     return nextPinned;
   }, [groupIds, persist, postIds]);
