@@ -10,16 +10,15 @@ import { checkForAppUpdate } from "./AppUpdateGate";
 
 const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
 const INSTALLATION_KEY = "oncampus.update.installation_id";
-const FALLBACK_POLL_MS = 5 * 60 * 1000;
+const DEFAULT_POLL_SECONDS = 60;
+const MIN_POLL_SECONDS = 60;
+const MAX_POLL_SECONDS = 5 * 60;
 
 let inFlight = false;
 let currentCampaignInMemory: string | null = null;
 let currentCampaignTargetInMemory: string | null = null;
 let currentNativeReleaseInMemory: string | null = null;
 
-// expo-notifications does not display a foreground notification unless a
-// handler opts in. Update pushes should remain visible even while OnCampus is
-// open, while the listener below simultaneously starts the OTA check.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: true,
@@ -31,6 +30,11 @@ Notifications.setNotificationHandler({
 
 function makeInstallationId() {
   return `install-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function pollDelaySeconds(value?: number) {
+  if (!Number.isFinite(value)) return DEFAULT_POLL_SECONDS;
+  return Math.max(MIN_POLL_SECONDS, Math.min(MAX_POLL_SECONDS, Number(value)));
 }
 
 async function installationId() {
@@ -46,9 +50,8 @@ async function notificationRegistration() {
     return { permission: "unknown" as const, pushToken: null as string | null };
   }
 
-  // Android 13+ does not surface the notification permission prompt until a
-  // channel exists. Create the update channel first, then request once while
-  // the permission is still undecided. A prior denial is never nagged again.
+  // Android 13+ needs a channel before the notification permission prompt can
+  // be useful. Ask only while the permission is undecided; never nag a denial.
   await Notifications.setNotificationChannelAsync("updates", {
     name: "App updates",
     description: "Critical and feature updates for OnCampus",
@@ -62,7 +65,7 @@ async function notificationRegistration() {
     try {
       permissions = await Notifications.requestPermissionsAsync();
     } catch {
-      // Registration remains best effort; polling still guarantees OTA checks.
+      // Polling remains the delivery guarantee even if permission UI fails.
     }
   }
 
@@ -108,21 +111,22 @@ async function registerInstallation() {
       body: JSON.stringify(payload),
     });
   } catch {
-    // Registration is best effort. Campaign polling still works without push.
+    // Registration is best effort. Server polling is the non-push fallback.
   }
   return id;
 }
 
-async function checkServerCampaign(force = false) {
-  if (Platform.OS !== "android" || !Updates.isEnabled || inFlight) return;
-  if (!force && AppState.currentState !== "active") return;
+async function checkServerCampaign(force = false): Promise<number> {
+  if (Platform.OS !== "android" || !Updates.isEnabled || inFlight) return DEFAULT_POLL_SECONDS;
+  if (!force && AppState.currentState !== "active") return DEFAULT_POLL_SECONDS;
   inFlight = true;
+  let nextPollSeconds = DEFAULT_POLL_SECONDS;
   try {
     const id = await installationId();
     const runtime = String(Updates.runtimeVersion || Constants.expoConfig?.runtimeVersion || "");
     const nativeVersion = String(Constants.expoConfig?.version || "0.0.0");
     const currentUpdateId = String(Updates.updateId || "embedded");
-    if (!runtime) return;
+    if (!runtime) return nextPollSeconds;
 
     const url = new URL(`${API_BASE}/updates/campaign`);
     url.searchParams.set("runtimeVersion", runtime);
@@ -133,7 +137,7 @@ async function checkServerCampaign(force = false) {
     const response = await fetch(url.toString(), {
       headers: { Accept: "application/json", "Cache-Control": "no-cache" },
     });
-    if (!response.ok) return;
+    if (!response.ok) return nextPollSeconds;
 
     const campaign = await response.json() as {
       available?: boolean;
@@ -141,46 +145,57 @@ async function checkServerCampaign(force = false) {
       forceUpdate?: boolean;
       nativeUpdateAvailable?: boolean;
       nativeReleaseVersion?: string | null;
+      pollAfterSeconds?: number;
     };
+    nextPollSeconds = pollDelaySeconds(campaign.pollAfterSeconds);
 
     if (campaign.nativeUpdateAvailable && campaign.nativeReleaseVersion) {
       if (campaign.nativeReleaseVersion !== currentNativeReleaseInMemory) {
         currentNativeReleaseInMemory = campaign.nativeReleaseVersion;
         await checkForAppUpdate("campaign", true, true);
       }
-      return;
+      return nextPollSeconds;
     }
 
-    if (!campaign.available || !campaign.campaignId) return;
+    if (!campaign.available || !campaign.campaignId) return nextPollSeconds;
 
-    // Deduplicate against the actual currently-launched update. After a new OTA
-    // is applied Updates.updateId changes, so a legitimate later campaign can be
-    // processed immediately without re-showing an old campaign on app resume.
     const target = `${runtime}|${currentUpdateId}`;
-    if (currentCampaignTargetInMemory === target && currentCampaignInMemory === campaign.campaignId) return;
+    if (currentCampaignTargetInMemory === target && currentCampaignInMemory === campaign.campaignId) {
+      return nextPollSeconds;
+    }
     currentCampaignTargetInMemory = target;
     currentCampaignInMemory = campaign.campaignId;
 
-    // Campaign checks are never "manual". They must not display "You're up to
-    // date" or RETRY NEEDED merely because the network is temporarily unavailable.
     await checkForAppUpdate("campaign", true, true);
+    return nextPollSeconds;
   } catch {
-    // The currently installed bundle remains active on connectivity/server errors.
+    return nextPollSeconds;
   } finally {
     inFlight = false;
   }
 }
 
 export default function ServerUpdateCoordinator() {
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
     let cancelled = false;
 
+    const schedulePoll = (seconds = DEFAULT_POLL_SECONDS) => {
+      if (cancelled) return;
+      if (pollRef.current) clearTimeout(pollRef.current);
+      pollRef.current = setTimeout(async () => {
+        const next = await checkServerCampaign(false);
+        if (!cancelled) schedulePoll(next);
+      }, pollDelaySeconds(seconds) * 1000);
+    };
+
     const initialize = async () => {
       await registerInstallation();
-      if (!cancelled) await checkServerCampaign(true);
+      if (cancelled) return;
+      const next = await checkServerCampaign(true);
+      if (!cancelled) schedulePoll(next);
     };
     void initialize();
 
@@ -194,8 +209,6 @@ export default function ServerUpdateCoordinator() {
       if (data?.type === "ota_update" || data?.type === "native_update") void checkServerCampaign(true);
     });
 
-    // Native FCM tokens can rotate. Re-register immediately so a previously
-    // healthy installation does not silently stop receiving update pushes.
     const tokenChanged = Notifications.addPushTokenListener(() => {
       void registerInstallation();
     });
@@ -203,13 +216,11 @@ export default function ServerUpdateCoordinator() {
     const appState = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void registerInstallation();
-        void checkServerCampaign(true);
+        void checkServerCampaign(true).then((next) => {
+          if (!cancelled) schedulePoll(next);
+        });
       }
     });
-
-    pollRef.current = setInterval(() => {
-      void checkServerCampaign(false);
-    }, FALLBACK_POLL_MS);
 
     return () => {
       cancelled = true;
@@ -217,7 +228,7 @@ export default function ServerUpdateCoordinator() {
       tapped.remove();
       tokenChanged.remove();
       appState.remove();
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
       pollRef.current = null;
     };
   }, []);
