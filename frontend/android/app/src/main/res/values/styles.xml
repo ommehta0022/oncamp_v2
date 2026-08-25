@@ -11,7 +11,7 @@
 
   <style name="OnCampusSplashThemeBase" parent="Theme.SplashScreen">
     <item name="windowSplashScreenBackground">@color/splashscreen_background</item>
-    <item name="windowSplashScreenAnimatedIcon">@drawable/splashscreen_logo</item>
+    <item name="windowSplashScreenAnimatedIcon">@drawable/oncampus_app_icon</item>
     <item name="postSplashScreenTheme">@style/AppTheme</item>
   </style>
 
