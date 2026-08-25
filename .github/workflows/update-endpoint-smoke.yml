@@ -1,0 +1,73 @@
+name: OnCampus Update Endpoint Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/update-endpoint-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production-updates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify OTA source status
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://oncampus-backend-production.up.railway.app/v1"
+          curl --fail --show-error --silent --retry 3 --retry-all-errors \
+            "$BASE/updates/status?runtimeVersion=1.6.2" -o status.json
+          python - <<'PY'
+          import json
+          value = json.load(open("status.json"))
+          assert value.get("runtimeVersion") == "1.6.2", value
+          assert value.get("releaseAvailable") is True, value
+          assert value.get("signed") is True, value
+          assert value.get("updateId"), value
+          print("OTA status OK", value.get("updateId"))
+          PY
+
+      - name: Verify Expo manifest for previous update
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://oncampus-backend-production.up.railway.app/v1"
+          code=$(curl --show-error --silent --retry 3 --retry-all-errors \
+            -D manifest.headers -o manifest.json -w '%{http_code}' \
+            -H 'expo-protocol-version: 1' \
+            -H 'expo-platform: android' \
+            -H 'expo-runtime-version: 1.6.2' \
+            -H 'expo-current-update-id: d29b77a8-ce70-4c6a-8806-575638cc39e4' \
+            "$BASE/updates/manifest")
+          test "$code" = "200"
+          grep -qi '^expo-signature:' manifest.headers
+          python - <<'PY'
+          import json
+          value = json.load(open("manifest.json"))
+          assert value.get("runtimeVersion") == "1.6.2", value
+          assert value.get("id") and value.get("id") != "d29b77a8-ce70-4c6a-8806-575638cc39e4", value
+          assert value.get("launchAsset", {}).get("url", "").startswith("https://github.com/ommehta0022/oncamp_v2/releases/download/ota-runtime-1.6.2/"), value
+          print("OTA manifest OK", value.get("id"))
+          PY
+
+      - name: Verify native release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://oncampus-backend-production.up.railway.app/v1"
+          curl --fail --show-error --silent --retry 3 --retry-all-errors \
+            "$BASE/updates/native/latest" -o native.json
+          python - <<'PY'
+          import json
+          value = json.load(open("native.json"))
+          assert value.get("available") is True, value
+          assert value.get("version") == "1.6.2", value
+          assert len(value.get("sha256", "")) == 64, value
+          assert value.get("apkUrl", "").startswith("https://oncampus-backend-production.up.railway.app/v1/updates/native/apk?version=1.6.2"), value
+          print("Native metadata OK", value.get("version"))
+          PY
