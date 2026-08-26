@@ -7,28 +7,17 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { font, radius, spacing } from "@/src/theme/colors";
+import { font, radius } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
-import { AccountRole, api, getUserErrorMessage } from "@/src/lib/api";
+import { api, getUserErrorMessage } from "@/src/lib/api";
 import { digitsOnly, validateIndianPhone } from "@/src/utils/validation";
-import { useRole } from "@/src/context/RoleProvider";
 
 const APP_ICON = require("../../assets/images/icon.png");
-
-function resolveRole(accountType?: AccountRole, roles: AccountRole[] = []) {
-  if (roles.includes("platform_admin")) return "platform_admin";
-  if (roles.includes("institution_admin") || accountType === "institution_admin") return "institution_admin";
-  if (roles.includes("group_owner")) return "group_owner";
-  if (roles.includes("group_admin")) return "group_admin";
-  if (roles.includes("moderator")) return "moderator";
-  return "normal_user";
-}
 
 export default function Login() {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  useRole();
   const [loginType, setLoginType] = useState<"student" | "institution">("student");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -140,21 +129,13 @@ export default function Login() {
             {phone.length > 0 && !phoneValidation.valid ? <Text style={[styles.validation, { color: colors.error }]}>{phoneValidation.error}</Text> : null}
 
             <View style={styles.ctaWrap}>
-              <Button
-                label="Continue"
-                fullWidth
-                size="lg"
-                disabled={!phoneValidation.valid || submitting}
-                loading={submitting}
-                onPress={sendOtp}
-                testID="send-otp-btn"
-              />
+              <Button label="Continue" fullWidth size="lg" disabled={!phoneValidation.valid || submitting} loading={submitting} onPress={sendOtp} testID="send-otp-btn" />
             </View>
             {!!error && <Text style={[styles.validation, { color: colors.error }]}>{error}</Text>}
           </View>
 
           <Pressable onPress={() => router.push(loginType === "student" ? "/(auth)/signup" : "/(auth)/register-institution")} style={styles.footerLink}>
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>
+            <Text style={{ color: colors.onSurfaceTertiary, fontSize: 14 }}>
               New to OnCampus?{" "}
               <Text style={{ color: colors.luxuryGold, fontWeight: "800" }}>{loginType === "student" ? "Create account" : "Register institution"}</Text>
             </Text>
