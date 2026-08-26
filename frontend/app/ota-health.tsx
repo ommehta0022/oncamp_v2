@@ -6,9 +6,9 @@ export default function OtaHealthRoute() {
   const { colors } = useTheme();
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Text style={[styles.title, { color: colors.text }]}>OnCampus OTA</Text>
-      <Text style={[styles.body, { color: colors.textSecondary }]}>Runtime 1.6.4 control plane verified.</Text>
+    <View style={[styles.container, { backgroundColor: colors.surface }]}>
+      <Text style={[styles.title, { color: colors.onSurface }]}>OnCampus OTA</Text>
+      <Text style={[styles.body, { color: colors.onSurfaceSecondary }]}>Runtime 1.6.4 control plane verified.</Text>
     </View>
   );
 }
