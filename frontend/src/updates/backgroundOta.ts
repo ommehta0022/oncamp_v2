@@ -83,8 +83,14 @@ async function fetchUpdateWithRetry(expectedUpdateId: string) {
     try {
       const check = await Updates.checkForUpdateAsync();
       if (!check.isAvailable) {
-        // The update may already be downloaded and pending, or this device may
-        // already be running it. Either outcome is safe and requires no retry.
+        // The runtime-specific server still advertises a newer update but Expo
+        // no longer reports it as downloadable. In production this is the
+        // normal state after expo-updates has already cached the update locally.
+        // Treat it as ready so Update Now can safely reload on foreground.
+        if (expectedUpdateId && expectedUpdateId !== String(Updates.updateId || "")) {
+          await persistReady(expectedUpdateId);
+          return true;
+        }
         return false;
       }
 
