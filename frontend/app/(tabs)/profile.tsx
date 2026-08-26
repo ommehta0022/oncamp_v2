@@ -65,7 +65,7 @@ export default function Profile() {
         </View>
 
         <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Text style={{ color: colors.onSurface, fontSize: 25, fontWeight: "850", letterSpacing: -0.5 }}>{user?.name || "User"}</Text>{(user as any)?.verified && <Ionicons name="checkmark-circle" size={19} color={colors.luxuryGold} />}</View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Text style={{ color: colors.onSurface, fontSize: 25, fontWeight: "800", letterSpacing: -0.5 }}>{user?.name || "User"}</Text>{(user as any)?.verified && <Ionicons name="checkmark-circle" size={19} color={colors.luxuryGold} />}</View>
           <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: 2 }}>{(user as any)?.handle ? `@${(user as any).handle}` : (user as any)?.email || ""}</Text>
           {!!(user as any)?.bio && <Text style={{ color: colors.onSurface, fontSize: font.base, marginTop: spacing.md, lineHeight: 22 }}>{(user as any).bio}</Text>}
           <View style={styles.metaWrap}>{(user as any)?.course && <Meta icon="school-outline" text={(user as any).course} />}{(user as any)?.city && <Meta icon="location-outline" text={(user as any).city} />}{streak > 0 && <Meta icon="flame-outline" text={`${streak} day streak`} color={colors.luxuryGold} />}</View>

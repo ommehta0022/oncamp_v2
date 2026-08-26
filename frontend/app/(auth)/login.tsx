@@ -83,7 +83,7 @@ export default function Login() {
 
           <View style={styles.heroArea}>
             <View style={[styles.logoFrame, { backgroundColor: colors.glassStrong, borderColor: colors.border }]}>
-              <Image source={APP_ICON} style={styles.logo} contentFit="cover" />
+              <Image source={APP_ICON} style={{ width: "100%", height: "100%", borderRadius: 20 }} contentFit="cover" />
             </View>
             <Text style={[styles.h1, { color: colors.onSurface }]}>Welcome back</Text>
             <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
@@ -162,11 +162,11 @@ const styles = StyleSheet.create({
   h2: { fontSize: 14.5, marginTop: 10, lineHeight: 21, textAlign: "center", maxWidth: 330 },
   modeSwitch: { flexDirection: "row", borderRadius: radius.pill, padding: 4, borderWidth: StyleSheet.hairlineWidth, marginTop: 38 },
   modeButton: { flex: 1, minHeight: 42, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-  modeText: { fontSize: 13.5, fontWeight: "750" },
+  modeText: { fontSize: 13.5, fontWeight: "700" },
   form: { marginTop: 30 },
-  label: { fontSize: 12.5, fontWeight: "750", marginBottom: 9 },
+  label: { fontSize: 12.5, fontWeight: "700", marginBottom: 9 },
   phoneRow: { flexDirection: "row", alignItems: "center", height: 58, borderRadius: 18, borderWidth: 1, paddingHorizontal: 15 },
-  countryCode: { fontSize: 16, fontWeight: "750" },
+  countryCode: { fontSize: 16, fontWeight: "700" },
   divider: { width: StyleSheet.hairlineWidth, height: 25, marginHorizontal: 14 },
   phoneInput: { flex: 1, fontSize: 16, fontWeight: "600", letterSpacing: 0.2 },
   validation: { fontSize: 12, marginTop: 8, lineHeight: 17 },

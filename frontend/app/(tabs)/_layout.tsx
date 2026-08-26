@@ -23,7 +23,7 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.luxuryGold,
         tabBarInactiveTintColor: colors.onSurfaceTertiary,
-        tabBarLabelStyle: { fontSize: 10.5, fontWeight: "650", marginTop: 1, letterSpacing: 0.1 },
+        tabBarLabelStyle: { fontSize: 10.5, fontWeight: "600", marginTop: 1, letterSpacing: 0.1 },
         tabBarStyle: {
           position: "absolute",
           backgroundColor: Platform.OS === "ios" ? "transparent" : colors.surfaceSecondary,

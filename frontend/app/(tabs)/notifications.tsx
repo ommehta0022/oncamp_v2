@@ -117,7 +117,7 @@ function NotifRow({ n, onPress }: { n: Notification; onPress: () => void }) {
       <View style={[styles.typeBadge, { backgroundColor: badgeColor, borderColor: colors.surface }]}><Ionicons name={ICONS[n.type] || "notifications"} size={11} color={colors.onBrandPrimary} /></View>
     </View>
     <View style={{ flex: 1 }}>
-      <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: n.read ? "650" : "800" }} numberOfLines={1}>{n.title}</Text>
+      <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: n.read ? "600" : "800" }} numberOfLines={1}>{n.title}</Text>
       <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 3, lineHeight: 18 }} numberOfLines={2}>{n.body}</Text>
       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 5 }}>{n.createdAt}</Text>
     </View>
