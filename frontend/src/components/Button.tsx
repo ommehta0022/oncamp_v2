@@ -4,7 +4,7 @@ import * as Haptics from "expo-haptics";
 import { useTheme } from "../theme/ThemeProvider";
 import { radius, spacing, font } from "../theme/colors";
 
-type Variant = "primary" | "secondary" | "ghost" | "outline" | "danger" | "link";
+type Variant = "primary" | "secondary" | "neutral" | "ghost" | "outline" | "danger" | "success" | "warning" | "info" | "link";
 type Size = "sm" | "md" | "lg" | "xl";
 
 export type ButtonProps = {
@@ -31,22 +31,30 @@ export default function Button({
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const bg: Record<Variant, string> = {
-    primary: colors.surfaceInverse,
-    secondary: colors.luxuryGold,
+    primary: colors.actionPrimary,
+    secondary: colors.actionSecondary,
+    neutral: colors.actionNeutral,
     ghost: "transparent",
     outline: "transparent",
-    danger: colors.danger || colors.error,
+    danger: colors.actionDanger,
+    success: colors.actionSuccess,
+    warning: colors.actionWarning,
+    info: colors.actionInfo,
     link: "transparent",
   };
   const fg: Record<Variant, string> = {
-    primary: colors.onSurfaceInverse,
-    secondary: colors.onBrandPrimary,
-    ghost: colors.textPrimary || colors.onSurface,
-    outline: colors.textPrimary || colors.onSurface,
-    danger: colors.onError,
-    link: colors.link || colors.luxuryGold,
+    primary: colors.onActionPrimary,
+    secondary: colors.onActionSecondary,
+    neutral: colors.onActionNeutral,
+    ghost: colors.onSurface,
+    outline: colors.actionPrimary,
+    danger: colors.onActionDanger,
+    success: colors.onActionSuccess,
+    warning: colors.onActionWarning,
+    info: colors.onActionInfo,
+    link: colors.link,
   };
-  const border = variant === "outline" ? (colors.borderStrong || colors.border) : "transparent";
+  const border = variant === "outline" ? colors.actionPrimary : "transparent";
   const heights: Record<Size, number> = { sm: 36, md: 44, lg: 52, xl: 60 };
   const fontSizes: Record<Size, number> = { sm: font.sm, md: font.base, lg: font.lg, xl: font.xl };
   const px: Record<Size, number> = { sm: spacing.md, md: spacing.lg, lg: spacing.xl, xl: spacing["2xl"] };
@@ -63,6 +71,8 @@ export default function Button({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onPress?.();
   };
+
+  const isTextOnly = variant === "link" || variant === "ghost";
 
   return (
     <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, fullWidth && { width: "100%" }]}>
@@ -82,20 +92,20 @@ export default function Button({
             paddingHorizontal: variant === "link" ? spacing.sm : px[size],
             paddingVertical: variant === "link" ? spacing.sm : 0,
             borderRadius: radius.pill,
-            backgroundColor: disabled && variant !== "link" && variant !== "ghost" ? colors.surfaceTertiary : bg[variant],
+            backgroundColor: disabled && !isTextOnly ? colors.surfaceTertiary : bg[variant],
             borderWidth: variant === "outline" ? 1 : 0,
             borderColor: disabled ? colors.border : border,
             alignItems: "center",
             justifyContent: "center",
             flexDirection: "row",
-            opacity: disabled ? 0.55 : (pressed ? 0.88 : 1),
+            opacity: disabled ? 0.62 : (pressed ? 0.88 : 1),
             alignSelf: fullWidth ? "stretch" : "flex-start",
             gap: spacing.sm,
           },
           style,
         ]}
       >
-        {loading ? <ActivityIndicator color={fg[variant]} accessibilityLabel={`${label} in progress`} /> : (
+        {loading ? <ActivityIndicator color={disabled ? colors.textDisabled : fg[variant]} accessibilityLabel={`${label} in progress`} /> : (
           <>
             {leftIcon}
             <Text
@@ -103,7 +113,7 @@ export default function Button({
               maxFontSizeMultiplier={1.6}
               style={[
                 {
-                  color: disabled ? (colors.textDisabled || colors.muted) : fg[variant],
+                  color: disabled ? colors.textDisabled : fg[variant],
                   fontSize: fontSizes[size],
                   fontWeight: variant === "link" ? "600" : "700",
                   textDecorationLine: "none",
