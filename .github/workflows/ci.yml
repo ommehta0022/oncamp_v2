@@ -46,6 +46,10 @@ jobs:
         working-directory: frontend
         run: npm install --include=dev --legacy-peer-deps --no-audit --no-fund
 
+      - name: Enforce luxury neutral UI palette
+        working-directory: frontend
+        run: node scripts/audit-luxury-ui.js
+
       - name: Validate OTA and native release contracts
         working-directory: frontend
         run: node scripts/validate-release-startup.js
