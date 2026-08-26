@@ -29,6 +29,7 @@ class OnCampusApkInstallerModule(
     private const val KEY_URL = "url"
     private const val KEY_SHA256 = "sha256"
     private const val KEY_VERIFIED = "verified"
+    private const val KEY_PERMISSION_PROMPTED = "permission_prompted"
     private const val APK_FILE_NAME = "OnCampus-update.apk"
   }
 
@@ -63,6 +64,9 @@ class OnCampusApkInstallerModule(
     }
 
     try {
+      // An explicit Install now tap is allowed to present the Android permission
+      // screen once more if the user previously dismissed it.
+      prefs.edit().putBoolean(KEY_PERMISSION_PROMPTED, false).apply()
       startOrResumeSystemDownload(url, sha256.lowercase())
       promise.resolve(Arguments.createMap().apply { putString("status", "downloading") })
     } catch (error: Exception) {
@@ -113,8 +117,12 @@ class OnCampusApkInstallerModule(
     val existingSha = prefs.getString(KEY_SHA256, null)
 
     if (existingId > 0L && existingUrl == url && existingSha == expectedSha256) {
-      emit("downloading", currentProgress(existingId).coerceAtLeast(1), "Downloading OnCampus update", "Android is continuing the verified update download in the background.")
-      monitorDownload(existingId)
+      if (prefs.getBoolean(KEY_VERIFIED, false)) {
+        finishVerifiedInstall()
+      } else {
+        emit("downloading", currentProgress(existingId).coerceAtLeast(1), "Downloading OnCampus update", "Android is continuing the verified update download in the background.")
+        monitorDownload(existingId)
+      }
       return
     }
 
@@ -143,6 +151,7 @@ class OnCampusApkInstallerModule(
       .putString(KEY_URL, url)
       .putString(KEY_SHA256, expectedSha256)
       .putBoolean(KEY_VERIFIED, false)
+      .putBoolean(KEY_PERMISSION_PROMPTED, false)
       .apply()
 
     emit("downloading", 1, "Downloading OnCampus update", "Android DownloadManager will continue this transfer if you minimize OnCampus.")
@@ -247,7 +256,10 @@ class OnCampusApkInstallerModule(
           throw SecurityException("APK checksum verification failed")
         }
 
-        prefs.edit().putBoolean(KEY_VERIFIED, true).apply()
+        prefs.edit()
+          .putBoolean(KEY_VERIFIED, true)
+          .putBoolean(KEY_PERMISSION_PROMPTED, false)
+          .apply()
         emit("verifying", 100, "Update ready", "APK verified. Installation will open when OnCampus is active.")
         if (hostResumed) finishVerifiedInstall()
       } catch (error: Exception) {
@@ -269,7 +281,11 @@ class OnCampusApkInstallerModule(
 
     if (!canInstallPackages()) {
       emit("permission", 100, "Allow app installation", "The APK is already downloaded and verified. Enable Allow from this source; installation will continue when you return.")
-      if (hostResumed) openUnknownSourcesSettings()
+      val alreadyPrompted = prefs.getBoolean(KEY_PERMISSION_PROMPTED, false)
+      if (hostResumed && !alreadyPrompted) {
+        prefs.edit().putBoolean(KEY_PERMISSION_PROMPTED, true).apply()
+        openUnknownSourcesSettings()
+      }
       return
     }
 
