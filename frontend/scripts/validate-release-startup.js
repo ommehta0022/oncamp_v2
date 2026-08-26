@@ -19,6 +19,8 @@ const updateGate = read('src/components/AppUpdateGate.tsx');
 const backgroundCoordinator = read('src/components/BackgroundOtaCoordinator.tsx');
 const backgroundOta = read('src/updates/backgroundOta.ts');
 const nativeGuard = read('src/components/NativeOtaStartupGuard.tsx');
+const apkInstaller = read('android/app/src/main/java/com/oncampus/app/OnCampusApkInstallerModule.kt');
+const apkFilePaths = read('android/app/src/main/res/xml/apk_file_paths.xml');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const strings = read('android/app/src/main/res/values/strings.xml');
 const gradle = read('android/app/build.gradle');
@@ -133,9 +135,17 @@ expect(updateGate.includes('SUCCESS_SHOWN_KEY'), 'one-time update-success acknow
 expect(updateGate.includes('serverOtaId()'), 'OTA server/native acceptance cross-check missing');
 expect(!nativeGuard.includes('Alert.alert'), 'native OTA observer must not create duplicate user prompts');
 
+expect(apkInstaller.includes('DownloadManager'), 'native APK updater must use Android DownloadManager');
+expect(apkInstaller.includes('setDestinationInExternalFilesDir'), 'native APK download must use durable app-owned external storage');
+expect(apkInstaller.includes('getSharedPreferences'), 'native APK download state must survive React process recreation');
+expect(apkInstaller.includes('override fun onHostResume()'), 'native APK updater must resume verification/install when app returns');
+expect(apkInstaller.includes('APK checksum verification failed'), 'native APK updater must verify SHA-256 before install');
+expect(!apkInstaller.includes('HttpURLConnection'), 'native APK updater must not depend on a process-owned HTTP transfer');
+expect(apkFilePaths.includes('external-files-path'), 'FileProvider must expose the durable DownloadManager APK location');
+
 expect(!layout.includes('CampusLoader'), 'RootLayout must not block startup with CampusLoader');
 expect(!index.includes('CampusLoader'), 'Startup route must not use CampusLoader');
 expect(!index.includes('setTimeout('), 'Startup route must not contain artificial delays');
 expect(index.includes('router.replace(target)'), 'Startup route must deterministically leave the splash route');
 
-console.log(`OnCampus release/startup contracts verified for ${version} with luxury UI, personal pins, unified OTA and resilient Android background prefetch`);
+console.log(`OnCampus release/startup contracts verified for ${version} with resilient background OTA and durable Android APK downloads`);
