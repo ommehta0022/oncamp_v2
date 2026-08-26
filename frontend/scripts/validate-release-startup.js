@@ -78,10 +78,10 @@ expect(!theme.includes('type ThemeMode = "light" | "dark" | "system"'), 'System 
 const expectedDeps = {
   expo: '54.0.37',
   'expo-asset': '12.0.13',
-  'expo-background-task': '1.0.8',
+  'expo-background-task': '1.0.10',
   'expo-constants': '18.0.14',
   'expo-audio': '1.1.1',
-  'expo-task-manager': '14.0.7',
+  'expo-task-manager': '14.0.9',
   'expo-updates': '29.0.20',
 };
 for (const [name, pinned] of Object.entries(expectedDeps)) {
