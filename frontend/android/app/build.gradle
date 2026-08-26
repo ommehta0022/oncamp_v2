@@ -3,8 +3,8 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.6.5"
-def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "10605").toInteger()
+def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.6.6"
+def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "10606").toInteger()
 
 if (onCampusVersionCode <= 150) {
     throw new GradleException("OnCampus versionCode must remain above legacy builds to prevent Android INSTALL_FAILED_VERSION_DOWNGRADE")
