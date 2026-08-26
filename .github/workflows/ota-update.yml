@@ -35,13 +35,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git diff --name-only "origin/${{ github.base_ref }}...HEAD" > /tmp/changed.txt
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual runs are never an unconditional OTA escape hatch. Classify
+            # the exact latest commit with the same native-safety rules.
+            git diff --name-only "HEAD^" HEAD > /tmp/changed.txt
           else
             BEFORE="${{ github.event.before }}"
             AFTER="${{ github.sha }}"
@@ -91,11 +91,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install SDK-pinned dependencies
+      - name: Install exact locked dependencies
         working-directory: frontend
         env:
           NODE_ENV: development
-        run: npm install --include=dev --legacy-peer-deps --no-audit --no-fund
+        run: npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
 
       - name: Validate OTA source contracts
         working-directory: frontend
@@ -124,6 +124,7 @@ jobs:
           node scripts/prepare-ota-release.mjs ota-dist ota-release
           test -s ota-release/ota-source.json
           test -s ota-release/ota-source.sha256
+          node -e "const s=require('./ota-release/ota-source.json');if(s.runtimeVersion!==require('./app.json').expo.runtimeVersion||!s.id||!s.launchAsset?.url)process.exit(1)"
 
       - name: Upload verification artifact
         if: github.event_name == 'pull_request'

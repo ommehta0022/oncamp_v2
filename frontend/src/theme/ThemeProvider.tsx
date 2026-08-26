@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColorScheme } from "react-native";
 import { lightColors, darkColors, ThemeColors } from "./colors";
 import { useAccessibilityPreferences } from "@/src/context/AccessibilityProvider";
 
-type ThemeMode = "light" | "dark" | "system";
+export type ThemeMode = "light" | "dark";
 
 type ThemeContextValue = {
   mode: ThemeMode;
@@ -24,30 +24,34 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-
     void AsyncStorage.getItem(STORAGE_KEY)
-      .then((v) => {
+      .then((value) => {
         if (!mounted) return;
-        if (v === "light" || v === "dark" || v === "system") setModeState(v);
+        if (value === "dark" || value === "light") {
+          setModeState(value);
+          return;
+        }
+        // Migrate the removed "system" option once into an explicit mode so
+        // users always know which of the two polished themes is active.
+        const migrated: ThemeMode = system === "dark" ? "dark" : "light";
+        setModeState(migrated);
+        void AsyncStorage.setItem(STORAGE_KEY, migrated).catch(() => undefined);
       })
-      .catch(() => {
-        // Storage failures must never block the application shell.
-      })
+      .catch(() => undefined)
       .finally(() => {
         if (mounted) setHydrated(true);
       });
-
     return () => {
       mounted = false;
     };
+  }, [system]);
+
+  const setMode = useCallback((next: ThemeMode) => {
+    setModeState(next);
+    void AsyncStorage.setItem(STORAGE_KEY, next).catch(() => undefined);
   }, []);
 
-  const setMode = useCallback((m: ThemeMode) => {
-    setModeState(m);
-    void AsyncStorage.setItem(STORAGE_KEY, m).catch(() => undefined);
-  }, []);
-
-  const isDark = mode === "system" ? system === "dark" : mode === "dark";
+  const isDark = mode === "dark";
   const colors = useMemo<ThemeColors>(() => {
     const base = isDark ? darkColors : lightColors;
     if (!highContrast) return base;
@@ -55,21 +59,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       ...base,
       onSurface: isDark ? "#FFFFFF" : "#000000",
       onSurfaceSecondary: isDark ? "#FFFFFF" : "#000000",
-      onSurfaceTertiary: isDark ? "#F2F2F2" : "#1A1A1A",
-      muted: isDark ? "#D6D6D6" : "#333333",
-      border: isDark ? "#777777" : "#8A8A8A",
-      borderStrong: isDark ? "#A5A5A5" : "#555555",
-      divider: isDark ? "#777777" : "#8A8A8A",
+      onSurfaceTertiary: isDark ? "#F5F5F5" : "#1B2630",
+      muted: isDark ? "#DEE7EC" : "#35434C",
+      border: isDark ? "#738A99" : "#7B7163",
+      borderStrong: isDark ? "#9CB0BC" : "#554C41",
+      divider: isDark ? "#738A99" : "#7B7163",
       textPrimary: isDark ? "#FFFFFF" : "#000000",
-      textSecondary: isDark ? "#F2F2F2" : "#1A1A1A",
-      textDisabled: isDark ? "#CFCFCF" : "#3A3A3A",
-      placeholder: isDark ? "#D6D6D6" : "#333333",
-      inputBorder: isDark ? "#A5A5A5" : "#555555",
+      textSecondary: isDark ? "#F5F5F5" : "#1B2630",
+      textDisabled: isDark ? "#D0DCE3" : "#35434C",
+      placeholder: isDark ? "#D0DCE3" : "#35434C",
+      inputBorder: isDark ? "#9CB0BC" : "#554C41",
     };
   }, [highContrast, isDark]);
 
   if (!hydrated) return null;
-
   return <ThemeContext.Provider value={{ mode, isDark, colors, setMode }}>{children}</ThemeContext.Provider>;
 }
 

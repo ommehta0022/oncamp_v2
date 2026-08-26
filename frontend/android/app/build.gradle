@@ -3,15 +3,14 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.6.3"
-def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "10603").toInteger()
+def onCampusVersionName = System.getenv("APP_VERSION_NAME") ?: "1.6.4"
+def onCampusVersionCode = (System.getenv("APP_VERSION_CODE") ?: "10604").toInteger()
 
 if (onCampusVersionCode <= 150) {
     throw new GradleException("OnCampus versionCode must remain above legacy builds to prevent Android INSTALL_FAILED_VERSION_DOWNGRADE")
 }
 
 react {
-    // Keep the native JS engine consistent between embedded and OTA updates.
     ext {
         hermesEnabled = (findProperty('expo.jsEngine') ?: "hermes") == "hermes"
     }
@@ -42,13 +41,10 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode onCampusVersionCode
         versionName onCampusVersionName
-
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
 
-    lint {
-        checkReleaseBuilds false
-    }
+    lint { checkReleaseBuilds false }
 
     signingConfigs {
         debug {
@@ -60,9 +56,7 @@ android {
     }
 
     buildTypes {
-        debug {
-            signingConfig signingConfigs.debug
-        }
+        debug { signingConfig signingConfigs.debug }
         release {
             signingConfig signingConfigs.debug
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
@@ -92,34 +86,22 @@ android {
     options -= ""
     if (options.length > 0) {
         println "android.packagingOptions.$prop += $options ($options.length)"
-        options.each {
-            android.packagingOptions[prop] += it
-        }
+        options.each { android.packagingOptions[prop] += it }
     }
 }
 
 dependencies {
     implementation("com.facebook.react:react-android")
-
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
     def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true";
-
-    if (isGifEnabled) {
-        implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
-    }
+    if (isGifEnabled) implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
     if (isWebpEnabled) {
         implementation("com.facebook.fresco:webpsupport:${expoLibs.versions.fresco.get()}")
-        if (isWebpAnimatedEnabled) {
-            implementation("com.facebook.fresco:animated-webp:${expoLibs.versions.fresco.get()}")
-        }
+        if (isWebpAnimatedEnabled) implementation("com.facebook.fresco:animated-webp:${expoLibs.versions.fresco.get()}")
     }
-
-    if (hermesEnabled.toBoolean()) {
-        implementation("com.facebook.react:hermes-android")
-    } else {
-        implementation jscFlavor
-    }
+    if (hermesEnabled.toBoolean()) implementation("com.facebook.react:hermes-android")
+    else implementation jscFlavor
 }
 
 apply plugin: 'com.google.gms.google-services'

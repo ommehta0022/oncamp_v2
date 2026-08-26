@@ -1,0 +1,1 @@
+OnCampus 1.6.4 branding uses the user-supplied blue/teal graduation-cap and open-book logo for launcher, adaptive icon, splash, favicon and in-app branding. Binary asset replacement is committed in the same release candidate before merge.
