@@ -1,6 +1,6 @@
-version=1.6.5
-runtime=1.6.5
-versionCode=10605
+version=1.6.6
+runtime=1.6.6
+versionCode=10606
 mode=direct-signed-apk
 requested=2026-08-26
-source=64860b776890b19301b5accc2b2088ebe35b47af
+source=pending-validation
