@@ -32,7 +32,8 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
         self.assertIn('if (mode === "manual")', UPDATE_GATE)
         self.assertIn('phase: "current"', UPDATE_GATE)
         self.assertIn("has no newer compatible OTA or Android release right now", UPDATE_GATE)
-        self.assertIn('if (mode === "automatic")', UPDATE_GATE)
+        self.assertIn("emitUpdateUi(INITIAL_UI);", UPDATE_GATE)
+        self.assertNotIn('mode === "automatic" ? { kind: "ota", phase: "current"', UPDATE_GATE)
 
     def test_later_is_persisted_and_manual_checks_bypass_deferral(self):
         self.assertIn("DEFER_KEY", UPDATE_GATE)
