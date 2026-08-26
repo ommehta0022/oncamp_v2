@@ -54,5 +54,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add frontend/package-lock.json
           git commit -m "chore(mobile): synchronize package lock"
+          # preinstall intentionally repairs branding assets; discard those generated working-tree changes
+          # so the lockfile commit can rebase/push deterministically.
+          git reset --hard HEAD
           git pull --rebase origin main
           git push origin HEAD:main
