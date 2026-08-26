@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, FlatList, Pressable, TextInput, RefreshControl 
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
@@ -20,7 +19,7 @@ const APP_ICON = require("../../assets/images/icon.png");
 const FILTERS = ["All", "Unread", "Announcements", "Muted"];
 
 type RowItem =
-  | { type: "section"; id: string; label: string; count: number }
+  | { type: "section"; id: string; label: string }
   | { type: "group"; id: string; group: Group; personalPinned: boolean };
 
 export default function Groups() {
@@ -72,25 +71,24 @@ export default function Groups() {
   const serverPinned = filtered.filter((group) => !isGroupPinned(group.id) && group.pinned);
   const others = filtered.filter((group) => !isGroupPinned(group.id) && !group.pinned);
   const totalUnread = groups.reduce((sum, group) => sum + Number(group.unread || 0), 0);
-  const pinnedCount = groups.reduce((count, group) => count + (isGroupPinned(group.id) ? 1 : 0), 0);
 
   const data: RowItem[] = [];
   if (personalPinned.length > 0) {
-    data.push({ type: "section", id: "s-personal", label: "Your pinned groups", count: personalPinned.length });
+    data.push({ type: "section", id: "s-personal", label: "Pinned" });
     personalPinned.forEach((group) => data.push({ type: "group", id: String(group.id), group, personalPinned: true }));
   }
   if (serverPinned.length > 0) {
-    data.push({ type: "section", id: "s-featured", label: "Featured by campus", count: serverPinned.length });
+    data.push({ type: "section", id: "s-featured", label: "Campus picks" });
     serverPinned.forEach((group) => data.push({ type: "group", id: String(group.id), group, personalPinned: false }));
   }
   if (others.length > 0) {
-    data.push({ type: "section", id: "s-all", label: filter === "All" ? "Your communities" : filter, count: others.length });
+    data.push({ type: "section", id: "s-all", label: filter === "All" ? "Your groups" : filter });
     others.forEach((group) => data.push({ type: "group", id: String(group.id), group, personalPinned: false }));
   }
 
   const onToggleGroupPin = useCallback(async (group: Group) => {
     const next = await toggleGroupPin(group.id);
-    showToast({ message: next ? `${group.name} pinned for you` : `${group.name} unpinned`, variant: "success" });
+    showToast({ message: next ? `${group.name} pinned` : `${group.name} unpinned`, variant: "success" });
   }, [showToast, toggleGroupPin]);
 
   return (
@@ -98,40 +96,36 @@ export default function Groups() {
       <FlatList
         data={data}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 140 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
+        contentContainerStyle={{ paddingBottom: 132 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.luxuryGold} colors={[colors.luxuryGold]} />}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
-          <>
-            <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-              <View style={styles.heroTop}>
-                <View style={styles.heroBrand}>
-                  <Image source={APP_ICON} style={styles.heroIcon} contentFit="cover" />
-                  <View>
-                    <Text style={styles.heroEyebrow}>ONCAMPUS COMMUNITIES</Text>
-                    <Text style={styles.heroTitle}>Groups</Text>
-                  </View>
+          <View style={styles.headerWrap}>
+            <View style={styles.titleRow}>
+              <View style={styles.brandRow}>
+                <Image source={APP_ICON} style={styles.brandIcon} contentFit="cover" />
+                <View>
+                  <Text style={[styles.title, { color: colors.onSurface }]}>Groups</Text>
+                  <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>Communities you belong to</Text>
                 </View>
-                <Pressable style={styles.heroAction} testID="groups-search-btn" onPress={() => router.push("/search")} accessibilityRole="button" accessibilityLabel="Search communities">
-                  <Ionicons name="search" size={20} color="#FFFFFF" />
-                </Pressable>
               </View>
-              <Text style={styles.heroCopy}>A refined space for your classes, clubs, announcements and people that matter.</Text>
-              <View style={styles.metricsRow}>
-                <Metric icon="people-outline" value={groups.length} label="joined" />
-                <View style={styles.metricDivider} />
-                <Metric icon="sparkles-outline" value={pinnedCount} label="pinned" />
-                <View style={styles.metricDivider} />
-                <Metric icon="chatbubble-ellipses-outline" value={totalUnread} label="unread" />
-              </View>
-            </LinearGradient>
+              <Pressable
+                style={[styles.iconButton, { backgroundColor: colors.surfaceTertiary }]}
+                testID="groups-search-btn"
+                onPress={() => router.push("/search")}
+                accessibilityRole="button"
+                accessibilityLabel="Search communities"
+              >
+                <Ionicons name="search" size={20} color={colors.onSurface} />
+              </Pressable>
+            </View>
 
             <View style={[styles.searchBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
               <TextInput
                 value={query}
                 onChangeText={setQuery}
-                placeholder="Search your communities"
+                placeholder="Search groups"
                 placeholderTextColor={colors.muted}
                 style={{ flex: 1, color: colors.onSurface, fontSize: font.base, marginLeft: spacing.sm }}
               />
@@ -148,36 +142,19 @@ export default function Groups() {
                 const active = filter === item;
                 const unreadCount = item === "Unread" ? totalUnread : 0;
                 return (
-                  <Pressable
-                    onPress={() => setFilter(item)}
-                    style={[
-                      styles.chip,
-                      {
-                        backgroundColor: active ? colors.onSurface : colors.surfaceSecondary,
-                        borderColor: active ? colors.onSurface : colors.borderStrong,
-                      },
-                    ]}
-                    testID={`groups-filter-${item.toLowerCase()}`}
-                  >
-                    <Text style={{ color: active ? colors.surface : colors.onSurface, fontSize: font.base, fontWeight: "700" }}>{item}</Text>
-                    {unreadCount > 0 && <View style={[styles.chipBadge, { backgroundColor: active ? colors.luxuryGold : colors.brandPrimary }]}><Text style={{ color: active ? "#171109" : colors.onBrandPrimary, fontSize: 10, fontWeight: "800" }}>{unreadCount}</Text></View>}
+                  <Pressable onPress={() => setFilter(item)} style={styles.filterButton} testID={`groups-filter-${item.toLowerCase()}`}>
+                    <Text style={[styles.filterText, { color: active ? colors.onSurface : colors.onSurfaceTertiary, fontWeight: active ? "800" : "600" }]}>{item}</Text>
+                    {unreadCount > 0 && <View style={[styles.filterBadge, { backgroundColor: colors.luxuryGold }]}><Text style={styles.filterBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text></View>}
+                    <View style={[styles.filterUnderline, { backgroundColor: active ? colors.luxuryGold : "transparent" }]} />
                   </Pressable>
                 );
               }}
             />
-          </>
+          </View>
         }
         renderItem={({ item }) => {
           if (item.type === "section") {
-            return (
-              <View style={styles.sectionHead}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-                  <View style={[styles.sectionDot, { backgroundColor: item.id === "s-personal" ? colors.luxuryGold : colors.luxuryTeal }]} />
-                  <Text style={[styles.sectionLabel, { color: colors.onSurface }]}>{item.label}</Text>
-                </View>
-                <Text style={[styles.sectionCount, { color: colors.onSurfaceTertiary }]}>{item.count}</Text>
-              </View>
-            );
+            return <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>{item.label}</Text>;
           }
           return (
             <GroupRow
@@ -189,26 +166,22 @@ export default function Groups() {
           );
         }}
         ListEmptyComponent={
-          <View style={[styles.empty, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-            <View style={[styles.emptyIcon, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={error ? "cloud-offline-outline" : "people-circle-outline"} size={32} color={colors.luxuryGold} /></View>
+          <View style={styles.empty}>
+            <View style={[styles.emptyIcon, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={28} color={colors.luxuryGold} /></View>
             <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "800", marginTop: spacing.md }}>{error ? "Couldn’t load groups" : "No matching groups"}</Text>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, lineHeight: 20, textAlign: "center", marginTop: 5 }}>{error || "Try another filter or search term."}</Text>
-            {error ? <Pressable onPress={() => void fetchGroups()} style={[styles.retry, { backgroundColor: colors.brandPrimary }]}><Text style={{ color: colors.onBrandPrimary, fontWeight: "800" }}>Try again</Text></Pressable> : null}
+            {error ? <Pressable onPress={() => void fetchGroups()} style={[styles.retry, { backgroundColor: colors.onSurface }]}><Text style={{ color: colors.surface, fontWeight: "800" }}>Try again</Text></Pressable> : null}
           </View>
         }
       />
 
       {canCreateGroups && (
-        <Pressable onPress={() => router.push("/create-group")} style={[styles.fab, { backgroundColor: colors.luxuryGold, bottom: insets.bottom + 92 }]} testID="new-group-fab" accessibilityRole="button" accessibilityLabel="Create a new group">
-          <Ionicons name="add" size={25} color="#171109" />
+        <Pressable onPress={() => router.push("/create-group")} style={[styles.fab, { backgroundColor: colors.onSurface, bottom: insets.bottom + 88 }]} testID="new-group-fab" accessibilityRole="button" accessibilityLabel="Create a new group">
+          <Ionicons name="add" size={25} color={colors.surface} />
         </Pressable>
       )}
     </SafeAreaView>
   );
-}
-
-function Metric({ icon, value, label }: { icon: keyof typeof Ionicons.glyphMap; value: number; label: string }) {
-  return <View style={styles.metric}><Ionicons name={icon} size={15} color="#D9C486" /><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
 }
 
 function GroupRow({ group, personalPinned, onPress, onTogglePin }: { group: Group; personalPinned: boolean; onPress: () => void; onTogglePin: () => void }) {
@@ -219,94 +192,64 @@ function GroupRow({ group, personalPinned, onPress, onTogglePin }: { group: Grou
   const sender = senderMatch?.[1];
   const msgBody = senderMatch?.[2] || lastMsg;
 
-  const categoryColors: Record<string, string> = {
-    Batch: colors.info,
-    Clubs: colors.brandPrimary,
-    Official: colors.luxuryGold,
-    Events: colors.warning,
-    Study: colors.luxuryTeal,
-    Sports: colors.success,
-    Tech: colors.info,
-    Arts: colors.brandSecondary,
-    Career: colors.brandPrimary,
-  };
-  const catColor = categoryColors[String(group.category || "")] || colors.luxuryTeal;
-
   return (
     <Pressable
       onPress={onPress}
       testID={`group-row-${group.id}`}
-      style={({ pressed }) => [
-        styles.row,
-        {
-          backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary,
-          borderColor: personalPinned ? colors.luxuryGold : hasUnread ? `${catColor}66` : colors.border,
-          shadowColor: colors.shadow,
-        },
-      ]}
+      style={({ pressed }) => [styles.row, { backgroundColor: pressed ? colors.surfaceTertiary : "transparent", borderBottomColor: colors.divider }]}
     >
-      <View style={[styles.leftBar, { backgroundColor: personalPinned ? colors.luxuryGold : catColor, opacity: hasUnread || personalPinned ? 1 : 0.4 }]} />
-      <View style={[styles.avatarRing, { borderColor: `${catColor}55` }]}><Avatar uri={group.image} name={group.name} size={52} verified={group.verified} /></View>
-      <View style={{ flex: 1, gap: 5, minWidth: 0 }}>
+      <Avatar uri={group.image} name={group.name} size={52} verified={group.verified} />
+      <View style={styles.rowBody}>
         <View style={styles.rowTitleLine}>
           <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: hasUnread ? "800" : "700", flex: 1 }} numberOfLines={1}>{group.name}</Text>
-          {!!group.lastMessageAt && <Text style={{ color: hasUnread ? catColor : colors.onSurfaceTertiary, fontSize: 11, fontWeight: hasUnread ? "800" : "500" }}>{group.lastMessageAt}</Text>}
+          {!!group.lastMessageAt && <Text style={{ color: colors.onSurfaceTertiary, fontSize: 11, fontWeight: "600" }}>{group.lastMessageAt}</Text>}
         </View>
-        <View style={styles.metaLine}>
-          <View style={[styles.catPill, { backgroundColor: `${catColor}1F` }]}><Text style={{ color: catColor, fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>{String(group.category || "GROUP").toUpperCase()}</Text></View>
-          {personalPinned && <View style={[styles.catPill, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="pin" size={10} color={colors.luxuryGold} /><Text style={{ color: colors.luxuryGold, fontSize: 9, fontWeight: "900" }}>YOURS</Text></View>}
-          {group.pinned && !personalPinned && <View style={[styles.catPill, { backgroundColor: colors.highlight }]}><Ionicons name="sparkles" size={10} color={colors.luxuryTeal} /><Text style={{ color: colors.luxuryTeal, fontSize: 9, fontWeight: "900" }}>FEATURED</Text></View>}
-        </View>
-        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, lineHeight: 18 }} numberOfLines={1}>{sender ? <Text style={{ color: colors.onSurface, fontWeight: "800" }}>{sender}: </Text> : null}{msgBody}</Text>
+        <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, lineHeight: 18 }} numberOfLines={1}>{sender ? <Text style={{ color: colors.onSurface, fontWeight: "700" }}>{sender}: </Text> : null}{msgBody}</Text>
         <View style={styles.bottomMeta}>
-          <View style={styles.memberMeta}><Ionicons name="people-outline" size={12} color={colors.muted} /><Text style={{ color: colors.muted, fontSize: 11 }}>{Number(group.members || 0).toLocaleString()}</Text></View>
-          {group.role && group.role !== "member" && <Text style={{ color: colors.luxuryGold, fontSize: 10, fontWeight: "800" }}>{String(group.role).toUpperCase()}</Text>}
+          {!!group.category && <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: "700" }}>{String(group.category)}</Text>}
+          {!!group.category && <Text style={{ color: colors.muted }}>·</Text>}
+          <Ionicons name="people-outline" size={12} color={colors.muted} />
+          <Text style={{ color: colors.muted, fontSize: 10.5 }}>{Number(group.members || 0).toLocaleString()}</Text>
+          {group.role && group.role !== "member" && <><Text style={{ color: colors.muted }}>·</Text><Text style={{ color: colors.luxuryGold, fontSize: 10, fontWeight: "800" }}>{String(group.role).toUpperCase()}</Text></>}
           {group.muted && <Ionicons name="volume-mute-outline" size={13} color={colors.muted} />}
-          <View style={{ flex: 1 }} />
-          {hasUnread && <View style={[styles.unreadBadge, { backgroundColor: catColor }]}><Text style={{ color: "#fff", fontSize: 10, fontWeight: "900" }}>{Number(group.unread || 0) > 99 ? "99+" : group.unread}</Text></View>}
         </View>
       </View>
-      <Pressable onPress={(event) => { event.stopPropagation(); onTogglePin(); }} hitSlop={8} style={[styles.pinButton, { backgroundColor: personalPinned ? colors.luxuryGoldSoft : colors.surfaceTertiary }]} accessibilityRole="button" accessibilityLabel={personalPinned ? `Unpin ${group.name}` : `Pin ${group.name}`}>
-        <Ionicons name={personalPinned ? "pin" : "pin-outline"} size={17} color={personalPinned ? colors.luxuryGold : colors.onSurfaceTertiary} />
-      </Pressable>
+      <View style={styles.trailing}>
+        <Pressable onPress={(event) => { event.stopPropagation(); onTogglePin(); }} hitSlop={8} style={styles.pinButton} accessibilityRole="button" accessibilityLabel={personalPinned ? `Unpin ${group.name}` : `Pin ${group.name}`}>
+          <Ionicons name={personalPinned ? "pin" : "pin-outline"} size={17} color={personalPinned ? colors.luxuryGold : colors.onSurfaceTertiary} />
+        </Pressable>
+        {hasUnread && <View style={[styles.unreadBadge, { backgroundColor: colors.luxuryGold }]}><Text style={styles.unreadText}>{Number(group.unread || 0) > 99 ? "99+" : group.unread}</Text></View>}
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: { marginTop: spacing.sm, borderRadius: 28, padding: 20, minHeight: 214, justifyContent: "space-between", overflow: "hidden" },
-  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  heroBrand: { flexDirection: "row", alignItems: "center", gap: 12 },
-  heroIcon: { width: 46, height: 46, borderRadius: 15 },
-  heroEyebrow: { color: "#D9C486", fontSize: 9, fontWeight: "900", letterSpacing: 1.2 },
-  heroTitle: { color: "#FFFFFF", fontSize: 31, fontWeight: "900", letterSpacing: -0.8, marginTop: 1 },
-  heroAction: { width: 42, height: 42, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
-  heroCopy: { color: "rgba(255,255,255,0.78)", fontSize: 13, lineHeight: 19, maxWidth: 330, marginTop: 18 },
-  metricsRow: { flexDirection: "row", alignItems: "center", marginTop: 22, backgroundColor: "rgba(2,10,20,0.18)", borderRadius: 16, paddingVertical: 10 },
-  metric: { flex: 1, alignItems: "center" },
-  metricValue: { color: "#FFFFFF", fontSize: 17, fontWeight: "900", marginTop: 2 },
-  metricLabel: { color: "rgba(255,255,255,0.62)", fontSize: 9, fontWeight: "700", letterSpacing: 0.5, marginTop: 1 },
-  metricDivider: { width: StyleSheet.hairlineWidth, height: 30, backgroundColor: "rgba(255,255,255,0.18)" },
-  searchBox: { flexDirection: "row", alignItems: "center", height: 48, borderRadius: radius.lg, paddingHorizontal: spacing.md, borderWidth: 1, marginTop: spacing.lg },
-  filterList: { gap: spacing.sm, alignItems: "center", paddingVertical: spacing.md },
-  chip: { height: 38, paddingHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
-  chipBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  sectionHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: spacing.lg, marginBottom: spacing.sm, paddingHorizontal: 3 },
-  sectionDot: { width: 7, height: 7, borderRadius: 4 },
-  sectionLabel: { fontSize: 13, fontWeight: "900", letterSpacing: -0.1 },
-  sectionCount: { fontSize: 11, fontWeight: "800" },
-  row: { flexDirection: "row", gap: spacing.md, alignItems: "center", padding: spacing.md, paddingRight: 46, borderRadius: radius.lg, borderWidth: 1, marginBottom: spacing.sm, position: "relative", overflow: "hidden", shadowOpacity: 0.05, shadowRadius: 13, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
-  leftBar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 3 },
-  avatarRing: { padding: 2, borderRadius: 30, borderWidth: 1 },
+  headerWrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 2 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 11 },
+  brandIcon: { width: 38, height: 38, borderRadius: 12 },
+  title: { fontSize: 28, fontWeight: "900", letterSpacing: -0.8 },
+  subtitle: { fontSize: 12, marginTop: 1 },
+  iconButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  searchBox: { flexDirection: "row", alignItems: "center", height: 46, borderRadius: 15, paddingHorizontal: spacing.md, borderWidth: StyleSheet.hairlineWidth, marginTop: spacing.lg },
+  filterList: { gap: spacing.lg, alignItems: "center", paddingTop: 14, paddingBottom: 8 },
+  filterButton: { paddingVertical: 8, minHeight: 38, justifyContent: "center", flexDirection: "row", alignItems: "center", gap: 6, position: "relative" },
+  filterText: { fontSize: 13.5 },
+  filterBadge: { minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  filterBadgeText: { color: "#17130E", fontSize: 9, fontWeight: "900" },
+  filterUnderline: { position: "absolute", left: 2, right: 2, bottom: 0, height: 2, borderRadius: 1 },
+  sectionLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase", paddingHorizontal: spacing.lg, paddingTop: 22, paddingBottom: 8 },
+  row: { flexDirection: "row", gap: spacing.md, alignItems: "center", minHeight: 78, paddingHorizontal: spacing.lg, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  rowBody: { flex: 1, gap: 4, minWidth: 0 },
   rowTitleLine: { flexDirection: "row", alignItems: "center", gap: 7 },
-  metaLine: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 5 },
-  catPill: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.pill },
-  bottomMeta: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  memberMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
-  unreadBadge: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  pinButton: { position: "absolute", right: 10, top: 10, width: 32, height: 32, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  empty: { marginTop: spacing.lg, padding: spacing["2xl"], borderRadius: radius.lg, borderWidth: 1, alignItems: "center" },
-  emptyIcon: { width: 58, height: 58, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  retry: { marginTop: spacing.lg, paddingHorizontal: spacing.lg, paddingVertical: 10, borderRadius: radius.md },
-  fab: { position: "absolute", right: spacing.xl, width: 56, height: 56, borderRadius: 20, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.22, shadowRadius: 14, shadowOffset: { width: 0, height: 7 }, elevation: 8 },
+  bottomMeta: { flexDirection: "row", alignItems: "center", gap: 5 },
+  trailing: { width: 34, alignItems: "center", gap: 8 },
+  pinButton: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  unreadBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  unreadText: { color: "#17130E", fontSize: 9.5, fontWeight: "900" },
+  empty: { paddingHorizontal: spacing.xl, paddingVertical: 54, alignItems: "center" },
+  emptyIcon: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center" },
+  retry: { marginTop: spacing.lg, paddingHorizontal: spacing.lg, paddingVertical: 10, borderRadius: radius.pill },
+  fab: { position: "absolute", right: spacing.xl, width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 8 },
 });
