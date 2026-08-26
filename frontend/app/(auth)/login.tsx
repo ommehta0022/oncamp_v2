@@ -1,16 +1,19 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Pressable, ScrollView } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
-import Header from "@/src/components/Header";
-import { AccountRole, api, getUserErrorMessage, saveSession } from "@/src/lib/api";
+import { AccountRole, api, getUserErrorMessage } from "@/src/lib/api";
 import { digitsOnly, validateIndianPhone } from "@/src/utils/validation";
 import { useRole } from "@/src/context/RoleProvider";
+
+const APP_ICON = require("../../assets/images/icon.png");
 
 function resolveRole(accountType?: AccountRole, roles: AccountRole[] = []) {
   if (roles.includes("platform_admin")) return "platform_admin";
@@ -22,9 +25,10 @@ function resolveRole(accountType?: AccountRole, roles: AccountRole[] = []) {
 }
 
 export default function Login() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { refreshUser } = useRole();
+  useRole();
   const [loginType, setLoginType] = useState<"student" | "institution">("student");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -33,9 +37,7 @@ export default function Login() {
   const phoneValidation = validateIndianPhone(phone);
 
   const handlePhoneChange = (value: string) => {
-    // Only allow digits, max 10
-    const cleaned = digitsOnly(value, 10);
-    setPhone(cleaned);
+    setPhone(digitsOnly(value, 10));
     setError("");
   };
 
@@ -45,20 +47,13 @@ export default function Login() {
       setError(validation.error || "Enter a valid phone number");
       return;
     }
-    
     setSubmitting(true);
     setError("");
-    
-    // Backend will handle adding +91
     const fullPhone = `+91${phone}`;
-    
     try {
-      let otp;
-      if (loginType === "institution") {
-        otp = await api.auth.startInstitutionOtp(fullPhone);
-      } else {
-        otp = await api.auth.startOtp(fullPhone, 'login');
-      }
+      const otp = loginType === "institution"
+        ? await api.auth.startInstitutionOtp(fullPhone)
+        : await api.auth.startOtp(fullPhone, "login");
       router.push({
         pathname: "/(auth)/otp",
         params: {
@@ -75,67 +70,78 @@ export default function Login() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} testID="login-screen">
-      <Header title="" transparent />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1 }}
-      >
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-          <View style={[styles.iconWrap, { backgroundColor: colors.brandTertiary }]}>
-            <Ionicons name="school" size={32} color={colors.onBrandTertiary} />
-          </View>
-          <Text style={[styles.h1, { color: colors.onSurface }]}>Welcome back</Text>
-          <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
-            {loginType === "student" ? "Log in to your campus network. We'll send you a code." : "Log in to your institution admin panel."}
-          </Text>
-
-          <View style={[styles.tabContainer, { borderBottomColor: colors.border }]}>
-            <Pressable
-              style={[styles.tab, loginType === "student" && { borderBottomColor: colors.brandPrimary, borderBottomWidth: 2 }]}
-              onPress={() => { setLoginType("student"); setError(""); }}
-            >
-              <Text style={[styles.tabText, { color: loginType === "student" ? colors.brandPrimary : colors.muted }]}>Student</Text>
+    <View style={[styles.root, { backgroundColor: colors.surface }]} testID="login-screen">
+      <StatusBar style={isDark ? "light" : "dark"} translucent backgroundColor="transparent" />
+      <LinearGradient
+        colors={isDark ? ["#080809", "#100E0B", "#080809"] : ["#FFFDF9", "#F5F0E7", "#FAF9F6"]}
+        locations={[0, 0.52, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={[styles.glow, { backgroundColor: colors.luxuryGoldSoft }]} />
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.flex}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[styles.wrap, { paddingTop: insets.top + 20, paddingBottom: Math.max(insets.bottom, 20) + 18 }]}
+        >
+          <View style={styles.topRow}>
+            <Pressable onPress={() => router.back()} hitSlop={12} style={[styles.backButton, { backgroundColor: colors.glassStrong, borderColor: colors.border }]} accessibilityRole="button" accessibilityLabel="Go back">
+              <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
             </Pressable>
-            <Pressable
-              style={[styles.tab, loginType === "institution" && { borderBottomColor: colors.brandPrimary, borderBottomWidth: 2 }]}
-              onPress={() => { setLoginType("institution"); setError(""); }}
-            >
-              <Text style={[styles.tabText, { color: loginType === "institution" ? colors.brandPrimary : colors.muted }]}>Institution</Text>
-            </Pressable>
+            <Text style={[styles.brandWord, { color: colors.onSurface }]}>OnCampus</Text>
+            <View style={styles.backButtonPlaceholder} />
           </View>
 
-          <View style={{ marginTop: spacing["2xl"] }}>
-            <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>{loginType === "institution" ? "Admin Phone number" : "Phone number"}</Text>
-            <View style={[styles.phoneRow, { borderColor: colors.borderStrong, backgroundColor: colors.surfaceSecondary }]}>
-              <View style={styles.cc}>
-                <Text style={{ color: colors.muted, fontSize: font.lg, fontWeight: "500" }}>+91</Text>
-              </View>
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <View style={styles.heroArea}>
+            <View style={[styles.logoFrame, { backgroundColor: colors.glassStrong, borderColor: colors.border }]}>
+              <Image source={APP_ICON} style={styles.logo} contentFit="cover" />
+            </View>
+            <Text style={[styles.h1, { color: colors.onSurface }]}>Welcome back</Text>
+            <Text style={[styles.h2, { color: colors.onSurfaceTertiary }]}>
+              {loginType === "student" ? "Enter your mobile number to continue to your campus." : "Sign in to manage your institution workspace."}
+            </Text>
+          </View>
+
+          <View style={[styles.modeSwitch, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
+            {(["student", "institution"] as const).map((type) => {
+              const active = loginType === type;
+              return (
+                <Pressable
+                  key={type}
+                  onPress={() => { setLoginType(type); setError(""); }}
+                  style={[styles.modeButton, active && { backgroundColor: colors.surfaceSecondary, shadowColor: colors.shadow }]}
+                >
+                  <Text style={[styles.modeText, { color: active ? colors.onSurface : colors.onSurfaceTertiary }]}>{type === "student" ? "Student" : "Institution"}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.form}>
+            <Text style={[styles.label, { color: colors.onSurface }]}>Mobile number</Text>
+            <View style={[styles.phoneRow, { borderColor: phone.length > 0 && !phoneValidation.valid ? colors.error : colors.inputBorder, backgroundColor: colors.inputBg }]}>
+              <Text style={[styles.countryCode, { color: colors.onSurface }]}>+91</Text>
+              <View style={[styles.divider, { backgroundColor: colors.divider }]} />
               <TextInput
                 testID="phone-input"
                 value={phone}
                 onChangeText={handlePhoneChange}
                 placeholder="10-digit mobile number"
-                placeholderTextColor={colors.muted}
+                placeholderTextColor={colors.placeholder}
                 keyboardType="phone-pad"
                 textContentType="telephoneNumber"
                 autoComplete="tel"
                 accessibilityLabel="Phone number"
-                style={{ flex: 1, color: colors.onSurface, fontSize: font.lg, paddingHorizontal: spacing.md }}
+                style={[styles.phoneInput, { color: colors.onSurface }]}
                 maxLength={10}
                 autoFocus
               />
             </View>
-            {phone.length > 0 && !phoneValidation.valid && (
-              <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.xs }}>
-                {phoneValidation.error}
-              </Text>
-            )}
+            {phone.length > 0 && !phoneValidation.valid ? <Text style={[styles.validation, { color: colors.error }]}>{phoneValidation.error}</Text> : null}
 
-            <View style={{ marginTop: spacing["2xl"] }}>
+            <View style={styles.ctaWrap}>
               <Button
-                label="Send OTP"
+                label="Continue"
                 fullWidth
                 size="lg"
                 disabled={!phoneValidation.valid || submitting}
@@ -144,40 +150,45 @@ export default function Login() {
                 testID="send-otp-btn"
               />
             </View>
+            {!!error && <Text style={[styles.validation, { color: colors.error }]}>{error}</Text>}
           </View>
 
-          {!!error && (
-            <Text style={{ color: colors.error, fontSize: font.sm, marginTop: spacing.sm }}>
-              {error}
-            </Text>
-          )}
-
-          <Pressable onPress={() => router.push(loginType === "student" ? "/(auth)/signup" : "/(auth)/register-institution")} style={{ marginTop: spacing.xl, alignItems: "center", marginBottom: spacing["2xl"] }}>
+          <Pressable onPress={() => router.push(loginType === "student" ? "/(auth)/signup" : "/(auth)/register-institution")} style={styles.footerLink}>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>
-              New here?{" "}
-              <Text style={{ color: colors.brandPrimary, fontWeight: "500" }}>{loginType === "student" ? "Create an account" : "Register your institution"}</Text>
+              New to OnCampus?{" "}
+              <Text style={{ color: colors.luxuryGold, fontWeight: "800" }}>{loginType === "student" ? "Create account" : "Register institution"}</Text>
             </Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { padding: spacing.xl, flexGrow: 1 },
-  iconWrap: { width: 64, height: 64, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  h1: { fontSize: 28, fontWeight: "500", marginTop: spacing.xl, letterSpacing: -0.5 },
-  h2: { fontSize: font.base, marginTop: spacing.sm, lineHeight: 20 },
-  label: { fontSize: font.sm, marginBottom: spacing.sm },
-  phoneRow: {
-    flexDirection: "row", alignItems: "center", height: 56,
-    borderRadius: radius.md, borderWidth: 1, paddingHorizontal: spacing.md,
-  },
-  cc: { flexDirection: "row", alignItems: "center", gap: 4 },
-  divider: { width: 1, height: 24, marginHorizontal: spacing.md },
-  tabContainer: { flexDirection: "row", marginTop: spacing.xl, borderBottomWidth: 1 },
-  tab: { flex: 1, paddingVertical: spacing.md, alignItems: "center" },
-  tabText: { fontSize: font.base, fontWeight: "500" },
-  input: { height: 56, borderRadius: radius.md, borderWidth: 1, paddingHorizontal: spacing.md, fontSize: font.lg },
+  root: { flex: 1, overflow: "hidden" },
+  flex: { flex: 1 },
+  wrap: { flexGrow: 1, paddingHorizontal: 22 },
+  glow: { position: "absolute", width: 280, height: 280, borderRadius: 140, top: -120, right: -90, opacity: 0.34 },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  backButton: { width: 42, height: 42, borderRadius: 21, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
+  backButtonPlaceholder: { width: 42, height: 42 },
+  brandWord: { fontSize: 17, fontWeight: "800", letterSpacing: -0.2 },
+  heroArea: { alignItems: "center", paddingTop: 58 },
+  logoFrame: { width: 86, height: 86, borderRadius: 26, borderWidth: StyleSheet.hairlineWidth, padding: 7, shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 9 } },
+  logo: { width: "100%", height: "100%", borderRadius: 20 },
+  h1: { fontSize: 34, fontWeight: "900", marginTop: 24, letterSpacing: -1.1, textAlign: "center" },
+  h2: { fontSize: 14.5, marginTop: 10, lineHeight: 21, textAlign: "center", maxWidth: 330 },
+  modeSwitch: { flexDirection: "row", borderRadius: radius.pill, padding: 4, borderWidth: StyleSheet.hairlineWidth, marginTop: 38 },
+  modeButton: { flex: 1, minHeight: 42, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  modeText: { fontSize: 13.5, fontWeight: "750" },
+  form: { marginTop: 30 },
+  label: { fontSize: 12.5, fontWeight: "750", marginBottom: 9 },
+  phoneRow: { flexDirection: "row", alignItems: "center", height: 58, borderRadius: 18, borderWidth: 1, paddingHorizontal: 15 },
+  countryCode: { fontSize: 16, fontWeight: "750" },
+  divider: { width: StyleSheet.hairlineWidth, height: 25, marginHorizontal: 14 },
+  phoneInput: { flex: 1, fontSize: 16, fontWeight: "600", letterSpacing: 0.2 },
+  validation: { fontSize: 12, marginTop: 8, lineHeight: 17 },
+  ctaWrap: { marginTop: 24 },
+  footerLink: { marginTop: "auto", alignItems: "center", paddingTop: 34, paddingBottom: 8 },
 });
