@@ -122,7 +122,11 @@ expect(!backgroundOta.includes('Updates.reloadAsync()'), 'background OTA worker 
 expect(updateGate.includes('DEFER_MS = 6 * 60 * 60 * 1000'), 'OTA Later quiet-period contract missing');
 expect(updateGate.includes('phase: "available"'), 'unified update available UI missing');
 expect(updateGate.includes('Update now'), 'OTA Update now action missing');
-expect(updateGate.includes('Updates.fetchUpdateAsync()'), 'OTA download step missing');
+expect(updateGate.includes('prefetchLatestOta(true)'), 'Update now must share the resilient OTA retry engine');
+expect(updateGate.includes('APPLY_OTA_ON_RESUME_KEY'), 'minimize-safe persisted OTA apply intent missing');
+expect(updateGate.includes('resumePendingOtaApply()'), 'OTA apply-on-resume handler missing');
+expect(updateGate.includes('AppState.currentState !== "active"'), 'hidden app must not reload itself');
+expect(updateGate.includes('You can minimize OnCampus'), 'background-safe OTA user guidance missing');
 expect(updateGate.includes('Updates.reloadAsync()'), 'OTA one-tap apply/reload step missing');
 expect(updateGate.includes('phase: "current"'), 'manual up-to-date state missing');
 expect(updateGate.includes('SUCCESS_SHOWN_KEY'), 'one-time update-success acknowledgement missing');
