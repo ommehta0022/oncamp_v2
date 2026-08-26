@@ -23,115 +23,135 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace(path, old, new, count=None):
+          def edit(path, replacements):
               p = Path(path)
               text = p.read_text()
-              found = text.count(old)
-              if count is not None and found != count:
-                  raise SystemExit(f'{path}: expected {count} occurrence(s), found {found}: {old}')
-              if found == 0:
-                  raise SystemExit(f'{path}: missing expected text: {old}')
-              p.write_text(text.replace(old, new))
+              original = text
+              for old, new in replacements:
+                  text = text.replace(old, new)
+              if text == original:
+                  raise SystemExit(f'{path}: no expected migration changes applied')
+              p.write_text(text)
 
-          # Login: theme owns the environment; brand/link semantics own interaction accents.
-          replace('frontend/app/(auth)/login.tsx', 'backgroundColor: colors.luxuryGoldSoft', 'backgroundColor: colors.brandTertiary', 1)
-          replace('frontend/app/(auth)/login.tsx', 'color: colors.luxuryGold, fontWeight: "800"', 'color: colors.link, fontWeight: "800"', 1)
+          edit('frontend/app/(auth)/login.tsx', [
+            ('colors.luxuryGoldSoft', 'colors.brandTertiary'),
+            ('color: colors.luxuryGold, fontWeight: "800"', 'color: colors.link, fontWeight: "800"'),
+          ])
 
-          # Feed refresh is a primary data action.
-          replace('frontend/app/(tabs)/feed.tsx', 'tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}', 1)
+          edit('frontend/app/(tabs)/feed.tsx', [
+            ('tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}'),
+          ])
 
-          # Groups: primary refresh/pin, neutral filters, terracotta unread attention, branded role identity.
-          replace('frontend/app/(tabs)/groups.tsx', 'tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}', 1)
-          replace('frontend/app/(tabs)/groups.tsx', '<View style={[styles.filterBadge, { backgroundColor: colors.luxuryGold }]}><Text style={styles.filterBadgeText}>', '<View style={[styles.filterBadge, { backgroundColor: colors.tabBadge }]}><Text style={[styles.filterBadgeText, { color: colors.onTabBadge }]}>', 1)
-          replace('frontend/app/(tabs)/groups.tsx', 'backgroundColor: active ? colors.luxuryGold : "transparent"', 'backgroundColor: active ? colors.selectionStrong : "transparent"', 1)
-          replace('frontend/app/(tabs)/groups.tsx', 'backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={28} color={colors.luxuryGold}', 'backgroundColor: colors.selectionSoft }]}><Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={28} color={colors.onSelectionSoft}', 1)
-          replace('frontend/app/(tabs)/groups.tsx', 'color: colors.luxuryGold, fontSize: 10, fontWeight: "800"', 'color: colors.brandPrimary, fontSize: 10, fontWeight: "800"', 1)
-          replace('frontend/app/(tabs)/groups.tsx', 'color={personalPinned ? colors.luxuryGold : colors.onSurfaceTertiary}', 'color={personalPinned ? colors.actionPrimary : colors.onSurfaceTertiary}', 1)
-          replace('frontend/app/(tabs)/groups.tsx', '<View style={[styles.unreadBadge, { backgroundColor: colors.luxuryGold }]}><Text style={styles.unreadText}>', '<View style={[styles.unreadBadge, { backgroundColor: colors.tabBadge }]}><Text style={[styles.unreadText, { color: colors.onTabBadge }]}>', 1)
-          replace('frontend/app/(tabs)/groups.tsx', 'filterBadgeText: { color: "#17130E",', 'filterBadgeText: {', 1)
-          replace('frontend/app/(tabs)/groups.tsx', 'unreadText: { color: "#17130E",', 'unreadText: {', 1)
+          edit('frontend/app/(tabs)/groups.tsx', [
+            ('tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}'),
+            ('backgroundColor: colors.luxuryGold }]}><Text style={styles.filterBadgeText}', 'backgroundColor: colors.tabBadge }]}><Text style={[styles.filterBadgeText, { color: colors.onTabBadge }]}'),
+            ('backgroundColor: active ? colors.luxuryGold : "transparent"', 'backgroundColor: active ? colors.selectionStrong : "transparent"'),
+            ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={28} color={colors.luxuryGold}', 'backgroundColor: colors.selectionSoft }]}><Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={28} color={colors.onSelectionSoft}'),
+            ('color: colors.luxuryGold, fontSize: 10, fontWeight: "800"', 'color: colors.brandPrimary, fontSize: 10, fontWeight: "800"'),
+            ('color={personalPinned ? colors.luxuryGold : colors.onSurfaceTertiary}', 'color={personalPinned ? colors.actionPrimary : colors.onSurfaceTertiary}'),
+            ('backgroundColor: colors.luxuryGold }]}><Text style={styles.unreadText}', 'backgroundColor: colors.tabBadge }]}><Text style={[styles.unreadText, { color: colors.onTabBadge }]}'),
+            ('filterBadgeText: { color: "#17130E",', 'filterBadgeText: {'),
+            ('unreadText: { color: "#17130E",', 'unreadText: {'),
+          ])
 
-          # Discover: neutral filters remain neutral; brand is used for campus identity/actions, links stay links.
-          replace('frontend/app/(tabs)/discover.tsx', 'tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}', 1)
-          replace('frontend/app/(tabs)/discover.tsx', 'backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="compass-outline" size={21} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary }]}><Ionicons name="compass-outline" size={21} color={colors.onBrandTertiary}', 1)
-          replace('frontend/app/(tabs)/discover.tsx', 'color: colors.luxuryGold, fontSize: 12, fontWeight: "800"', 'color: colors.link, fontSize: 12, fontWeight: "800"', 1)
-          replace('frontend/app/(tabs)/discover.tsx', 'backgroundColor: colors.luxuryGoldSoft, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={size * .42} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={size * .42} color={colors.onBrandTertiary}', 1)
-          replace('frontend/app/(tabs)/discover.tsx', 'color={colors.luxuryGold} /> : null}</View>;', 'color={colors.actionPrimary} /> : null}</View>;', 1)
-          replace('frontend/app/(tabs)/discover.tsx', 'styles.typeText, { color: colors.luxuryGold }', 'styles.typeText, { color: colors.brandPrimary }', 1)
-          replace('frontend/app/(tabs)/discover.tsx', 'color: colors.luxuryGold, fontSize: 9.5', 'color: colors.brandPrimary, fontSize: 9.5', 1)
-          replace('frontend/app/(tabs)/discover.tsx', 'backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={icon} size={28} color={colors.luxuryGold}', 'backgroundColor: colors.selectionSoft }]}><Ionicons name={icon} size={28} color={colors.onSelectionSoft}', 1)
-          replace('frontend/app/(tabs)/discover.tsx', 'backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={icon as any} size={22} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary }]}><Ionicons name={icon as any} size={22} color={colors.onBrandTertiary}', 1)
+          edit('frontend/app/(tabs)/discover.tsx', [
+            ('tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}'),
+            ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="compass-outline" size={21} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary }]}><Ionicons name="compass-outline" size={21} color={colors.onBrandTertiary}'),
+            ('color: colors.luxuryGold, fontSize: 12, fontWeight: "800"', 'color: colors.link, fontSize: 12, fontWeight: "800"'),
+            ('backgroundColor: colors.luxuryGoldSoft, alignItems: "center", justifyContent: "center" }}><Ionicons name="school-outline" size={size * .42} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }}><Ionicons name="school-outline" size={size * .42} color={colors.onBrandTertiary}'),
+            ('color={colors.luxuryGold} /> : null}</View>', 'color={colors.actionPrimary} /> : null}</View>'),
+            ('styles.typeText, { color: colors.luxuryGold }', 'styles.typeText, { color: colors.brandPrimary }'),
+            ('color: colors.luxuryGold, fontSize: 9.5', 'color: colors.brandPrimary, fontSize: 9.5'),
+            ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={icon} size={28} color={colors.luxuryGold}', 'backgroundColor: colors.selectionSoft }]}><Ionicons name={icon} size={28} color={colors.onSelectionSoft}'),
+            ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={icon as any} size={22} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary }]}><Ionicons name={icon as any} size={22} color={colors.onBrandTertiary}'),
+          ])
 
-          # Notifications: filters are neutral; event badges vary by event meaning.
-          replace('frontend/app/(tabs)/notifications.tsx', 'color: colors.luxuryGold, fontSize: font.sm, fontWeight: "800"', 'color: colors.link, fontSize: font.sm, fontWeight: "800"', 1)
-          replace('frontend/app/(tabs)/notifications.tsx', 'backgroundColor: active ? colors.luxuryGold : "transparent"', 'backgroundColor: active ? colors.selectionStrong : "transparent"', 1)
-          replace('frontend/app/(tabs)/notifications.tsx', '  const badgeColor = n.type === "institution_post_request" ? colors.luxuryTeal : colors.luxuryGold;\n', '  const badge = n.type === "institution_post_request"\n    ? { bg: colors.info, fg: colors.onInfo }\n    : n.type === "announcement"\n      ? { bg: colors.announcement, fg: colors.onBrandSecondary }\n      : n.type === "approved"\n        ? { bg: colors.success, fg: colors.onSuccess }\n        : { bg: colors.actionPrimary, fg: colors.onActionPrimary };\n', 1)
-          replace('frontend/app/(tabs)/notifications.tsx', 'backgroundColor: badgeColor, borderColor: colors.surface }]}><Ionicons name={ICONS[n.type] || "notifications"} size={11} color={colors.onBrandPrimary}', 'backgroundColor: badge.bg, borderColor: colors.surface }]}><Ionicons name={ICONS[n.type] || "notifications"} size={11} color={badge.fg}', 1)
-          replace('frontend/app/(tabs)/notifications.tsx', 'backgroundColor: colors.luxuryGold }]} />', 'backgroundColor: colors.tabBadge }]} />', 1)
+          edit('frontend/app/(tabs)/notifications.tsx', [
+            ('color: colors.luxuryGold, fontSize: font.sm, fontWeight: "800"', 'color: colors.link, fontSize: font.sm, fontWeight: "800"'),
+            ('backgroundColor: active ? colors.luxuryGold : "transparent"', 'backgroundColor: active ? colors.selectionStrong : "transparent"'),
+            ('  const badgeColor = n.type === "institution_post_request" ? colors.luxuryTeal : colors.luxuryGold;\n', '  const badge = n.type === "institution_post_request"\n    ? { bg: colors.info, fg: colors.onInfo }\n    : n.type === "announcement"\n      ? { bg: colors.announcement, fg: colors.onBrandSecondary }\n      : n.type === "approved"\n        ? { bg: colors.success, fg: colors.onSuccess }\n        : { bg: colors.actionPrimary, fg: colors.onActionPrimary };\n'),
+            ('backgroundColor: badgeColor, borderColor: colors.surface', 'backgroundColor: badge.bg, borderColor: colors.surface'),
+            ('size={11} color={colors.onBrandPrimary}', 'size={11} color={badge.fg}'),
+            ('backgroundColor: colors.luxuryGold }]} />', 'backgroundColor: colors.tabBadge }]} />'),
+          ])
 
-          # Profile: verification=brand, streak=warning, achievements=soft brand, section links=link.
-          replace('frontend/app/(tabs)/profile.tsx', 'color={colors.luxuryGold} />}</View>', 'color={colors.actionPrimary} />}</View>', 1)
-          replace('frontend/app/(tabs)/profile.tsx', 'color={colors.luxuryGold} />}</View>', 'color={colors.actionPrimary} />}</View>', 0) if False else None
-          replace('frontend/app/(tabs)/profile.tsx', 'color={colors.luxuryGold} />', 'color={colors.warning} />', 1)
-          replace('frontend/app/(tabs)/profile.tsx', '<ActivityIndicator color={colors.luxuryGold}', '<ActivityIndicator color={colors.actionPrimary}', 1)
-          replace('frontend/app/(tabs)/profile.tsx', 'backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={achievement.icon as any} size={22} color={achievement.earned === false ? colors.muted : colors.luxuryGold}', 'backgroundColor: colors.selectionSoft }]}><Ionicons name={achievement.icon as any} size={22} color={achievement.earned === false ? colors.muted : colors.actionPrimary}', 1)
-          replace('frontend/app/(tabs)/profile.tsx', 'color: colors.luxuryGold, fontSize: font.base, fontWeight: "800"', 'color: colors.link, fontSize: font.base, fontWeight: "800"', 1)
-          replace('frontend/app/(tabs)/profile.tsx', 'highlight ? colors.luxuryGold : colors.onSurface', 'highlight ? colors.warning : colors.onSurface', 1)
+          edit('frontend/app/(tabs)/profile.tsx', [
+            ('checkmark-circle" size={19} color={colors.luxuryGold}', 'checkmark-circle" size={19} color={colors.actionPrimary}'),
+            ('text={`${streak} day streak`} color={colors.luxuryGold}', 'text={`${streak} day streak`} color={colors.warning}'),
+            ('<ActivityIndicator color={colors.luxuryGold}', '<ActivityIndicator color={colors.actionPrimary}'),
+            ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={achievement.icon as any} size={22} color={achievement.earned === false ? colors.muted : colors.luxuryGold}', 'backgroundColor: colors.selectionSoft }]}><Ionicons name={achievement.icon as any} size={22} color={achievement.earned === false ? colors.muted : colors.actionPrimary}'),
+            ('color: colors.luxuryGold, fontSize: font.base, fontWeight: "800"', 'color: colors.link, fontSize: font.base, fontWeight: "800"'),
+            ('highlight ? colors.luxuryGold : colors.onSurface', 'highlight ? colors.warning : colors.onSurface'),
+          ])
 
-          # Institution dashboard: each management action has a business role, not alternating decoration.
           p = Path('frontend/app/institution/dashboard.tsx')
           text = p.read_text()
-          old_actions = '''  const actions = [\n    { icon: "business-outline", title: "Public profile", subtitle: "Logo, cover and essential public details", route: "/institution/branding", color: colors.luxuryGold },\n    { icon: "newspaper-outline", title: "Content", subtitle: "Create and manage official campus content", route: "/institution/content", color: colors.onSurface },\n    { icon: "people-outline", title: "Student approvals", subtitle: pendingStudents ? `${pendingStudents} items need review` : "Review student access", route: "/institution/campus-platform", color: colors.luxuryGold },\n    { icon: "calendar-outline", title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.onSurface },\n    { icon: "stats-chart-outline", title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.luxuryGold },\n    { icon: "shield-checkmark-outline", title: "Governance", subtitle: "Roles, audit and access settings", route: "/institution/governance", color: colors.onSurfaceTertiary },\n  ];'''
-          new_actions = '''  const actions = [\n    { icon: "business-outline", title: "Public profile", subtitle: "Logo, cover and essential public details", route: "/institution/branding", color: colors.actionPrimary },\n    { icon: "newspaper-outline", title: "Content", subtitle: "Create and manage official campus content", route: "/institution/content", color: colors.actionSecondary },\n    { icon: "people-outline", title: "Student approvals", subtitle: pendingStudents ? `${pendingStudents} items need review` : "Review student access", route: "/institution/campus-platform", color: pendingStudents ? colors.warning : colors.actionPrimary },\n    { icon: "calendar-outline", title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.actionSecondary },\n    { icon: "stats-chart-outline", title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.info },\n    { icon: "shield-checkmark-outline", title: "Governance", subtitle: "Roles, audit and access settings", route: "/institution/governance", color: colors.onSurfaceTertiary },\n  ];'''
-          if text.count(old_actions) != 1:
-              raise SystemExit('dashboard: action block changed unexpectedly')
-          text = text.replace(old_actions, new_actions)
+          text = text.replace('color: colors.luxuryGold },\n    { icon: "newspaper-outline"', 'color: colors.actionPrimary },\n    { icon: "newspaper-outline"')
+          text = text.replace('route: "/institution/content", color: colors.onSurface }', 'route: "/institution/content", color: colors.actionSecondary }')
+          text = text.replace('route: "/institution/campus-platform", color: colors.luxuryGold },\n    { icon: "calendar-outline"', 'route: "/institution/campus-platform", color: pendingStudents ? colors.warning : colors.actionPrimary },\n    { icon: "calendar-outline"')
+          text = text.replace('title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.onSurface }', 'title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.actionSecondary }')
+          text = text.replace('title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.luxuryGold }', 'title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.info }')
           text = text.replace('backgroundColor: colors.luxuryGoldSoft, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={27} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={27} color={colors.onBrandTertiary}')
-          text = text.replace('color={colors.luxuryGold} /> : null}', 'color={colors.actionPrimary} /> : null}')
+          text = text.replace('checkmark-circle" size={17} color={colors.luxuryGold}', 'checkmark-circle" size={17} color={colors.actionPrimary}')
           text = text.replace('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="desktop-outline" size={23} color={colors.luxuryGold}', 'backgroundColor: `${colors.info}18` }]}><Ionicons name="desktop-outline" size={23} color={colors.info}')
           text = text.replace('backgroundColor: action.color === colors.luxuryGold ? colors.luxuryGoldSoft : colors.surfaceTertiary', 'backgroundColor: `${action.color}18`')
           p.write_text(text)
 
-          # Appearance: surface mode changes only the environment; preview still demonstrates semantic navigation.
-          replace('frontend/app/settings/theme.tsx', 'Warm ivory surfaces with charcoal type and champagne details.', 'Warm campus surfaces with moss identity and terracotta engagement accents.', 1)
-          replace('frontend/app/settings/theme.tsx', 'Near-black surfaces with soft ivory type and restrained champagne accents.', 'Deep neutral surfaces with accessible moss identity and terracotta engagement accents.', 1)
-          replace('frontend/app/settings/theme.tsx', 'borderColor: selected ? colors.luxuryGold : colors.borderStrong', 'borderColor: selected ? colors.actionPrimary : colors.borderStrong', 1)
-          replace('frontend/app/settings/theme.tsx', 'backgroundColor: colors.luxuryGold }]}', 'backgroundColor: colors.actionPrimary }]}', 1)
-          replace('frontend/app/settings/theme.tsx', 'borderColor: active ? colors.luxuryGold : c.border', 'borderColor: active ? colors.actionPrimary : c.border', 1)
-          replace('frontend/app/settings/theme.tsx', 'backgroundColor: c.luxuryGoldSoft', 'backgroundColor: c.brandTertiary', 1)
-          replace('frontend/app/settings/theme.tsx', 'backgroundColor: item === 0 ? c.luxuryGold : c.muted', 'backgroundColor: item === 0 ? c.tabActive : c.muted', 1)
-          replace('frontend/app/settings/theme.tsx', '<View style={[styles.icon, { backgroundColor: option.key === "light" ? "#EFE8DC" : "#1A1916" }]}> \n                    <Ionicons name={option.icon} size={20} color={option.key === "light" ? "#6D542B" : "#D7B66C"} />', '<View style={[styles.icon, { backgroundColor: option.key === "light" ? lightColors.brandTertiary : darkColors.brandTertiary }]}> \n                    <Ionicons name={option.icon} size={20} color={option.key === "light" ? lightColors.onBrandTertiary : darkColors.onBrandTertiary} />', 1)
+          edit('frontend/app/settings/theme.tsx', [
+            ('Warm ivory surfaces with charcoal type and champagne details.', 'Warm campus surfaces with moss identity and terracotta engagement accents.'),
+            ('Near-black surfaces with soft ivory type and restrained champagne accents.', 'Deep neutral surfaces with accessible moss identity and terracotta engagement accents.'),
+            ('borderColor: selected ? colors.luxuryGold : colors.borderStrong', 'borderColor: selected ? colors.actionPrimary : colors.borderStrong'),
+            ('backgroundColor: colors.luxuryGold }]}', 'backgroundColor: colors.actionPrimary }]}'),
+            ('borderColor: active ? colors.luxuryGold : c.border', 'borderColor: active ? colors.actionPrimary : c.border'),
+            ('backgroundColor: c.luxuryGoldSoft', 'backgroundColor: c.brandTertiary'),
+            ('backgroundColor: item === 0 ? c.luxuryGold : c.muted', 'backgroundColor: item === 0 ? c.tabActive : c.muted'),
+            ('backgroundColor: option.key === "light" ? "#EFE8DC" : "#1A1916"', 'backgroundColor: option.key === "light" ? lightColors.brandTertiary : darkColors.brandTertiary'),
+            ('color={option.key === "light" ? "#6D542B" : "#D7B66C"}', 'color={option.key === "light" ? lightColors.onBrandTertiary : darkColors.onBrandTertiary}'),
+          ])
 
-          # Update UI: information, secure verification and progress have their own semantics.
-          replace('frontend/src/components/AppUpdateGate.tsx', 'color: colors.luxuryGold }]}>{label}', 'color: state.phase === "error" ? colors.error : terminal ? colors.success : colors.info }]}>{label}', 1)
-          replace('frontend/src/components/AppUpdateGate.tsx', 'colors={[colors.brandPrimary, colors.luxuryTeal]}', 'colors={[colors.actionPrimary, colors.success]}', 1)
-          replace('frontend/src/components/AppUpdateGate.tsx', 'color: colors.luxuryTeal, fontWeight: "900"', 'color: colors.success, fontWeight: "900"', 1)
+          edit('frontend/src/components/AppUpdateGate.tsx', [
+            ('color: colors.luxuryGold }]}>{label}', 'color: state.phase === "error" ? colors.error : terminal ? colors.success : colors.info }]}>{label}'),
+            ('colors={[colors.brandPrimary, colors.luxuryTeal]}', 'colors={[colors.actionPrimary, colors.success]}'),
+            ('color: colors.luxuryTeal, fontWeight: "900"', 'color: colors.success, fontWeight: "900"'),
+          ])
 
-          # Release validator: exact oncampuses-v1 source palette + semantic role contract.
           v = Path('frontend/scripts/validate-release-startup.js')
           text = v.read_text()
-          start = text.index("expect(lightPalette.includes('surface: \\\"#FAF9F6\\\"')") if False else -1
-          old = '''expect(lightPalette.includes('surface: "#FAF9F6"'), 'light mode must keep the neutral pearl surface');\nexpect(lightPalette.includes('brandPrimary: "#B38A4A"') && lightPalette.includes('luxuryGold: "#B38A4A"'), 'light champagne accent contract missing');\nexpect(lightPalette.includes('luxuryTeal: "#72806E"'), 'light status sage accent missing');\nexpect(darkPalette.includes('surface: "#080809"'), 'dark mode must keep the neutral obsidian surface');\nexpect(darkPalette.includes('card: "#111112"'), 'dark mode cards must remain neutral charcoal');\nexpect(darkPalette.includes('brandPrimary: "#C8A76B"') && darkPalette.includes('luxuryGold: "#C8A76B"'), 'dark champagne accent contract missing');\nexpect(darkPalette.includes('luxuryTeal: "#859481"'), 'dark status sage accent missing');\nexpect(darkPalette.includes('gradientStart: "#0B0A09"') && darkPalette.includes('gradientEnd: "#282119"'), 'dark neutral gradient contract changed');'''
-          new = '''expect(lightPalette.includes('surface: "#FCFCF9"'), 'light mode must match the oncampuses-v1 foundation surface');\nexpect(lightPalette.includes('brandPrimary: "#2E5C4E"') && lightPalette.includes('brandSecondary: "#E87A5D"'), 'light moss/terracotta brand identity contract missing');\nexpect(lightPalette.includes('success: "#2F7D5C"') && lightPalette.includes('warning: "#B7791F"') && lightPalette.includes('error: "#C04444"') && lightPalette.includes('info: "#4A788C"'), 'light semantic state palette contract missing');\nexpect(darkPalette.includes('surface: "#151717"'), 'dark mode must match the oncampuses-v1 foundation surface');\nexpect(darkPalette.includes('card: "#1C1F1E"'), 'dark mode cards must match the reference neutral surface');\nexpect(darkPalette.includes('brandPrimary: "#7FB19F"') && darkPalette.includes('brandSecondary: "#F0A48D"'), 'dark moss/terracotta brand identity contract missing');\nexpect(darkPalette.includes('success: "#6FC99E"') && darkPalette.includes('warning: "#E2B66A"') && darkPalette.includes('error: "#E27A7A"') && darkPalette.includes('info: "#82B1C2"'), 'dark semantic state palette contract missing');\nfor (const semanticToken of ['actionPrimary:', 'actionSecondary:', 'actionDanger:', 'tabActive:', 'tabBadge:', 'selectionStrong:', 'reactionActive:', 'announcement:']) {\n  expect(lightPalette.includes(semanticToken) && darkPalette.includes(semanticToken), `semantic component token ${semanticToken} missing`);\n}'''
-          if text.count(old) != 1:
-              raise SystemExit('validator: old palette contract block not found exactly once')
-          text = text.replace(old, new)
-          text = text.replace('with neutral luxury UI, resilient background OTA and durable Android APK downloads', 'with business-semantic reference UI, resilient background OTA and durable Android APK downloads')
+          old = '''expect(lightPalette.includes('surface: "#FAF9F6"'), 'light mode must keep the neutral pearl surface');
+expect(lightPalette.includes('brandPrimary: "#B38A4A"') && lightPalette.includes('luxuryGold: "#B38A4A"'), 'light champagne accent contract missing');
+expect(lightPalette.includes('luxuryTeal: "#72806E"'), 'light status sage accent missing');
+expect(darkPalette.includes('surface: "#080809"'), 'dark mode must keep the neutral obsidian surface');
+expect(darkPalette.includes('card: "#111112"'), 'dark mode cards must remain neutral charcoal');
+expect(darkPalette.includes('brandPrimary: "#C8A76B"') && darkPalette.includes('luxuryGold: "#C8A76B"'), 'dark champagne accent contract missing');
+expect(darkPalette.includes('luxuryTeal: "#859481"'), 'dark status sage accent missing');
+expect(darkPalette.includes('gradientStart: "#0B0A09"') && darkPalette.includes('gradientEnd: "#282119"'), 'dark neutral gradient contract changed');'''
+          new = '''expect(lightPalette.includes('surface: "#FCFCF9"'), 'light mode must match the oncampuses-v1 foundation surface');
+expect(lightPalette.includes('brandPrimary: "#2E5C4E"') && lightPalette.includes('brandSecondary: "#E87A5D"'), 'light moss/terracotta brand identity contract missing');
+expect(lightPalette.includes('success: "#2F7D5C"') && lightPalette.includes('warning: "#B7791F"') && lightPalette.includes('error: "#C04444"') && lightPalette.includes('info: "#4A788C"'), 'light semantic state palette contract missing');
+expect(darkPalette.includes('surface: "#151717"'), 'dark mode must match the oncampuses-v1 foundation surface');
+expect(darkPalette.includes('card: "#1C1F1E"'), 'dark mode cards must match the reference neutral surface');
+expect(darkPalette.includes('brandPrimary: "#7FB19F"') && darkPalette.includes('brandSecondary: "#F0A48D"'), 'dark moss/terracotta brand identity contract missing');
+expect(darkPalette.includes('success: "#6FC99E"') && darkPalette.includes('warning: "#E2B66A"') && darkPalette.includes('error: "#E27A7A"') && darkPalette.includes('info: "#82B1C2"'), 'dark semantic state palette contract missing');
+for (const semanticToken of ['actionPrimary:', 'actionSecondary:', 'actionDanger:', 'tabActive:', 'tabBadge:', 'selectionStrong:', 'reactionActive:', 'announcement:']) {
+  expect(lightPalette.includes(semanticToken) && darkPalette.includes(semanticToken), `semantic component token ${semanticToken} missing`);
+}'''
+          if old not in text:
+              raise SystemExit('release validator palette block changed unexpectedly')
+          text = text.replace(old, new).replace('with neutral luxury UI, resilient background OTA and durable Android APK downloads', 'with business-semantic reference UI, resilient background OTA and durable Android APK downloads')
           v.write_text(text)
 
-          # Audit UI source only for legacy blanket luxury colors; native startup stays 1.6.6-compatible in this OTA pass.
           a = Path('frontend/scripts/audit-luxury-ui.js')
           text = a.read_text()
           text = text.replace("    for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);", "    if (!rel.startsWith('android/')) for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);")
           a.write_text(text)
           PY
-      - name: Confirm no migration drift
-        run: |
-          node frontend/scripts/audit-luxury-ui.js
-      - name: Commit migrated semantic colors
+      - name: Confirm semantic migration
+        run: node frontend/scripts/audit-luxury-ui.js
+      - name: Commit semantic migration
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add frontend
+          git diff --cached --quiet && exit 0
           git commit -m "Migrate remaining UI to business-semantic colors"
           git push origin HEAD:semantic-theme-v1
