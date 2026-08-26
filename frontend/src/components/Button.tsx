@@ -31,20 +31,20 @@ export default function Button({
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const bg: Record<Variant, string> = {
-    primary: colors.brandPrimary,
-    secondary: colors.brandSecondary,
+    primary: colors.surfaceInverse,
+    secondary: colors.luxuryGold,
     ghost: "transparent",
     outline: "transparent",
     danger: colors.danger || colors.error,
     link: "transparent",
   };
   const fg: Record<Variant, string> = {
-    primary: colors.onBrandPrimary,
-    secondary: colors.onBrandSecondary,
+    primary: colors.onSurfaceInverse,
+    secondary: colors.onBrandPrimary,
     ghost: colors.textPrimary || colors.onSurface,
     outline: colors.textPrimary || colors.onSurface,
     danger: colors.onError,
-    link: colors.link || colors.brandPrimary,
+    link: colors.link || colors.luxuryGold,
   };
   const border = variant === "outline" ? (colors.borderStrong || colors.border) : "transparent";
   const heights: Record<Size, number> = { sm: 36, md: 44, lg: 52, xl: 60 };
@@ -53,10 +53,10 @@ export default function Button({
 
   const handlePressIn = () => {
     if (disabled || loading) return;
-    Animated.timing(scaleAnim, { toValue: 0.96, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+    Animated.timing(scaleAnim, { toValue: 0.975, duration: 90, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
   };
   const handlePressOut = () => {
-    Animated.timing(scaleAnim, { toValue: 1, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+    Animated.timing(scaleAnim, { toValue: 1, duration: 110, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
   };
   const handlePress = () => {
     if (disabled || loading) return;
@@ -83,12 +83,12 @@ export default function Button({
             paddingVertical: variant === "link" ? spacing.sm : 0,
             borderRadius: radius.pill,
             backgroundColor: disabled && variant !== "link" && variant !== "ghost" ? colors.surfaceTertiary : bg[variant],
-            borderWidth: variant === "outline" ? 1.5 : 0,
+            borderWidth: variant === "outline" ? 1 : 0,
             borderColor: disabled ? colors.border : border,
             alignItems: "center",
             justifyContent: "center",
             flexDirection: "row",
-            opacity: disabled ? 0.6 : (pressed && variant === "link" ? 0.7 : 1),
+            opacity: disabled ? 0.55 : (pressed ? 0.88 : 1),
             alignSelf: fullWidth ? "stretch" : "flex-start",
             gap: spacing.sm,
           },
@@ -105,8 +105,9 @@ export default function Button({
                 {
                   color: disabled ? (colors.textDisabled || colors.muted) : fg[variant],
                   fontSize: fontSizes[size],
-                  fontWeight: variant === "link" ? "600" : "500",
-                  textDecorationLine: variant === "link" ? "underline" : "none",
+                  fontWeight: variant === "link" ? "600" : "700",
+                  textDecorationLine: "none",
+                  letterSpacing: -0.05,
                 },
                 textStyle,
               ]}
