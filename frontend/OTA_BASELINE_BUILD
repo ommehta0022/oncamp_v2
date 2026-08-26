@@ -1,7 +1,7 @@
 OnCampus OTA baseline build
-version=1.6.3
-runtime=1.6.3
-versionCode=10603
+version=1.6.6
+runtime=1.6.6
+versionCode=10606
 updateMode=ON_LOAD
-attempt=2
-reason=native startup OTA guarantee + server campaign fallback + visible native update-state guard + synchronized package lock
+attempt=1
+reason=neutral luxury design system + edge-to-edge login + launcher icon + neutral native and React startup splash
