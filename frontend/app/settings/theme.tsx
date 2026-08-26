@@ -2,7 +2,6 @@ import React from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useTheme, ThemeMode } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing, lightColors, darkColors } from "@/src/theme/colors";
@@ -16,8 +15,8 @@ type Option = {
 };
 
 const OPTIONS: Option[] = [
-  { key: "light", label: "Pearl Light", desc: "Warm ivory, deep navy and refined gold accents.", icon: "sunny-outline" },
-  { key: "dark", label: "Obsidian Dark", desc: "Midnight surfaces, luminous blue-teal and soft gold.", icon: "moon-outline" },
+  { key: "light", label: "Pearl Light", desc: "Warm ivory surfaces with charcoal type and champagne details.", icon: "sunny-outline" },
+  { key: "dark", label: "Obsidian Dark", desc: "Near-black surfaces with soft ivory type and restrained champagne accents.", icon: "moon-outline" },
 ];
 
 export default function ThemeSettings() {
@@ -28,53 +27,42 @@ export default function ThemeSettings() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="theme-settings-screen">
       <Header title="Appearance" onBack={() => router.back()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        <LinearGradient
-          colors={[colors.gradientStart, colors.gradientEnd]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.hero}
-        >
-          <View style={styles.heroIcon}><Ionicons name="diamond-outline" size={21} color="#FFF5D7" /></View>
-          <Text style={styles.heroEyebrow}>SIGNATURE APPEARANCE</Text>
-          <Text style={styles.heroTitle}>Two carefully crafted modes.</Text>
-          <Text style={styles.heroBody}>Every surface, card, input and accent follows the same premium visual system for a consistent OnCampus experience.</Text>
-        </LinearGradient>
+        <Text style={[styles.introTitle, { color: colors.onSurface }]}>Choose your appearance</Text>
+        <Text style={[styles.introBody, { color: colors.onSurfaceTertiary }]}>Both modes use the same typography, spacing and interaction hierarchy. Only the surface treatment changes.</Text>
 
         <View style={styles.previewRow}>
           <ThemePreview label="Pearl" c={lightColors} active={mode === "light"} onPress={() => setMode("light")} />
           <ThemePreview label="Obsidian" c={darkColors} active={mode === "dark"} onPress={() => setMode("dark")} />
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.onSurfaceTertiary }]}>CHOOSE YOUR MODE</Text>
-        <View style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          {OPTIONS.map((option, index) => (
-            <React.Fragment key={option.key}>
-              {index > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 68 }} />}
-              <Pressable
-                onPress={() => setMode(option.key)}
-                style={({ pressed }) => [styles.row, { opacity: pressed ? 0.72 : 1 }]}
-                testID={`theme-${option.key}-btn`}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: mode === option.key }}
-              >
-                <LinearGradient
-                  colors={option.key === "light" ? ["#F3E8D2", "#E7F4F1"] : ["#17324A", "#1C3533"]}
-                  style={styles.icon}
+        <Text style={[styles.sectionTitle, { color: colors.onSurfaceTertiary }]}>THEME</Text>
+        <View style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.divider }]}>
+          {OPTIONS.map((option, index) => {
+            const selected = mode === option.key;
+            return (
+              <React.Fragment key={option.key}>
+                {index > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 68 }} />}
+                <Pressable
+                  onPress={() => setMode(option.key)}
+                  style={({ pressed }) => [styles.row, { backgroundColor: pressed ? colors.surfaceTertiary : "transparent" }]}
+                  testID={`theme-${option.key}-btn`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
                 >
-                  <Ionicons name={option.icon} size={20} color={option.key === "light" ? "#70521F" : "#F0D79B"} />
-                </LinearGradient>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "800" }}>{option.label}</Text>
-                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, lineHeight: 18, marginTop: 3 }}>{option.desc}</Text>
-                </View>
-                <Ionicons
-                  name={mode === option.key ? "checkmark-circle" : "ellipse-outline"}
-                  size={24}
-                  color={mode === option.key ? colors.luxuryGold : colors.borderStrong}
-                />
-              </Pressable>
-            </React.Fragment>
-          ))}
+                  <View style={[styles.icon, { backgroundColor: option.key === "light" ? "#EFE8DC" : "#1A1916" }]}> 
+                    <Ionicons name={option.icon} size={20} color={option.key === "light" ? "#6D542B" : "#D7B66C"} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "800" }}>{option.label}</Text>
+                    <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, lineHeight: 18, marginTop: 3 }}>{option.desc}</Text>
+                  </View>
+                  <View style={[styles.radio, { borderColor: selected ? colors.luxuryGold : colors.borderStrong }]}>
+                    {selected ? <View style={[styles.radioDot, { backgroundColor: colors.luxuryGold }]} /> : null}
+                  </View>
+                </Pressable>
+              </React.Fragment>
+            );
+          })}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -91,20 +79,25 @@ function ThemePreview({ label, c, active, onPress }: { label: string; c: typeof 
         {
           backgroundColor: c.surface,
           borderColor: active ? colors.luxuryGold : c.border,
-          borderWidth: active ? 2 : 1,
+          borderWidth: active ? 2 : StyleSheet.hairlineWidth,
         },
       ]}
       accessibilityRole="button"
       accessibilityLabel={`${label} theme preview`}
     >
       <View style={styles.miniHeader}>
-        <View style={{ width: 26, height: 26, borderRadius: 9, backgroundColor: c.brandPrimary }} />
-        <View style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: c.borderStrong }} />
+        <View style={{ width: 25, height: 25, borderRadius: 8, backgroundColor: c.luxuryGoldSoft, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border }} />
+        <View style={{ flex: 1, height: 7, borderRadius: 4, backgroundColor: c.borderStrong }} />
       </View>
-      <LinearGradient colors={[c.gradientStart, c.gradientEnd]} style={styles.miniHero} />
-      <View style={[styles.miniCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-        <View style={{ height: 7, width: "74%", borderRadius: 4, backgroundColor: c.onSurface }} />
-        <View style={{ height: 6, width: "92%", borderRadius: 4, backgroundColor: c.onSurfaceTertiary, marginTop: 7, opacity: 0.55 }} />
+      <View style={[styles.miniFeed, { borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
+        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: c.surfaceTertiary }} />
+        <View style={{ flex: 1 }}>
+          <View style={{ height: 7, width: "70%", borderRadius: 4, backgroundColor: c.onSurface }} />
+          <View style={{ height: 6, width: "92%", borderRadius: 4, backgroundColor: c.onSurfaceTertiary, marginTop: 7, opacity: 0.5 }} />
+        </View>
+      </View>
+      <View style={[styles.miniNav, { borderTopColor: c.divider }]}>
+        {[0, 1, 2, 3].map((item) => <View key={item} style={{ width: item === 0 ? 18 : 14, height: item === 0 ? 4 : 3, borderRadius: 3, backgroundColor: item === 0 ? c.luxuryGold : c.muted, opacity: item === 0 ? 1 : 0.5 }} />)}
       </View>
       <Text style={{ color: c.onSurface, marginTop: spacing.sm, fontSize: font.sm, fontWeight: "800" }}>{label}</Text>
     </Pressable>
@@ -113,18 +106,17 @@ function ThemePreview({ label, c, active, onPress }: { label: string; c: typeof 
 
 const styles = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: 48 },
-  hero: { borderRadius: 28, padding: 22, minHeight: 186, justifyContent: "flex-end" },
-  heroIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center", marginBottom: 22 },
-  heroEyebrow: { color: "#D9C486", fontSize: 10, fontWeight: "900", letterSpacing: 1.4 },
-  heroTitle: { color: "#FFFFFF", fontSize: 25, lineHeight: 30, fontWeight: "900", letterSpacing: -0.5, marginTop: 5 },
-  heroBody: { color: "rgba(255,255,255,0.78)", fontSize: 13, lineHeight: 19, marginTop: 8, maxWidth: 350 },
-  previewRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.lg },
-  preview: { flex: 1, borderRadius: radius.lg, padding: spacing.md, minHeight: 164 },
+  introTitle: { fontSize: 23, fontWeight: "900", letterSpacing: -0.55, marginTop: 6 },
+  introBody: { fontSize: 13, lineHeight: 19, marginTop: 7, maxWidth: 360 },
+  previewRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xl },
+  preview: { flex: 1, borderRadius: radius.lg, padding: spacing.md, minHeight: 160 },
   miniHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
-  miniHero: { height: 34, borderRadius: 10, marginTop: 10 },
-  miniCard: { borderWidth: 1, borderRadius: 10, padding: 9, marginTop: 8 },
+  miniFeed: { height: 64, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, marginTop: 12, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 },
+  miniNav: { height: 24, marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", justifyContent: "space-around" },
   sectionTitle: { fontSize: 11, fontWeight: "900", letterSpacing: 1.1, marginTop: spacing.xl, marginBottom: spacing.sm, paddingHorizontal: 4 },
-  card: { borderRadius: radius.lg, borderWidth: 1, overflow: "hidden" },
+  card: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, minHeight: 82 },
   icon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  radioDot: { width: 10, height: 10, borderRadius: 5 },
 });

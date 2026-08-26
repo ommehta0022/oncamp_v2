@@ -28,7 +28,7 @@ import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
 import { api } from "@/src/lib/api";
 import { installAlertPromptCompat } from "@/src/lib/alertPromptCompat";
 
-const STARTUP_BACKGROUND = "#071A2F";
+const STARTUP_BACKGROUND = "#F8F6F1";
 
 installAlertPromptCompat();
 LogBox.ignoreAllLogs(true);

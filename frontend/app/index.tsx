@@ -1,18 +1,19 @@
 import { useEffect } from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { View, StyleSheet } from "react-native";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { spacing } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeProvider";
 
-export default function Splash() {
+const APP_ICON = require("../assets/images/icon.png");
+
+export default function Startup() {
   const router = useRouter();
+  const { colors, isDark } = useTheme();
 
   useEffect(() => {
     let mounted = true;
-
     const boot = async () => {
       let target: "/(tabs)/feed" | "/(auth)/welcome" = "/(auth)/welcome";
       try {
@@ -21,44 +22,24 @@ export default function Splash() {
       } catch {
         target = "/(auth)/welcome";
       }
-
       if (mounted) router.replace(target);
     };
-
     void boot();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [router]);
 
   return (
-    <View style={styles.root} testID="startup-screen">
-      <StatusBar hidden animated={false} />
-      <LinearGradient
-        colors={["#1267F4", "#0B49BD"]}
-        start={{ x: 0.15, y: 0 }}
-        end={{ x: 0.9, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.glowOne} />
-      <View style={styles.glowTwo} />
-      <View style={styles.center}>
-        <View style={styles.logoWrap}>
-          <Ionicons name="school" size={42} color="#1267F4" />
-        </View>
-        <Text style={styles.brand}>OnCampus</Text>
-        <Text style={styles.tagline}>Your campus, connected.</Text>
+    <View style={[styles.root, { backgroundColor: colors.surface }]} testID="startup-screen">
+      <StatusBar style={isDark ? "light" : "dark"} translucent backgroundColor="transparent" />
+      <View style={[styles.logoShell, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, shadowColor: colors.shadow }]}>
+        <Image source={APP_ICON} style={styles.logo} contentFit="cover" />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, width: "100%", overflow: "hidden", backgroundColor: "#1267F4" },
-  glowOne: { position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "rgba(255,255,255,0.08)", top: -70, right: -90 },
-  glowTwo: { position: "absolute", width: 220, height: 220, borderRadius: 110, backgroundColor: "rgba(255,255,255,0.05)", bottom: -50, left: -80 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl },
-  logoWrap: { width: 88, height: 88, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", shadowColor: "#041C56", shadowOpacity: 0.18, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 7 },
-  brand: { color: "#FFFFFF", fontSize: 34, fontWeight: "800", marginTop: 18, letterSpacing: -0.7 },
-  tagline: { color: "rgba(255,255,255,0.82)", fontSize: 14, marginTop: 5 },
+  root: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center" },
+  logoShell: { width: 84, height: 84, borderRadius: 26, padding: 6, borderWidth: StyleSheet.hairlineWidth, shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  logo: { width: "100%", height: "100%", borderRadius: 20 },
 });

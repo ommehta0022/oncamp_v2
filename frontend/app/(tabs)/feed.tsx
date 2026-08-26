@@ -3,7 +3,6 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "rea
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing } from "@/src/theme/colors";
@@ -71,8 +70,6 @@ export default function Feed() {
     .sort((left, right) => Number(right.pinned) - Number(left.pinned) || left.index - right.index)
     .map(({ post }) => post), [isPostPinned, posts]);
 
-  const pinnedCount = useMemo(() => posts.reduce((count, post) => count + (isPostPinned(post.id) ? 1 : 0), 0), [isPostPinned, posts]);
-
   const loadMore = () => {
     if (!hasMore || loading || loadingMore || refreshing || posts.length === 0) return;
     void loadPosts(page + 1);
@@ -80,19 +77,16 @@ export default function Feed() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="feed-screen">
-      <LinearGradient colors={[colors.surfaceSecondary, colors.surface]} style={[styles.header, { borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.divider }]}>
         <View style={styles.brandWrap}>
           <Image source={APP_ICON} style={styles.brandIcon} contentFit="cover" />
-          <View>
-            <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
-            <Text style={[styles.brandMeta, { color: colors.onSurfaceTertiary }]}>{pinnedCount > 0 ? `${pinnedCount} pinned for you` : "Your campus, curated"}</Text>
-          </View>
+          <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
         </View>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={[styles.iconBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]} testID="feed-search-btn"><Ionicons name="search" size={20} color={colors.onSurface} /></Pressable>
-          <Pressable onPress={() => router.push("/saved")} style={[styles.iconBtn, { backgroundColor: colors.luxuryGoldSoft, borderColor: colors.border }]} testID="feed-saved-btn"><Ionicons name="bookmark-outline" size={20} color={colors.luxuryGold} /></Pressable>
+          <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={styles.iconBtn} testID="feed-search-btn" accessibilityRole="button" accessibilityLabel="Search"><Ionicons name="search" size={22} color={colors.onSurface} /></Pressable>
+          <Pressable onPress={() => router.push("/saved")} style={styles.iconBtn} testID="feed-saved-btn" accessibilityRole="button" accessibilityLabel="Saved posts"><Ionicons name="bookmark-outline" size={21} color={colors.onSurface} /></Pressable>
         </View>
-      </LinearGradient>
+      </View>
 
       {loading && posts.length === 0 ? <CampusLoader fullScreen label="Loading your campus feed…" /> : error && posts.length === 0 ? (
         <NetworkError onRetry={() => void loadPosts()} message={error} />
@@ -101,8 +95,8 @@ export default function Feed() {
           showsVerticalScrollIndicator={false}
           data={displayPosts}
           keyExtractor={(p) => String(p.id)}
-          contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: 120, flexGrow: 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
+          contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: 120, flexGrow: 1 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.luxuryGold} colors={[colors.luxuryGold]} />}
           ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here automatically." />}
           ListFooterComponent={loadingMore ? <CampusLoader compact label="Loading more…" /> : null}
           renderItem={({ item }) => <PostCard post={item} onChange={(updated) => setPosts((current) => current.map((post) => post.id === updated.id ? updated : post))} onDeleted={(id) => setPosts((current) => current.filter((post) => post.id !== id))} style={{ marginHorizontal: spacing.lg }} />}
@@ -116,11 +110,10 @@ export default function Feed() {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 72 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 62 },
   brandWrap: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  brandIcon: { width: 42, height: 42, borderRadius: 13 },
-  brand: { fontSize: 22, fontWeight: "900", letterSpacing: -0.5 },
-  brandMeta: { fontSize: 10, fontWeight: "700", letterSpacing: 0.35, marginTop: 2 },
-  headerActions: { flexDirection: "row", gap: spacing.sm },
-  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.md, borderWidth: 1 },
+  brandIcon: { width: 36, height: 36, borderRadius: 11 },
+  brand: { fontSize: 22, fontWeight: "900", letterSpacing: -0.6 },
+  headerActions: { flexDirection: "row", gap: 2 },
+  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill },
 });
