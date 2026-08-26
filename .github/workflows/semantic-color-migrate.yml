@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   migrate:
-    if: github.actor != 'github-actions[bot]'
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -23,26 +23,24 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def edit(path, replacements):
+          def apply(path, pairs):
               p = Path(path)
               text = p.read_text()
-              original = text
-              for old, new in replacements:
+              before = text
+              for old, new in pairs:
                   text = text.replace(old, new)
-              if text == original:
-                  raise SystemExit(f'{path}: no expected migration changes applied')
+              if text == before:
+                  raise SystemExit(f'{path}: no migration edits matched')
               p.write_text(text)
 
-          edit('frontend/app/(auth)/login.tsx', [
+          apply('frontend/app/(auth)/login.tsx', [
             ('colors.luxuryGoldSoft', 'colors.brandTertiary'),
             ('color: colors.luxuryGold, fontWeight: "800"', 'color: colors.link, fontWeight: "800"'),
           ])
-
-          edit('frontend/app/(tabs)/feed.tsx', [
+          apply('frontend/app/(tabs)/feed.tsx', [
             ('tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}'),
           ])
-
-          edit('frontend/app/(tabs)/groups.tsx', [
+          apply('frontend/app/(tabs)/groups.tsx', [
             ('tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}'),
             ('backgroundColor: colors.luxuryGold }]}><Text style={styles.filterBadgeText}', 'backgroundColor: colors.tabBadge }]}><Text style={[styles.filterBadgeText, { color: colors.onTabBadge }]}'),
             ('backgroundColor: active ? colors.luxuryGold : "transparent"', 'backgroundColor: active ? colors.selectionStrong : "transparent"'),
@@ -53,8 +51,7 @@ jobs:
             ('filterBadgeText: { color: "#17130E",', 'filterBadgeText: {'),
             ('unreadText: { color: "#17130E",', 'unreadText: {'),
           ])
-
-          edit('frontend/app/(tabs)/discover.tsx', [
+          apply('frontend/app/(tabs)/discover.tsx', [
             ('tintColor={colors.luxuryGold} colors={[colors.luxuryGold]}', 'tintColor={colors.actionPrimary} colors={[colors.actionPrimary]}'),
             ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="compass-outline" size={21} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary }]}><Ionicons name="compass-outline" size={21} color={colors.onBrandTertiary}'),
             ('color: colors.luxuryGold, fontSize: 12, fontWeight: "800"', 'color: colors.link, fontSize: 12, fontWeight: "800"'),
@@ -65,8 +62,7 @@ jobs:
             ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={icon} size={28} color={colors.luxuryGold}', 'backgroundColor: colors.selectionSoft }]}><Ionicons name={icon} size={28} color={colors.onSelectionSoft}'),
             ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={icon as any} size={22} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary }]}><Ionicons name={icon as any} size={22} color={colors.onBrandTertiary}'),
           ])
-
-          edit('frontend/app/(tabs)/notifications.tsx', [
+          apply('frontend/app/(tabs)/notifications.tsx', [
             ('color: colors.luxuryGold, fontSize: font.sm, fontWeight: "800"', 'color: colors.link, fontSize: font.sm, fontWeight: "800"'),
             ('backgroundColor: active ? colors.luxuryGold : "transparent"', 'backgroundColor: active ? colors.selectionStrong : "transparent"'),
             ('  const badgeColor = n.type === "institution_post_request" ? colors.luxuryTeal : colors.luxuryGold;\n', '  const badge = n.type === "institution_post_request"\n    ? { bg: colors.info, fg: colors.onInfo }\n    : n.type === "announcement"\n      ? { bg: colors.announcement, fg: colors.onBrandSecondary }\n      : n.type === "approved"\n        ? { bg: colors.success, fg: colors.onSuccess }\n        : { bg: colors.actionPrimary, fg: colors.onActionPrimary };\n'),
@@ -74,8 +70,7 @@ jobs:
             ('size={11} color={colors.onBrandPrimary}', 'size={11} color={badge.fg}'),
             ('backgroundColor: colors.luxuryGold }]} />', 'backgroundColor: colors.tabBadge }]} />'),
           ])
-
-          edit('frontend/app/(tabs)/profile.tsx', [
+          apply('frontend/app/(tabs)/profile.tsx', [
             ('checkmark-circle" size={19} color={colors.luxuryGold}', 'checkmark-circle" size={19} color={colors.actionPrimary}'),
             ('text={`${streak} day streak`} color={colors.luxuryGold}', 'text={`${streak} day streak`} color={colors.warning}'),
             ('<ActivityIndicator color={colors.luxuryGold}', '<ActivityIndicator color={colors.actionPrimary}'),
@@ -83,21 +78,18 @@ jobs:
             ('color: colors.luxuryGold, fontSize: font.base, fontWeight: "800"', 'color: colors.link, fontSize: font.base, fontWeight: "800"'),
             ('highlight ? colors.luxuryGold : colors.onSurface', 'highlight ? colors.warning : colors.onSurface'),
           ])
-
-          p = Path('frontend/app/institution/dashboard.tsx')
-          text = p.read_text()
-          text = text.replace('color: colors.luxuryGold },\n    { icon: "newspaper-outline"', 'color: colors.actionPrimary },\n    { icon: "newspaper-outline"')
-          text = text.replace('route: "/institution/content", color: colors.onSurface }', 'route: "/institution/content", color: colors.actionSecondary }')
-          text = text.replace('route: "/institution/campus-platform", color: colors.luxuryGold },\n    { icon: "calendar-outline"', 'route: "/institution/campus-platform", color: pendingStudents ? colors.warning : colors.actionPrimary },\n    { icon: "calendar-outline"')
-          text = text.replace('title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.onSurface }', 'title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.actionSecondary }')
-          text = text.replace('title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.luxuryGold }', 'title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.info }')
-          text = text.replace('backgroundColor: colors.luxuryGoldSoft, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={27} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={27} color={colors.onBrandTertiary}')
-          text = text.replace('checkmark-circle" size={17} color={colors.luxuryGold}', 'checkmark-circle" size={17} color={colors.actionPrimary}')
-          text = text.replace('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="desktop-outline" size={23} color={colors.luxuryGold}', 'backgroundColor: `${colors.info}18` }]}><Ionicons name="desktop-outline" size={23} color={colors.info}')
-          text = text.replace('backgroundColor: action.color === colors.luxuryGold ? colors.luxuryGoldSoft : colors.surfaceTertiary', 'backgroundColor: `${action.color}18`')
-          p.write_text(text)
-
-          edit('frontend/app/settings/theme.tsx', [
+          apply('frontend/app/institution/dashboard.tsx', [
+            ('title: "Public profile", subtitle: "Logo, cover and essential public details", route: "/institution/branding", color: colors.luxuryGold', 'title: "Public profile", subtitle: "Logo, cover and essential public details", route: "/institution/branding", color: colors.actionPrimary'),
+            ('title: "Content", subtitle: "Create and manage official campus content", route: "/institution/content", color: colors.onSurface', 'title: "Content", subtitle: "Create and manage official campus content", route: "/institution/content", color: colors.actionSecondary'),
+            ('title: "Student approvals", subtitle: pendingStudents ? `${pendingStudents} items need review` : "Review student access", route: "/institution/campus-platform", color: colors.luxuryGold', 'title: "Student approvals", subtitle: pendingStudents ? `${pendingStudents} items need review` : "Review student access", route: "/institution/campus-platform", color: pendingStudents ? colors.warning : colors.actionPrimary'),
+            ('title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.onSurface', 'title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.actionSecondary'),
+            ('title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.luxuryGold', 'title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.info'),
+            ('backgroundColor: colors.luxuryGoldSoft, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={27} color={colors.luxuryGold}', 'backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={27} color={colors.onBrandTertiary}'),
+            ('checkmark-circle" size={17} color={colors.luxuryGold}', 'checkmark-circle" size={17} color={colors.actionPrimary}'),
+            ('backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="desktop-outline" size={23} color={colors.luxuryGold}', 'backgroundColor: `${colors.info}18` }]}><Ionicons name="desktop-outline" size={23} color={colors.info}'),
+            ('backgroundColor: action.color === colors.luxuryGold ? colors.luxuryGoldSoft : colors.surfaceTertiary', 'backgroundColor: `${action.color}18`'),
+          ])
+          apply('frontend/app/settings/theme.tsx', [
             ('Warm ivory surfaces with charcoal type and champagne details.', 'Warm campus surfaces with moss identity and terracotta engagement accents.'),
             ('Near-black surfaces with soft ivory type and restrained champagne accents.', 'Deep neutral surfaces with accessible moss identity and terracotta engagement accents.'),
             ('borderColor: selected ? colors.luxuryGold : colors.borderStrong', 'borderColor: selected ? colors.actionPrimary : colors.borderStrong'),
@@ -108,42 +100,38 @@ jobs:
             ('backgroundColor: option.key === "light" ? "#EFE8DC" : "#1A1916"', 'backgroundColor: option.key === "light" ? lightColors.brandTertiary : darkColors.brandTertiary'),
             ('color={option.key === "light" ? "#6D542B" : "#D7B66C"}', 'color={option.key === "light" ? lightColors.onBrandTertiary : darkColors.onBrandTertiary}'),
           ])
-
-          edit('frontend/src/components/AppUpdateGate.tsx', [
+          apply('frontend/src/components/AppUpdateGate.tsx', [
             ('color: colors.luxuryGold }]}>{label}', 'color: state.phase === "error" ? colors.error : terminal ? colors.success : colors.info }]}>{label}'),
             ('colors={[colors.brandPrimary, colors.luxuryTeal]}', 'colors={[colors.actionPrimary, colors.success]}'),
             ('color: colors.luxuryTeal, fontWeight: "900"', 'color: colors.success, fontWeight: "900"'),
           ])
 
-          v = Path('frontend/scripts/validate-release-startup.js')
-          text = v.read_text()
-          old = '''expect(lightPalette.includes('surface: "#FAF9F6"'), 'light mode must keep the neutral pearl surface');
-expect(lightPalette.includes('brandPrimary: "#B38A4A"') && lightPalette.includes('luxuryGold: "#B38A4A"'), 'light champagne accent contract missing');
-expect(lightPalette.includes('luxuryTeal: "#72806E"'), 'light status sage accent missing');
-expect(darkPalette.includes('surface: "#080809"'), 'dark mode must keep the neutral obsidian surface');
-expect(darkPalette.includes('card: "#111112"'), 'dark mode cards must remain neutral charcoal');
-expect(darkPalette.includes('brandPrimary: "#C8A76B"') && darkPalette.includes('luxuryGold: "#C8A76B"'), 'dark champagne accent contract missing');
-expect(darkPalette.includes('luxuryTeal: "#859481"'), 'dark status sage accent missing');
-expect(darkPalette.includes('gradientStart: "#0B0A09"') && darkPalette.includes('gradientEnd: "#282119"'), 'dark neutral gradient contract changed');'''
-          new = '''expect(lightPalette.includes('surface: "#FCFCF9"'), 'light mode must match the oncampuses-v1 foundation surface');
-expect(lightPalette.includes('brandPrimary: "#2E5C4E"') && lightPalette.includes('brandSecondary: "#E87A5D"'), 'light moss/terracotta brand identity contract missing');
-expect(lightPalette.includes('success: "#2F7D5C"') && lightPalette.includes('warning: "#B7791F"') && lightPalette.includes('error: "#C04444"') && lightPalette.includes('info: "#4A788C"'), 'light semantic state palette contract missing');
-expect(darkPalette.includes('surface: "#151717"'), 'dark mode must match the oncampuses-v1 foundation surface');
-expect(darkPalette.includes('card: "#1C1F1E"'), 'dark mode cards must match the reference neutral surface');
-expect(darkPalette.includes('brandPrimary: "#7FB19F"') && darkPalette.includes('brandSecondary: "#F0A48D"'), 'dark moss/terracotta brand identity contract missing');
-expect(darkPalette.includes('success: "#6FC99E"') && darkPalette.includes('warning: "#E2B66A"') && darkPalette.includes('error: "#E27A7A"') && darkPalette.includes('info: "#82B1C2"'), 'dark semantic state palette contract missing');
-for (const semanticToken of ['actionPrimary:', 'actionSecondary:', 'actionDanger:', 'tabActive:', 'tabBadge:', 'selectionStrong:', 'reactionActive:', 'announcement:']) {
-  expect(lightPalette.includes(semanticToken) && darkPalette.includes(semanticToken), `semantic component token ${semanticToken} missing`);
-}'''
-          if old not in text:
-              raise SystemExit('release validator palette block changed unexpectedly')
-          text = text.replace(old, new).replace('with neutral luxury UI, resilient background OTA and durable Android APK downloads', 'with business-semantic reference UI, resilient background OTA and durable Android APK downloads')
-          v.write_text(text)
+          validator = Path('frontend/scripts/validate-release-startup.js')
+          text = validator.read_text()
+          pairs = [
+            ("expect(lightPalette.includes('surface: \"#FAF9F6\"'), 'light mode must keep the neutral pearl surface');", "expect(lightPalette.includes('surface: \"#FCFCF9\"'), 'light mode must match the oncampuses-v1 foundation surface');"),
+            ("expect(lightPalette.includes('brandPrimary: \"#B38A4A\"') && lightPalette.includes('luxuryGold: \"#B38A4A\"'), 'light champagne accent contract missing');", "expect(lightPalette.includes('brandPrimary: \"#2E5C4E\"') && lightPalette.includes('brandSecondary: \"#E87A5D\"'), 'light moss/terracotta brand identity contract missing');"),
+            ("expect(lightPalette.includes('luxuryTeal: \"#72806E\"'), 'light status sage accent missing');", "expect(lightPalette.includes('success: \"#2F7D5C\"') && lightPalette.includes('warning: \"#B7791F\"') && lightPalette.includes('error: \"#C04444\"') && lightPalette.includes('info: \"#4A788C\"'), 'light semantic state palette contract missing');"),
+            ("expect(darkPalette.includes('surface: \"#080809\"'), 'dark mode must keep the neutral obsidian surface');", "expect(darkPalette.includes('surface: \"#151717\"'), 'dark mode must match the oncampuses-v1 foundation surface');"),
+            ("expect(darkPalette.includes('card: \"#111112\"'), 'dark mode cards must remain neutral charcoal');", "expect(darkPalette.includes('card: \"#1C1F1E\"'), 'dark mode cards must match the reference neutral surface');"),
+            ("expect(darkPalette.includes('brandPrimary: \"#C8A76B\"') && darkPalette.includes('luxuryGold: \"#C8A76B\"'), 'dark champagne accent contract missing');", "expect(darkPalette.includes('brandPrimary: \"#7FB19F\"') && darkPalette.includes('brandSecondary: \"#F0A48D\"'), 'dark moss/terracotta brand identity contract missing');"),
+            ("expect(darkPalette.includes('luxuryTeal: \"#859481\"'), 'dark status sage accent missing');", "expect(darkPalette.includes('success: \"#6FC99E\"') && darkPalette.includes('warning: \"#E2B66A\"') && darkPalette.includes('error: \"#E27A7A\"') && darkPalette.includes('info: \"#82B1C2\"'), 'dark semantic state palette contract missing');"),
+            ("expect(darkPalette.includes('gradientStart: \"#0B0A09\"') && darkPalette.includes('gradientEnd: \"#282119\"'), 'dark neutral gradient contract changed');", "for (const semanticToken of ['actionPrimary:', 'actionSecondary:', 'actionDanger:', 'tabActive:', 'tabBadge:', 'selectionStrong:', 'reactionActive:', 'announcement:']) { expect(lightPalette.includes(semanticToken) && darkPalette.includes(semanticToken), `semantic component token ${semanticToken} missing`); }"),
+            ('with neutral luxury UI, resilient background OTA and durable Android APK downloads', 'with business-semantic reference UI, resilient background OTA and durable Android APK downloads'),
+          ]
+          for old, new in pairs:
+              if old not in text:
+                  raise SystemExit(f'validator contract missing: {old[:70]}')
+              text = text.replace(old, new)
+          validator.write_text(text)
 
-          a = Path('frontend/scripts/audit-luxury-ui.js')
-          text = a.read_text()
-          text = text.replace("    for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);", "    if (!rel.startsWith('android/')) for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);")
-          a.write_text(text)
+          audit = Path('frontend/scripts/audit-luxury-ui.js')
+          text = audit.read_text()
+          old = "    for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);"
+          new = "    if (!rel.startsWith('android/')) for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);"
+          if old not in text:
+              raise SystemExit('audit native exemption matcher missing')
+          audit.write_text(text.replace(old, new))
           PY
       - name: Confirm semantic migration
         run: node frontend/scripts/audit-luxury-ui.js
