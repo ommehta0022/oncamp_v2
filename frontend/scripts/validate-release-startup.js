@@ -16,7 +16,11 @@ const role = read('src/context/RoleProvider.tsx');
 const accessibility = read('src/context/AccessibilityProvider.tsx');
 const pins = read('src/context/PinnedContentProvider.tsx');
 const updateGate = read('src/components/AppUpdateGate.tsx');
+const backgroundCoordinator = read('src/components/BackgroundOtaCoordinator.tsx');
+const backgroundOta = read('src/updates/backgroundOta.ts');
 const nativeGuard = read('src/components/NativeOtaStartupGuard.tsx');
+const apkInstaller = read('android/app/src/main/java/com/oncampus/app/OnCampusApkInstallerModule.kt');
+const apkFilePaths = read('android/app/src/main/res/xml/apk_file_paths.xml');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const strings = read('android/app/src/main/res/values/strings.xml');
 const gradle = read('android/app/build.gradle');
@@ -76,8 +80,10 @@ expect(!theme.includes('type ThemeMode = "light" | "dark" | "system"'), 'System 
 const expectedDeps = {
   expo: '54.0.37',
   'expo-asset': '12.0.13',
+  'expo-background-task': '1.0.10',
   'expo-constants': '18.0.14',
   'expo-audio': '1.1.1',
+  'expo-task-manager': '14.0.9',
   'expo-updates': '29.0.20',
 };
 for (const [name, pinned] of Object.entries(expectedDeps)) {
@@ -86,6 +92,7 @@ for (const [name, pinned] of Object.entries(expectedDeps)) {
 
 expect(layout.includes('import { AccessibilityProvider }'), 'RootLayout must import AccessibilityProvider');
 expect(layout.includes('NativeOtaStartupGuard'), 'RootLayout must mount the native OTA startup observer');
+expect(layout.includes('BackgroundOtaCoordinator'), 'RootLayout must mount the resilient background OTA coordinator');
 expect(layout.includes('PinnedContentProvider'), 'RootLayout must mount personal pin persistence');
 const aOpen = layout.indexOf('<AccessibilityProvider>');
 const tOpen = layout.indexOf('<ThemeProvider>');
@@ -100,23 +107,45 @@ expect(accessibility.includes('.catch(() =>') && accessibility.includes('.finall
 expect(pins.includes('oncampus.personal-pins.v1'), 'personal pin storage key missing');
 expect(pins.includes('togglePostPin') && pins.includes('toggleGroupPin'), 'post/group pin controls missing');
 
-for (const feature of ['native-ota-startup-guard', 'app-update-gate', 'server-update-coordinator', 'session-expired-modal']) {
+for (const feature of ['background-ota-coordinator', 'native-ota-startup-guard', 'app-update-gate', 'server-update-coordinator', 'session-expired-modal']) {
   expect(layout.includes(`<OptionalFeatureBoundary name="${feature}">`), `${feature} must be isolated from the app shell`);
 }
+
+expect(backgroundCoordinator.includes('AppState.addEventListener'), 'background OTA coordinator must react to minimize/resume transitions');
+expect(backgroundCoordinator.includes('setupBackgroundOta()'), 'background OTA WorkManager registration missing');
+expect(backgroundCoordinator.includes('prefetchLatestOta'), 'foreground OTA prefetch missing');
+expect(backgroundOta.includes('TaskManager.defineTask'), 'headless OTA task must be defined at module scope');
+expect(backgroundOta.includes('BackgroundTask.registerTaskAsync'), 'background OTA task registration missing');
+expect(backgroundOta.includes('minimumInterval: BACKGROUND_MIN_INTERVAL_MINUTES'), 'background OTA interval contract missing');
+expect(backgroundOta.includes('FETCH_ATTEMPTS = 4'), 'OTA retry contract missing');
+expect(backgroundOta.includes('Updates.fetchUpdateAsync()'), 'background OTA must fetch the signed update');
+expect(!backgroundOta.includes('Updates.reloadAsync()'), 'background OTA worker must never reload the hidden app');
 
 expect(updateGate.includes('DEFER_MS = 6 * 60 * 60 * 1000'), 'OTA Later quiet-period contract missing');
 expect(updateGate.includes('phase: "available"'), 'unified update available UI missing');
 expect(updateGate.includes('Update now'), 'OTA Update now action missing');
-expect(updateGate.includes('Updates.fetchUpdateAsync()'), 'OTA download step missing');
+expect(updateGate.includes('prefetchLatestOta(true)'), 'Update now must share the resilient OTA retry engine');
+expect(updateGate.includes('APPLY_OTA_ON_RESUME_KEY'), 'minimize-safe persisted OTA apply intent missing');
+expect(updateGate.includes('resumePendingOtaApply()'), 'OTA apply-on-resume handler missing');
+expect(updateGate.includes('AppState.currentState !== "active"'), 'hidden app must not reload itself');
+expect(updateGate.includes('You can minimize OnCampus'), 'background-safe OTA user guidance missing');
 expect(updateGate.includes('Updates.reloadAsync()'), 'OTA one-tap apply/reload step missing');
 expect(updateGate.includes('phase: "current"'), 'manual up-to-date state missing');
 expect(updateGate.includes('SUCCESS_SHOWN_KEY'), 'one-time update-success acknowledgement missing');
 expect(updateGate.includes('serverOtaId()'), 'OTA server/native acceptance cross-check missing');
 expect(!nativeGuard.includes('Alert.alert'), 'native OTA observer must not create duplicate user prompts');
 
+expect(apkInstaller.includes('DownloadManager'), 'native APK updater must use Android DownloadManager');
+expect(apkInstaller.includes('setDestinationInExternalFilesDir'), 'native APK download must use durable app-owned external storage');
+expect(apkInstaller.includes('getSharedPreferences'), 'native APK download state must survive React process recreation');
+expect(apkInstaller.includes('override fun onHostResume()'), 'native APK updater must resume verification/install when app returns');
+expect(apkInstaller.includes('APK checksum verification failed'), 'native APK updater must verify SHA-256 before install');
+expect(!apkInstaller.includes('HttpURLConnection'), 'native APK updater must not depend on a process-owned HTTP transfer');
+expect(apkFilePaths.includes('external-files-path'), 'FileProvider must expose the durable DownloadManager APK location');
+
 expect(!layout.includes('CampusLoader'), 'RootLayout must not block startup with CampusLoader');
 expect(!index.includes('CampusLoader'), 'Startup route must not use CampusLoader');
 expect(!index.includes('setTimeout('), 'Startup route must not contain artificial delays');
 expect(index.includes('router.replace(target)'), 'Startup route must deterministically leave the splash route');
 
-console.log(`OnCampus release/startup contracts verified for ${version} with luxury UI, personal pins and unified native ON_LOAD OTA`);
+console.log(`OnCampus release/startup contracts verified for ${version} with resilient background OTA and durable Android APK downloads`);

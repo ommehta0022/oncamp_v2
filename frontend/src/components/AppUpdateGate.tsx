@@ -19,6 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing } from "@/src/theme/colors";
+import { prefetchLatestOta } from "@/src/updates/backgroundOta";
 
 const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
 const NATIVE_RELEASE_API = `${API_BASE}/updates/native/latest`;
@@ -26,6 +27,7 @@ const TRUSTED_NATIVE_APK_PREFIX = `${API_BASE}/updates/native/apk?version=`;
 const AUTOMATIC_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const DEFER_MS = 6 * 60 * 60 * 1000;
 const PENDING_OTA_KEY = "oncampus.update.pending_ota.v4";
+const APPLY_OTA_ON_RESUME_KEY = "oncampus.update.apply_ota_on_resume.v1";
 const PENDING_NATIVE_KEY = "oncampus.update.pending_native.v3";
 const DEFER_KEY = "oncampus.update.defer.v1";
 const SUCCESS_SHOWN_KEY = "oncampus.update.success_shown.v3";
@@ -33,6 +35,7 @@ const APP_ICON = require("../../assets/images/icon.png");
 
 let lastAutomaticCheckAt = 0;
 let activeCheck: Promise<void> | null = null;
+let activeOtaApply: Promise<void> | null = null;
 let updateUiListener: ((state: UpdateUiState) => void) | null = null;
 let pendingOtaReleaseKey: string | null = null;
 let downloadedPendingKey: string | null = null;
@@ -197,12 +200,22 @@ async function reconcileAppliedUpdate(): Promise<boolean> {
         const marker = JSON.parse(pendingOtaRaw) as PendingOtaMarker;
         if (marker?.beforeUpdateId && marker.beforeUpdateId !== currentUpdateId()) {
           applied = true;
-          await Promise.all([AsyncStorage.removeItem(PENDING_OTA_KEY), AsyncStorage.removeItem(DEFER_KEY)]);
+          await Promise.all([
+            AsyncStorage.removeItem(PENDING_OTA_KEY),
+            AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
+            AsyncStorage.removeItem(DEFER_KEY),
+          ]);
         } else if (Date.now() - Number(marker?.startedAt || 0) > 24 * 60 * 60 * 1000) {
-          await AsyncStorage.removeItem(PENDING_OTA_KEY);
+          await Promise.all([
+            AsyncStorage.removeItem(PENDING_OTA_KEY),
+            AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
+          ]);
         }
       } catch {
-        await AsyncStorage.removeItem(PENDING_OTA_KEY);
+        await Promise.all([
+          AsyncStorage.removeItem(PENDING_OTA_KEY),
+          AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
+        ]);
       }
     }
 
@@ -253,6 +266,11 @@ async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
 
   const manifestId = String((result as any)?.manifest?.id || "");
   const releaseKey = `ota:${serverId || manifestId || currentRuntime() || "compatible"}`;
+
+  // Start downloading as soon as a compatible update is discovered. This makes
+  // Update now fast and lets Android continue/retry the work after minimization.
+  void prefetchLatestOta(true).catch(() => undefined);
+
   if (await isDeferred(releaseKey, mode)) return true;
 
   pendingOtaReleaseKey = releaseKey;
@@ -262,7 +280,7 @@ async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
     progress: 0,
     releaseKey,
     message: "A new OnCampus update is ready",
-    detail: "Signed for your installed runtime. Update now for the latest experience, or choose Later and we’ll wait before asking again.",
+    detail: "Signed for your installed runtime. OnCampus is already preloading it securely, so Update now can finish quickly. You can also choose Later.",
   });
   return true;
 }
@@ -276,40 +294,116 @@ async function markOtaApply(releaseKey: string) {
   await AsyncStorage.setItem(PENDING_OTA_KEY, JSON.stringify(marker));
 }
 
+async function queueOtaApply(releaseKey: string) {
+  await Promise.all([
+    markOtaApply(releaseKey),
+    AsyncStorage.setItem(APPLY_OTA_ON_RESUME_KEY, releaseKey),
+  ]);
+}
+
+async function reloadReadyOta(releaseKey: string) {
+  if (AppState.currentState !== "active") return false;
+  emitUpdateUi({
+    kind: "ota",
+    phase: "verifying",
+    progress: 100,
+    releaseKey,
+    message: "Verified and ready",
+    detail: "The signed update is ready. Restarting OnCampus into the new version…",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  await Updates.reloadAsync();
+  return true;
+}
+
+async function resumePendingOtaApply(): Promise<boolean> {
+  if (Platform.OS !== "android" || !Updates.isEnabled || AppState.currentState !== "active") return false;
+  const releaseKey = await AsyncStorage.getItem(APPLY_OTA_ON_RESUME_KEY).catch(() => null);
+  if (!releaseKey) return false;
+
+  if (activeOtaApply) {
+    await activeOtaApply.catch(() => undefined);
+    return true;
+  }
+
+  activeOtaApply = (async () => {
+    const ready = Boolean(downloadedPendingKey) || await prefetchLatestOta(true);
+    if (!ready || AppState.currentState !== "active") return;
+    await reloadReadyOta(releaseKey);
+  })()
+    .catch(() => {
+      // Keep the persisted apply intent. The foreground coordinator and Android
+      // WorkManager will retry without turning a temporary network pause into a
+      // user-facing failed installation.
+      emitUpdateUi(INITIAL_UI);
+    })
+    .finally(() => {
+      activeOtaApply = null;
+    });
+
+  await activeOtaApply;
+  return true;
+}
+
 async function downloadAndApplyOta(releaseKey: string) {
   await clearDeferral(releaseKey);
-  try {
+  if (activeOtaApply) return activeOtaApply;
+
+  activeOtaApply = (async () => {
+    await queueOtaApply(releaseKey);
+
     if (downloadedPendingKey) {
-      await markOtaApply(releaseKey);
-      emitUpdateUi({ kind: "ota", phase: "verifying", progress: 100, releaseKey, message: "Applying update", detail: "Restarting into the verified update…" });
-      await Updates.reloadAsync();
+      if (AppState.currentState === "active") await reloadReadyOta(releaseKey);
       return;
     }
 
-    emitUpdateUi({ kind: "ota", phase: "downloading", progress: 12, releaseKey, message: "Downloading update", detail: "Securely fetching signed app files. Your current version remains safe until verification completes." });
-    const fetched = await Updates.fetchUpdateAsync();
-    if (!fetched.isNew && !downloadedPendingKey) {
-      const retryCheck = await Updates.checkForUpdateAsync().catch(() => null);
-      if (!retryCheck?.isAvailable) {
-        emitUpdateUi({ kind: "ota", phase: "current", progress: 100, message: "Already up to date", detail: "The update was already applied or is no longer newer than this installation." });
-        return;
-      }
-    }
-
-    await markOtaApply(releaseKey);
-    emitUpdateUi({ kind: "ota", phase: "verifying", progress: 96, releaseKey, message: "Verified and ready", detail: "Signature and runtime checks passed. Restarting OnCampus now…" });
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    await Updates.reloadAsync();
-  } catch (error) {
     emitUpdateUi({
       kind: "ota",
-      phase: "error",
-      progress: 0,
+      phase: "downloading",
+      progress: 18,
       releaseKey,
-      message: "Update paused safely",
-      detail: error instanceof Error ? `Your current app is unchanged. ${error.message.slice(0, 180)}` : "Your current app is unchanged. Check your connection and try again.",
+      message: "Downloading update",
+      detail: "OnCampus is fetching the signed update with automatic retries. You can minimize the app; Android will continue/retry the download and apply it safely when OnCampus is active again.",
     });
-  }
+
+    const ready = await prefetchLatestOta(true);
+    if (!ready) {
+      const serverId = await serverOtaId();
+      if (!serverId || serverId === currentUpdateId()) {
+        await Promise.all([
+          AsyncStorage.removeItem(PENDING_OTA_KEY),
+          AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
+        ]);
+        emitUpdateUi({ kind: "ota", phase: "current", progress: 100, message: "Already up to date", detail: "There is no newer signed update for this installation." });
+        return;
+      }
+
+      // A compatible release still exists but the immediate network window did
+      // not complete. Leave the apply intent persisted and let WorkManager plus
+      // the foreground prefetch loop continue automatically.
+      emitUpdateUi(INITIAL_UI);
+      return;
+    }
+
+    if (AppState.currentState !== "active") {
+      emitUpdateUi(INITIAL_UI);
+      return;
+    }
+
+    await reloadReadyOta(releaseKey);
+  })()
+    .catch(() => {
+      // Do not mark the update failed simply because Android suspended the app
+      // or the network changed. The durable background task retains the intent
+      // and retries. Manual Check for updates remains available for diagnostics.
+      emitUpdateUi(INITIAL_UI);
+      void prefetchLatestOta(true).catch(() => undefined);
+    })
+    .finally(() => {
+      activeOtaApply = null;
+    });
+
+  return activeOtaApply;
 }
 
 async function fetchNativeRelease(): Promise<NativeRelease | null> {
@@ -493,7 +587,13 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
             </View>
           )}
 
-          {busy && <Text style={[styles.keepOpen, { color: colors.muted }]}>Keep OnCampus open while this step finishes.</Text>}
+          {busy && (
+            <Text style={[styles.keepOpen, { color: colors.muted }]}>
+              {state.kind === "ota"
+                ? "You can minimize OnCampus. Android keeps a durable retry scheduled and the signed update will apply safely when the app is active again."
+                : "Keep OnCampus open until the Android installer starts."}
+            </Text>
+          )}
         </View>
       </View>
     </Modal>
@@ -517,7 +617,13 @@ export default function AppUpdateGate() {
       return;
     }
     downloadedPendingKey = `ota:${String(downloadedUpdate?.updateId || currentRuntime() || "pending")}`;
-    void showDownloadedPending("automatic");
+    void AsyncStorage.getItem(APPLY_OTA_ON_RESUME_KEY).then((applyIntent) => {
+      if (applyIntent && AppState.currentState === "active") {
+        void resumePendingOtaApply();
+        return;
+      }
+      void showDownloadedPending("automatic");
+    });
   }, [downloadedUpdate?.updateId, isUpdatePending]);
 
   useEffect(() => {
@@ -543,12 +649,18 @@ export default function AppUpdateGate() {
     const initialize = async () => {
       const showedApplied = await reconcileAppliedUpdate();
       if (cancelled || showedApplied) return;
+      const resumed = await resumePendingOtaApply();
+      if (cancelled || resumed) return;
       timer = setTimeout(() => { void checkForAppUpdate("automatic"); }, 2200);
     };
     void initialize();
 
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void checkForAppUpdate("automatic");
+      if (state === "active") {
+        void resumePendingOtaApply().then((resumed) => {
+          if (!resumed) void checkForAppUpdate("automatic");
+        });
+      }
     });
     return () => {
       cancelled = true;
@@ -560,6 +672,12 @@ export default function AppUpdateGate() {
   const close = () => setUpdateUi(INITIAL_UI);
   const later = () => {
     const key = updateUi.releaseKey;
+    if (key?.startsWith("ota:")) {
+      void Promise.all([
+        AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
+        AsyncStorage.removeItem(PENDING_OTA_KEY),
+      ]).catch(() => undefined);
+    }
     void deferUpdate(key).finally(close);
   };
   const updateNow = () => {
