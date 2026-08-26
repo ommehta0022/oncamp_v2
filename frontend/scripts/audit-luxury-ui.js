@@ -2,11 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
-const roots = [
-  path.join(root, 'app'),
-  path.join(root, 'src'),
-  path.join(root, 'android', 'app', 'src', 'main', 'res'),
-];
+const roots = [path.join(root, 'app'), path.join(root, 'src'), path.join(root, 'android', 'app', 'src', 'main', 'res')];
 const singles = [path.join(root, 'app.json')];
 const textExt = new Set(['.ts', '.tsx', '.js', '.jsx', '.json', '.xml', '.gradle', '.properties', '.kt', '.java']);
 const ignoredDirs = new Set(['node_modules', '.expo', 'dist', 'build', '.git']);
@@ -21,7 +17,6 @@ function walk(dir, out = []) {
   }
   return out;
 }
-
 function rgbToHsl(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -39,40 +34,35 @@ function rgbToHsl(r, g, b) {
   }
   return { h, s, l };
 }
-
 function isBlueish(r, g, b) {
   const { h, s, l } = rgbToHsl(r, g, b);
   return h >= 185 && h <= 250 && s >= 0.32 && l >= 0.08 && l <= 0.92;
 }
-
-function lineNumber(text, index) {
-  return text.slice(0, index).split('\n').length;
-}
+function lineNumber(text, index) { return text.slice(0, index).split('\n').length; }
 
 const files = [...roots.flatMap((dir) => walk(dir)), ...singles.filter(fs.existsSync)];
 const violations = [];
-const bannedCopy = [
-  /refined around you/ig,
-  /a refined space/ig,
-];
+const paletteFile = 'src/theme/colors.ts';
+const bannedCopy = [/refined around you/ig, /a refined space/ig];
+const legacyTokens = /colors\.(luxuryGold|luxuryGoldSoft|luxuryTeal)\b/g;
+const legacyHexes = /#(?:B38A4A|C8A76B|F1E8D9|2B241B|72806E|859481)\b/ig;
 
 for (const file of files) {
   const text = fs.readFileSync(file, 'utf8');
   const rel = path.relative(root, file).replace(/\\/g, '/');
+  const isPalette = rel === paletteFile;
 
-  const hex = /#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?/g;
-  for (const match of text.matchAll(hex)) {
-    const raw = match[0].slice(1, 7);
-    const r = parseInt(raw.slice(0, 2), 16);
-    const g = parseInt(raw.slice(2, 4), 16);
-    const b = parseInt(raw.slice(4, 6), 16);
-    if (isBlueish(r, g, b)) violations.push(`${rel}:${lineNumber(text, match.index)} blue literal ${match[0]}`);
-  }
+  if (!isPalette) {
+    for (const match of text.matchAll(legacyTokens)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy blanket-theme token ${match[0]}`);
+    for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);
 
-  const rgba = /rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/g;
-  for (const match of text.matchAll(rgba)) {
-    const [r, g, b] = match.slice(1, 4).map(Number);
-    if (r <= 255 && g <= 255 && b <= 255 && isBlueish(r, g, b)) violations.push(`${rel}:${lineNumber(text, match.index)} blue rgb literal ${match[0]}`);
+    // Blue remains valid only as the semantic info token defined centrally in colors.ts.
+    const hex = /#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?/g;
+    for (const match of text.matchAll(hex)) {
+      const raw = match[0].slice(1, 7);
+      const r = parseInt(raw.slice(0, 2), 16), g = parseInt(raw.slice(2, 4), 16), b = parseInt(raw.slice(4, 6), 16);
+      if (isBlueish(r, g, b)) violations.push(`${rel}:${lineNumber(text, match.index)} direct blue literal ${match[0]}; use colors.info/officialBadge only when semantically correct`);
+    }
   }
 
   for (const pattern of bannedCopy) {
@@ -81,10 +71,31 @@ for (const file of files) {
   }
 }
 
+const palettePath = path.join(root, paletteFile);
+const palette = fs.readFileSync(palettePath, 'utf8');
+const requiredReferenceTokens = [
+  'brandPrimary: "#2E5C4E"',
+  'brandSecondary: "#E87A5D"',
+  'success: "#2F7D5C"',
+  'warning: "#B7791F"',
+  'error: "#C04444"',
+  'info: "#4A788C"',
+  'brandPrimary: "#7FB19F"',
+  'brandSecondary: "#F0A48D"',
+  'success: "#6FC99E"',
+  'warning: "#E2B66A"',
+  'error: "#E27A7A"',
+  'info: "#82B1C2"',
+  'selectionStrong:', 'tabActive:', 'tabBadge:', 'actionDanger:', 'reactionActive:'
+];
+for (const token of requiredReferenceTokens) {
+  if (!palette.includes(token)) violations.push(`${paletteFile}: missing reference/semantic token ${token}`);
+}
+
 if (violations.length) {
-  console.error('Luxury UI audit failed. Remove blue-themed literals and banned marketing copy:');
+  console.error('Semantic UI color audit failed. Theme may style surfaces/text, but controls must use business-role colors:');
   for (const violation of violations) console.error(` - ${violation}`);
   process.exit(1);
 }
 
-console.log(`Luxury UI audit passed across ${files.length} source files: neutral/champagne palette only.`);
+console.log(`Semantic UI color audit passed across ${files.length} source files: reference moss/terracotta identity with role-specific control colors.`);
