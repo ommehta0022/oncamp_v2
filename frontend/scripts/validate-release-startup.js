@@ -23,6 +23,10 @@ const apkInstaller = read('android/app/src/main/java/com/oncampus/app/OnCampusAp
 const apkFilePaths = read('android/app/src/main/res/xml/apk_file_paths.xml');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const strings = read('android/app/src/main/res/values/strings.xml');
+const nativeColors = read('android/app/src/main/res/values/colors.xml');
+const nativeNightColors = read('android/app/src/main/res/values-night/colors.xml');
+const launcher = read('android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml');
+const launcherRound = read('android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml');
 const gradle = read('android/app/build.gradle');
 const baseStyles = read('android/app/src/main/res/values/styles.xml');
 const stylesV27 = read('android/app/src/main/res/values-v27/styles.xml');
@@ -39,6 +43,12 @@ expect(parts.length === 3 && parts.every((n) => Number.isInteger(n) && n >= 0 &&
 const expectedCode = parts[0] * 10000 + parts[1] * 100 + parts[2];
 expect(app.android?.versionCode === expectedCode, `versionCode must be ${expectedCode}, found ${app.android?.versionCode}`);
 expect(app.android?.package === 'com.oncampus.app', 'Android package changed unexpectedly');
+expect(app.icon === './assets/images/icon.png', 'Expo app icon must use the OnCampus icon asset');
+expect(app.android?.icon === './assets/images/icon.png', 'Android app icon must explicitly use the OnCampus icon asset');
+expect(app.android?.adaptiveIcon?.foregroundImage === './assets/images/adaptive-icon.png', 'Android adaptive icon foreground missing');
+expect(app.android?.adaptiveIcon?.backgroundColor === '#FAF9F6', 'Android adaptive icon background must remain neutral pearl');
+expect(app.backgroundColor === '#FAF9F6', 'app background must remain neutral pearl');
+expect(app.plugins?.some((entry) => Array.isArray(entry) && entry[0] === 'expo-splash-screen' && entry[1]?.backgroundColor === '#FAF9F6' && entry[1]?.dark?.backgroundColor === '#080809'), 'Expo splash plugin must use neutral light/dark backgrounds');
 expect(app.updates?.enabled === true, 'Expo Updates must remain enabled');
 expect(app.updates?.checkAutomatically === 'ON_LOAD', 'Expo Updates must check natively on every cold launch');
 expect(app.updates?.fallbackToCacheTimeout === 0, 'Startup OTA check must never block launching cached/embedded code');
@@ -46,6 +56,10 @@ expect(app.extra?.otaRuntimeVersion === runtime, 'extra.otaRuntimeVersion must m
 expect(app.extra?.nativeStartupOta === true, 'nativeStartupOta feature flag must remain enabled');
 expect(manifest.includes('EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"'), 'native manifest must enable automatic Expo update checks');
 expect(manifest.includes('expo.modules.updates.ENABLED" android:value="true"'), 'native Expo Updates module must remain enabled');
+expect(manifest.includes('android:icon="@mipmap/ic_launcher"'), 'Android manifest must use adaptive launcher icon resource');
+expect(manifest.includes('android:roundIcon="@mipmap/ic_launcher_round"'), 'Android manifest must use adaptive round launcher icon resource');
+expect(launcher.includes('@drawable/oncampus_app_icon'), 'adaptive launcher foreground must use the OnCampus logo');
+expect(launcherRound.includes('@drawable/oncampus_app_icon'), 'round adaptive launcher foreground must use the OnCampus logo');
 expect(manifest.includes('<uses-feature android:name="android.hardware.camera" android:required="false"/>'), 'camera hardware must be optional');
 expect(manifest.includes('<uses-feature android:name="android.hardware.microphone" android:required="false"/>'), 'microphone hardware must be optional');
 expect(strings.includes(`name="expo_runtime_version" translatable="false">${runtime}</string>`), `native runtime string must be ${runtime}`);
@@ -67,13 +81,20 @@ expect(stylesV33.includes('android:windowSplashScreenBehavior'), 'API 33 splash 
 
 const lightPalette = palette.split('export const lightColors = {')[1]?.split('};')[0] || '';
 const darkPalette = palette.split('export const darkColors = {')[1]?.split('};')[0] || '';
-expect(lightPalette.includes('surface: "#F7F4EE"'), 'light mode must keep the premium warm pearl surface');
-expect(lightPalette.includes('luxuryGold: "#B68A3A"') && lightPalette.includes('luxuryTeal: "#078F92"'), 'light luxury accents missing');
-expect(darkPalette.includes('surface: "#061019"'), 'dark mode must keep the obsidian/navy surface');
-expect(darkPalette.includes('card: "#0B1824"'), 'dark mode cards must remain deep navy');
-expect(darkPalette.includes('brandPrimary: "#4AA8FF"'), 'dark primary action must remain luminous blue');
-expect(darkPalette.includes('luxuryGold: "#D7B66C"') && darkPalette.includes('luxuryTeal: "#38BEC1"'), 'dark luxury accents missing');
-expect(darkPalette.includes('gradientStart: "#0B3763"') && darkPalette.includes('gradientEnd: "#087D82"'), 'dark premium gradient contract changed');
+expect(lightPalette.includes('surface: "#FAF9F6"'), 'light mode must keep the neutral pearl surface');
+expect(lightPalette.includes('brandPrimary: "#B38A4A"') && lightPalette.includes('luxuryGold: "#B38A4A"'), 'light champagne accent contract missing');
+expect(lightPalette.includes('luxuryTeal: "#72806E"'), 'light status sage accent missing');
+expect(darkPalette.includes('surface: "#080809"'), 'dark mode must keep the neutral obsidian surface');
+expect(darkPalette.includes('card: "#111112"'), 'dark mode cards must remain neutral charcoal');
+expect(darkPalette.includes('brandPrimary: "#C8A76B"') && darkPalette.includes('luxuryGold: "#C8A76B"'), 'dark champagne accent contract missing');
+expect(darkPalette.includes('luxuryTeal: "#859481"'), 'dark status sage accent missing');
+expect(darkPalette.includes('gradientStart: "#0B0A09"') && darkPalette.includes('gradientEnd: "#282119"'), 'dark neutral gradient contract changed');
+for (const oldBlue of ['#1267F4', '#0B67C8', '#4AA8FF', '#0B49BD', '#075DAF', '#74BBFF']) {
+  expect(!palette.includes(oldBlue), `legacy blue palette token ${oldBlue} must not return`);
+  expect(!nativeColors.includes(oldBlue) && !nativeNightColors.includes(oldBlue), `legacy blue native startup token ${oldBlue} must not return`);
+}
+expect(nativeColors.includes('<color name="splashscreen_background">#FAF9F6</color>'), 'native light splash must be pearl');
+expect(nativeNightColors.includes('<color name="splashscreen_background">#080809</color>'), 'native dark splash must be obsidian');
 expect(theme.includes('export type ThemeMode = "light" | "dark"'), 'appearance must expose exactly Light and Dark modes');
 expect(!theme.includes('type ThemeMode = "light" | "dark" | "system"'), 'System mode must not return');
 
@@ -146,6 +167,9 @@ expect(apkFilePaths.includes('external-files-path'), 'FileProvider must expose t
 expect(!layout.includes('CampusLoader'), 'RootLayout must not block startup with CampusLoader');
 expect(!index.includes('CampusLoader'), 'Startup route must not use CampusLoader');
 expect(!index.includes('setTimeout('), 'Startup route must not contain artificial delays');
+expect(!index.includes('#1267F4') && !index.includes('#0B49BD'), 'startup route must never render the legacy blue screen');
+expect(!index.includes('name="school"'), 'startup route must use the real OnCampus icon, not a generic Expo-style school glyph');
+expect(index.includes('APP_ICON'), 'startup route must render the OnCampus app icon');
 expect(index.includes('router.replace(target)'), 'Startup route must deterministically leave the splash route');
 
-console.log(`OnCampus release/startup contracts verified for ${version} with resilient background OTA and durable Android APK downloads`);
+console.log(`OnCampus release/startup contracts verified for ${version} with neutral luxury UI, resilient background OTA and durable Android APK downloads`);
