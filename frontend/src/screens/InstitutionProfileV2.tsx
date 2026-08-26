@@ -118,11 +118,11 @@ export default function InstitutionProfileV2({ institutionId }: InstitutionProfi
 
 function Hero({ institution, onBack, onShare }: { institution: any; onBack: () => void; onShare: () => void }) {
   return <View style={styles.hero}>
-    {institution.coverUrl ? <Image source={{ uri: institution.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} /> : <View style={[StyleSheet.absoluteFill, { backgroundColor: "#DCE9FF" }]} />}
+    {institution.coverUrl ? <Image source={{ uri: institution.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} /> : <View style={[StyleSheet.absoluteFill, { backgroundColor: "#ECE6DC" }]} />}
     <View style={styles.heroShade} />
-    <Pressable onPress={onBack} style={[styles.heroAction, { left: 16 }]}><Ionicons name="chevron-back" size={25} color="#0B1947" /></Pressable>
-    <Pressable onPress={onShare} style={[styles.heroAction, { right: 68 }]}><Ionicons name="share-outline" size={23} color="#0B1947" /></Pressable>
-    <View style={[styles.heroAction, { right: 16 }]}><Ionicons name="ellipsis-horizontal" size={23} color="#0B1947" /></View>
+    <Pressable onPress={onBack} style={[styles.heroAction, { left: 16 }]}><Ionicons name="chevron-back" size={25} color="#171512" /></Pressable>
+    <Pressable onPress={onShare} style={[styles.heroAction, { right: 68 }]}><Ionicons name="share-outline" size={23} color="#171512" /></Pressable>
+    <View style={[styles.heroAction, { right: 16 }]}><Ionicons name="ellipsis-horizontal" size={23} color="#171512" /></View>
   </View>;
 }
 
@@ -278,10 +278,10 @@ function formatCount(value: any) { const n = Number(value || 0); if (n >= 1_000_
 
 const styles = StyleSheet.create({
   hero: { height: 248, overflow: "hidden" },
-  heroShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(7,20,54,0.10)" },
+  heroShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.08)" },
   heroAction: { position: "absolute", top: 16, width: 45, height: 45, borderRadius: 23, backgroundColor: "rgba(255,255,255,0.94)", alignItems: "center", justifyContent: "center" },
   identity: { paddingHorizontal: 18, paddingTop: 42, paddingBottom: 16 },
-  logoFloat: { position: "absolute", top: -44, left: 18, width: 94, height: 94, borderRadius: 47, padding: 6, backgroundColor: "#FFFFFF", shadowColor: "#0B1947", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  logoFloat: { position: "absolute", top: -44, left: 18, width: 94, height: 94, borderRadius: 47, padding: 6, backgroundColor: "#FFFFFF", shadowColor: "#171512", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
   identityTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   nameLine: { flexDirection: "row", alignItems: "center", gap: 5 },
   name: { fontSize: 23, lineHeight: 28, fontWeight: "900", letterSpacing: -0.5, flexShrink: 1 },
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
   location: { fontSize: 11, marginTop: 8 },
   description: { fontSize: 12, lineHeight: 18, marginTop: 9 },
   followerRow: { flexDirection: "row", alignItems: "center", marginTop: 12 },
-  dotSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: "#C7CFDE", marginHorizontal: 10 },
+  dotSep: { width: 3, height: 3, borderRadius: 2, backgroundColor: "#D8D2C7", marginHorizontal: 10 },
   actionRow: { flexDirection: "row", gap: 8, marginTop: 13 },
   smallAction: { minWidth: 70, height: 36, paddingHorizontal: 10, borderWidth: 1, borderRadius: 11, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
   tabShell: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
   metricValue: { fontSize: 16, fontWeight: "900", marginTop: 7 },
   galleryRow: { gap: 8 },
   galleryCard: { width: 145, height: 94, borderRadius: 13, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  galleryCaption: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 8, paddingVertical: 6, backgroundColor: "rgba(5,17,48,0.55)" },
+  galleryCaption: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 8, paddingVertical: 6, backgroundColor: "rgba(0,0,0,0.58)" },
   pulseGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
   pulse: { width: "48.5%", minHeight: 72, borderWidth: 1, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 8, padding: 10 },
   pulseIcon: { width: 35, height: 35, borderRadius: 11, alignItems: "center", justifyContent: "center" },
