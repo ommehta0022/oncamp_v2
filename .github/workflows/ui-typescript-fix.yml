@@ -1,0 +1,55 @@
+name: UI TypeScript Normalizer
+
+on:
+  push:
+    branches: [luxury-neutral-1.6.6]
+    paths:
+      - '.github/workflows/ui-typescript-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: luxury-neutral-1.6.6
+      - name: Normalize React Native UI typing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          files = {
+            'frontend/app/(auth)/login.tsx': [
+              ('style={styles.logo} contentFit="cover"', 'style={{ width: "100%", height: "100%", borderRadius: 20 }} contentFit="cover"'),
+              ('fontWeight: "750"', 'fontWeight: "700"'),
+            ],
+            'frontend/app/(tabs)/_layout.tsx': [
+              ('fontWeight: "650"', 'fontWeight: "600"'),
+            ],
+            'frontend/app/(tabs)/notifications.tsx': [
+              ('fontWeight: n.read ? "650" : "800"', 'fontWeight: n.read ? "600" : "800"'),
+            ],
+            'frontend/app/(tabs)/profile.tsx': [
+              ('fontWeight: "850"', 'fontWeight: "800"'),
+            ],
+          }
+
+          for filename, replacements in files.items():
+              p = Path(filename)
+              s = p.read_text()
+              for old, new in replacements:
+                  if old not in s:
+                      raise SystemExit(f'missing expected source in {filename}: {old}')
+                  s = s.replace(old, new)
+              p.write_text(s)
+          PY
+      - name: Commit type-safe UI styling
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app
+          git commit -m "Normalize luxury UI styles for React Native types"
+          git push origin HEAD:luxury-neutral-1.6.6
