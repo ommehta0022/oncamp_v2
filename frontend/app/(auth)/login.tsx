@@ -66,7 +66,7 @@ export default function Login() {
         locations={[0, 0.52, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={[styles.glow, { backgroundColor: colors.luxuryGoldSoft }]} />
+      <View style={[styles.glow, { backgroundColor: colors.brandTertiary }]} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.flex}>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -137,7 +137,7 @@ export default function Login() {
           <Pressable onPress={() => router.push(loginType === "student" ? "/(auth)/signup" : "/(auth)/register-institution")} style={styles.footerLink}>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: 14 }}>
               New to OnCampus?{" "}
-              <Text style={{ color: colors.luxuryGold, fontWeight: "800" }}>{loginType === "student" ? "Create account" : "Register institution"}</Text>
+              <Text style={{ color: colors.link, fontWeight: "800" }}>{loginType === "student" ? "Create account" : "Register institution"}</Text>
             </Text>
           </Pressable>
         </ScrollView>

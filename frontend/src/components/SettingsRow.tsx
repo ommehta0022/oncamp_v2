@@ -20,6 +20,8 @@ type Props = {
 export default function SettingsRow({ icon, iconColor, iconBg, title, subtitle, value, right, onPress, destructive, testID }: Props) {
   const { colors } = useTheme();
   const titleColor = destructive ? colors.error : colors.onSurface;
+  const resolvedIconBg = iconBg || (destructive ? `${colors.error}18` : colors.brandTertiary);
+  const resolvedIconColor = iconColor || (destructive ? colors.error : colors.onBrandTertiary);
   const accessibleLabel = [title, value, subtitle].filter(Boolean).join(", ");
   return (
     <Pressable
@@ -31,8 +33,8 @@ export default function SettingsRow({ icon, iconColor, iconBg, title, subtitle, 
       style={({ pressed }) => [styles.row, { backgroundColor: pressed ? colors.surfaceTertiary : "transparent" }]}
     >
       {icon && (
-        <View accessible={false} style={[styles.iconWrap, { backgroundColor: iconBg || "transparent" }]}>
-          <Ionicons name={icon} size={21} color={iconColor || (destructive ? colors.error : colors.onSurface)} />
+        <View accessible={false} style={[styles.iconWrap, { backgroundColor: resolvedIconBg }]}>
+          <Ionicons name={icon} size={20} color={resolvedIconColor} />
         </View>
       )}
       <View style={{ flex: 1 }} accessible={false}>

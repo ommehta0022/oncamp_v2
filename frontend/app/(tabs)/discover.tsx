@@ -94,12 +94,12 @@ export default function DiscoverScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true); }} tintColor={colors.luxuryGold} colors={[colors.luxuryGold]} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true); }} tintColor={colors.actionPrimary} colors={[colors.actionPrimary]} />}
         contentContainerStyle={styles.page}
       >
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.onSurface }]}>Discover</Text>
-          <View style={[styles.headerMark, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="compass-outline" size={21} color={colors.luxuryGold} /></View>
+          <View style={[styles.headerMark, { backgroundColor: colors.brandTertiary }]}><Ionicons name="compass-outline" size={21} color={colors.onBrandTertiary} /></View>
         </View>
 
         <View style={[styles.search, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
@@ -166,7 +166,7 @@ function Chip({ label, active, onPress, icon }: { label: string; active: boolean
 
 function SectionHeader({ title }: { title: string }) {
   const { colors } = useTheme();
-  return <View style={styles.sectionHeader}><Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{title}</Text><Text style={{ color: colors.luxuryGold, fontSize: 12, fontWeight: "800" }}>See all</Text></View>;
+  return <View style={styles.sectionHeader}><Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{title}</Text><Text style={{ color: colors.link, fontSize: 12, fontWeight: "800" }}>See all</Text></View>;
 }
 
 function Cover({ item, style }: { item: Campus; style: any }) {
@@ -178,12 +178,12 @@ function Cover({ item, style }: { item: Campus; style: any }) {
 function Logo({ item, size = 48 }: { item: Campus; size?: number }) {
   const { colors } = useTheme();
   if (item.logoUrl) return <Image source={{ uri: item.logoUrl }} style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: colors.surfaceSecondary, backgroundColor: colors.surfaceSecondary }} contentFit="cover" />;
-  return <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: colors.surfaceSecondary, backgroundColor: colors.luxuryGoldSoft, alignItems: "center", justifyContent: "center" }}><Ionicons name="school-outline" size={size * .42} color={colors.luxuryGold} /></View>;
+  return <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: colors.surfaceSecondary, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }}><Ionicons name="school-outline" size={size * .42} color={colors.onBrandTertiary} /></View>;
 }
 
 function Name({ item, small = false }: { item: Campus; small?: boolean }) {
   const { colors } = useTheme();
-  return <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: small ? 13 : 15, lineHeight: small ? 16 : 19, fontWeight: "800", flexShrink: 1 }}>{item.name}</Text>{item.verified ? <Ionicons name="checkmark-circle" size={small ? 13 : 15} color={colors.luxuryGold} /> : null}</View>;
+  return <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: small ? 13 : 15, lineHeight: small ? 16 : 19, fontWeight: "800", flexShrink: 1 }}>{item.name}</Text>{item.verified ? <Ionicons name="checkmark-circle" size={small ? 13 : 15} color={colors.actionPrimary} /> : null}</View>;
 }
 
 function FeaturedCard({ item, onPress }: { item: Campus; onPress: () => void }) {
@@ -194,7 +194,7 @@ function FeaturedCard({ item, onPress }: { item: Campus; onPress: () => void }) 
     <View style={styles.featuredBody}>
       <Name item={item} />
       <Text style={[styles.meta, { color: colors.onSurfaceTertiary }]}><Ionicons name="location-outline" size={11} /> {[item.city, item.state].filter(Boolean).join(", ") || item.country || "Campus"}</Text>
-      <Text style={[styles.typeText, { color: colors.luxuryGold }]}>{item.type || "Institution"}</Text>
+      <Text style={[styles.typeText, { color: colors.brandPrimary }]}>{item.type || "Institution"}</Text>
       <Text style={[styles.followers, { color: colors.onSurfaceTertiary }]}>{formatCount(item.followersCount)} followers</Text>
       <View style={[styles.viewButton, { borderColor: colors.borderStrong }]}><Text style={{ color: colors.onSurface, fontSize: 12, fontWeight: "800" }}>View campus</Text></View>
     </View>
@@ -206,7 +206,7 @@ function TrendingCard({ item, onPress }: { item: Campus; onPress: () => void }) 
   return <Pressable onPress={onPress} style={[styles.trendingCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
     <Cover item={item} style={styles.trendingCover} />
     <View style={styles.trendingLogo}><Logo item={item} size={38} /></View>
-    <View style={{ padding: 9, paddingTop: 20 }}><Name item={item} small /><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 4 }}>{item.city || item.state || item.type}</Text><Text style={{ color: colors.luxuryGold, fontSize: 9.5, fontWeight: "800", marginTop: 6 }}>{item.type || "Campus"}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{formatCount(item.followersCount)} followers</Text></View>
+    <View style={{ padding: 9, paddingTop: 20 }}><Name item={item} small /><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 4 }}>{item.city || item.state || item.type}</Text><Text style={{ color: colors.brandPrimary, fontSize: 9.5, fontWeight: "800", marginTop: 6 }}>{item.type || "Campus"}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{formatCount(item.followersCount)} followers</Text></View>
   </Pressable>;
 }
 
@@ -222,7 +222,7 @@ function RecentCard({ item, onPress }: { item: Campus; onPress: () => void }) {
 
 function StateCard({ icon, title, body, action, onPress }: { icon: any; title: string; body: string; action: string; onPress: () => void }) {
   const { colors } = useTheme();
-  return <View style={styles.state}><View style={[styles.stateIcon, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={icon} size={28} color={colors.luxuryGold} /></View><Text style={{ color: colors.onSurface, fontSize: 16, fontWeight: "800", marginTop: 12 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, lineHeight: 18, textAlign: "center", marginTop: 5 }}>{body}</Text><Pressable onPress={onPress} style={[styles.retry, { backgroundColor: colors.onSurface }]}><Text style={{ color: colors.surface, fontWeight: "800", fontSize: 12 }}>{action}</Text></Pressable></View>;
+  return <View style={styles.state}><View style={[styles.stateIcon, { backgroundColor: colors.selectionSoft }]}><Ionicons name={icon} size={28} color={colors.onSelectionSoft} /></View><Text style={{ color: colors.onSurface, fontSize: 16, fontWeight: "800", marginTop: 12 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, lineHeight: 18, textAlign: "center", marginTop: 5 }}>{body}</Text><Pressable onPress={onPress} style={[styles.retry, { backgroundColor: colors.onSurface }]}><Text style={{ color: colors.surface, fontWeight: "800", fontSize: 12 }}>{action}</Text></Pressable></View>;
 }
 
 function InstitutionMobileConsole() {
@@ -235,7 +235,7 @@ function InstitutionMobileConsole() {
     ["people-outline", "Students & Groups", "Approvals and campus communities", "/institution/campus-platform"],
     ["calendar-outline", "Events & Opportunities", "Manage campus activity", "/institution/campus-platform"],
   ];
-  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}><ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}><Text style={[styles.title, { color: colors.onSurface }]}>Institution</Text><Text style={{ color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 20 }}>Mobile controls stay synchronized with Institution Studio.</Text><View style={{ gap: 10, marginTop: 22 }}>{actions.map(([icon, title, subtitle, route]) => <Pressable key={title} onPress={() => router.push(route as any)} style={[styles.consoleCard, { borderColor: colors.divider, backgroundColor: colors.surfaceSecondary }]}><View style={[styles.consoleIcon, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={icon as any} size={22} color={colors.luxuryGold} /></View><View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontWeight: "800", fontSize: 15 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 3 }}>{subtitle}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></Pressable>)}</View></ScrollView></SafeAreaView>;
+  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}><ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}><Text style={[styles.title, { color: colors.onSurface }]}>Institution</Text><Text style={{ color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 20 }}>Mobile controls stay synchronized with Institution Studio.</Text><View style={{ gap: 10, marginTop: 22 }}>{actions.map(([icon, title, subtitle, route]) => <Pressable key={title} onPress={() => router.push(route as any)} style={[styles.consoleCard, { borderColor: colors.divider, backgroundColor: colors.surfaceSecondary }]}><View style={[styles.consoleIcon, { backgroundColor: colors.brandTertiary }]}><Ionicons name={icon as any} size={22} color={colors.onBrandTertiary} /></View><View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontWeight: "800", fontSize: 15 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 3 }}>{subtitle}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></Pressable>)}</View></ScrollView></SafeAreaView>;
 }
 
 function formatCount(value: any) {

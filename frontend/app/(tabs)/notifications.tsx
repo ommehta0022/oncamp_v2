@@ -78,7 +78,7 @@ export default function Notifications() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="notifications-screen">
       <View style={[styles.header, { borderBottomColor: colors.divider }]}>
         <Text style={[styles.title, { color: colors.onSurface }]}>Notifications</Text>
-        <Pressable onPress={markAll} hitSlop={8}><Text style={{ color: colors.luxuryGold, fontSize: font.sm, fontWeight: "800" }}>Mark all read</Text></Pressable>
+        <Pressable onPress={markAll} hitSlop={8}><Text style={{ color: colors.link, fontSize: font.sm, fontWeight: "800" }}>Mark all read</Text></Pressable>
       </View>
       <FlatList
         horizontal
@@ -91,7 +91,7 @@ export default function Notifications() {
           const active = tab === t;
           return <Pressable onPress={() => setTab(t)} style={styles.tab}>
             <Text style={{ color: active ? colors.onSurface : colors.onSurfaceTertiary, fontSize: font.base, fontWeight: active ? "800" : "600" }}>{t}</Text>
-            <View style={[styles.tabLine, { backgroundColor: active ? colors.luxuryGold : "transparent" }]} />
+            <View style={[styles.tabLine, { backgroundColor: active ? colors.selectionStrong : "transparent" }]} />
           </Pressable>;
         }}
       />
@@ -110,18 +110,24 @@ export default function Notifications() {
 
 function NotifRow({ n, onPress }: { n: Notification; onPress: () => void }) {
   const { colors } = useTheme();
-  const badgeColor = n.type === "institution_post_request" ? colors.luxuryTeal : colors.luxuryGold;
+  const badge = n.type === "institution_post_request"
+    ? { bg: colors.info, fg: colors.onInfo }
+    : n.type === "announcement"
+      ? { bg: colors.announcement, fg: colors.onBrandSecondary }
+      : n.type === "approved"
+        ? { bg: colors.success, fg: colors.onSuccess }
+        : { bg: colors.actionPrimary, fg: colors.onActionPrimary };
   return <Pressable onPress={onPress} style={({ pressed }) => [styles.row, { backgroundColor: !n.read ? colors.highlight : pressed ? colors.surfaceTertiary : colors.surface }]}>
     <View style={{ position: "relative" }}>
       <Avatar uri={n.avatar} name={n.title} size={46} />
-      <View style={[styles.typeBadge, { backgroundColor: badgeColor, borderColor: colors.surface }]}><Ionicons name={ICONS[n.type] || "notifications"} size={11} color={colors.onBrandPrimary} /></View>
+      <View style={[styles.typeBadge, { backgroundColor: badge.bg, borderColor: colors.surface }]}><Ionicons name={ICONS[n.type] || "notifications"} size={11} color={badge.fg} /></View>
     </View>
     <View style={{ flex: 1 }}>
       <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: n.read ? "600" : "800" }} numberOfLines={1}>{n.title}</Text>
       <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 3, lineHeight: 18 }} numberOfLines={2}>{n.body}</Text>
       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 5 }}>{n.createdAt}</Text>
     </View>
-    {!n.read && <View style={[styles.dot, { backgroundColor: colors.luxuryGold }]} />}
+    {!n.read && <View style={[styles.dot, { backgroundColor: colors.tabBadge }]} />}
   </Pressable>;
 }
 

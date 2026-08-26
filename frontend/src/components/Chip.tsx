@@ -16,15 +16,14 @@ export type ChipProps = {
 
 export default function Chip({ label, selected, onPress, onClose, icon, size = "md", style }: ChipProps) {
   const { colors } = useTheme();
-
   const px = { sm: spacing.md, md: spacing.lg };
   const py = { sm: 6, md: 10 };
   const fontSize = { sm: font.sm, md: font.base };
 
-  const bg = selected ? (colors.textPrimary || colors.onSurface) : (colors.surfaceSecondary || colors.surface);
-  const fg = selected ? colors.surface : (colors.textPrimary || colors.onSurface);
-  const border = selected ? (colors.textPrimary || colors.onSurface) : (colors.borderStrong || colors.border);
-
+  // Filters are neutral selection controls. Brand green is reserved for actions and navigation.
+  const bg = selected ? colors.selectionStrong : colors.surfaceSecondary;
+  const fg = selected ? colors.onSelectionStrong : colors.onSurface;
+  const border = selected ? colors.selectionStrong : colors.borderStrong;
   const Container = onPress ? Pressable : View;
 
   return (
@@ -32,22 +31,15 @@ export default function Chip({ label, selected, onPress, onClose, icon, size = "
       onPress={onPress}
       style={[
         styles.chip,
-        {
-          backgroundColor: bg,
-          borderColor: border,
-          paddingHorizontal: px[size],
-          paddingVertical: py[size],
-        },
-        style
+        { backgroundColor: bg, borderColor: border, paddingHorizontal: px[size], paddingVertical: py[size] },
+        style,
       ]}
     >
       {icon && <Ionicons name={icon} size={fontSize[size] + 2} color={fg} style={{ marginRight: spacing.sm }} />}
-      
       <Text style={{ color: fg, fontSize: fontSize[size], fontWeight: "500" }}>{label}</Text>
-      
       {onClose && (
         <Pressable onPress={onClose} hitSlop={8} style={{ marginLeft: spacing.sm }}>
-          <Ionicons name="close-circle" size={fontSize[size] + 2} color={selected ? colors.surfaceSecondary : (colors.muted || colors.borderStrong)} />
+          <Ionicons name="close-circle" size={fontSize[size] + 2} color={selected ? colors.onSelectionStrong : colors.muted} />
         </Pressable>
       )}
     </Container>

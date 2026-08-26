@@ -15,8 +15,8 @@ type Option = {
 };
 
 const OPTIONS: Option[] = [
-  { key: "light", label: "Pearl Light", desc: "Warm ivory surfaces with charcoal type and champagne details.", icon: "sunny-outline" },
-  { key: "dark", label: "Obsidian Dark", desc: "Near-black surfaces with soft ivory type and restrained champagne accents.", icon: "moon-outline" },
+  { key: "light", label: "Pearl Light", desc: "Warm campus surfaces with moss identity and terracotta engagement accents.", icon: "sunny-outline" },
+  { key: "dark", label: "Obsidian Dark", desc: "Deep neutral surfaces with accessible moss identity and terracotta engagement accents.", icon: "moon-outline" },
 ];
 
 export default function ThemeSettings() {
@@ -49,15 +49,15 @@ export default function ThemeSettings() {
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected }}
                 >
-                  <View style={[styles.icon, { backgroundColor: option.key === "light" ? "#EFE8DC" : "#1A1916" }]}> 
-                    <Ionicons name={option.icon} size={20} color={option.key === "light" ? "#6D542B" : "#D7B66C"} />
+                  <View style={[styles.icon, { backgroundColor: option.key === "light" ? lightColors.brandTertiary : darkColors.brandTertiary }]}> 
+                    <Ionicons name={option.icon} size={20} color={option.key === "light" ? lightColors.onBrandTertiary : darkColors.onBrandTertiary} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "800" }}>{option.label}</Text>
                     <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, lineHeight: 18, marginTop: 3 }}>{option.desc}</Text>
                   </View>
-                  <View style={[styles.radio, { borderColor: selected ? colors.luxuryGold : colors.borderStrong }]}>
-                    {selected ? <View style={[styles.radioDot, { backgroundColor: colors.luxuryGold }]} /> : null}
+                  <View style={[styles.radio, { borderColor: selected ? colors.actionPrimary : colors.borderStrong }]}>
+                    {selected ? <View style={[styles.radioDot, { backgroundColor: colors.actionPrimary }]} /> : null}
                   </View>
                 </Pressable>
               </React.Fragment>
@@ -78,7 +78,7 @@ function ThemePreview({ label, c, active, onPress }: { label: string; c: typeof 
         styles.preview,
         {
           backgroundColor: c.surface,
-          borderColor: active ? colors.luxuryGold : c.border,
+          borderColor: active ? colors.actionPrimary : c.border,
           borderWidth: active ? 2 : StyleSheet.hairlineWidth,
         },
       ]}
@@ -86,7 +86,7 @@ function ThemePreview({ label, c, active, onPress }: { label: string; c: typeof 
       accessibilityLabel={`${label} theme preview`}
     >
       <View style={styles.miniHeader}>
-        <View style={{ width: 25, height: 25, borderRadius: 8, backgroundColor: c.luxuryGoldSoft, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border }} />
+        <View style={{ width: 25, height: 25, borderRadius: 8, backgroundColor: c.brandTertiary, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border }} />
         <View style={{ flex: 1, height: 7, borderRadius: 4, backgroundColor: c.borderStrong }} />
       </View>
       <View style={[styles.miniFeed, { borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
@@ -97,7 +97,7 @@ function ThemePreview({ label, c, active, onPress }: { label: string; c: typeof 
         </View>
       </View>
       <View style={[styles.miniNav, { borderTopColor: c.divider }]}>
-        {[0, 1, 2, 3].map((item) => <View key={item} style={{ width: item === 0 ? 18 : 14, height: item === 0 ? 4 : 3, borderRadius: 3, backgroundColor: item === 0 ? c.luxuryGold : c.muted, opacity: item === 0 ? 1 : 0.5 }} />)}
+        {[0, 1, 2, 3].map((item) => <View key={item} style={{ width: item === 0 ? 18 : 14, height: item === 0 ? 4 : 3, borderRadius: 3, backgroundColor: item === 0 ? c.tabActive : c.muted, opacity: item === 0 ? 1 : 0.5 }} />)}
       </View>
       <Text style={{ color: c.onSurface, marginTop: spacing.sm, fontSize: font.sm, fontWeight: "800" }}>{label}</Text>
     </Pressable>

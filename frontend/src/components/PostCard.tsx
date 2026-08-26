@@ -125,11 +125,7 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
   };
 
   const options = [
-    {
-      label: personalPinned ? "Unpin from my feed" : "Pin to my feed",
-      icon: personalPinned ? "pin" : "pin-outline",
-      onPress: () => { void togglePersonalPin(); },
-    },
+    { label: personalPinned ? "Unpin from my feed" : "Pin to my feed", icon: personalPinned ? "pin" : "pin-outline", onPress: () => { void togglePersonalPin(); } },
     ...(isMine ? [{ label: "Edit", icon: "create-outline", onPress: () => router.push(`/post/edit/${item.id}`) }] : []),
     ...((isMine || isModerator) && !item.pinned ? [{ label: "Pin for everyone", icon: "megaphone-outline", onPress: pinPostGlobally }] : []),
     ...((isMine || isModerator) && item.pinned ? [{ label: "Remove global pin", icon: "megaphone-outline", onPress: unpinPostGlobally }] : []),
@@ -143,21 +139,13 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     <>
       <Pressable
         onPress={() => router.push(`/post/${item.id}`)}
-        style={[
-          styles.card,
-          {
-            backgroundColor: colors.surfaceSecondary,
-            borderColor: personalPinned ? colors.luxuryGold : colors.border,
-            shadowColor: colors.shadow,
-          },
-          style,
-        ]}
+        style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: personalPinned ? colors.actionPrimary : colors.border, shadowColor: colors.shadow }, style]}
         testID={`post-card-${item.id}`}
       >
         {(personalPinned || item.pinned) && (
           <View style={styles.pinRow}>
-            {personalPinned && <View style={[styles.pinned, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="pin" size={12} color={colors.luxuryGold} /><Text style={{ color: colors.luxuryGold, fontSize: font.sm, fontWeight: "800" }}>Pinned for you</Text></View>}
-            {item.pinned && <View style={[styles.pinned, { backgroundColor: colors.highlight }]}><Ionicons name="megaphone" size={12} color={colors.luxuryTeal} /><Text style={{ color: colors.luxuryTeal, fontSize: font.sm, fontWeight: "800" }}>Campus pinned</Text></View>}
+            {personalPinned && <View style={[styles.pinned, { backgroundColor: colors.selectionSoft }]}><Ionicons name="pin" size={12} color={colors.onSelectionSoft} /><Text style={{ color: colors.onSelectionSoft, fontSize: font.sm, fontWeight: "800" }}>Pinned for you</Text></View>}
+            {item.pinned && <View style={[styles.pinned, { backgroundColor: colors.brandTertiary }]}><Ionicons name="megaphone" size={12} color={colors.onBrandTertiary} /><Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "800" }}>Campus pinned</Text></View>}
           </View>
         )}
         <View style={styles.postHeader}>
@@ -165,22 +153,22 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.authorLine}>
               <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "700", flexShrink: 1 }} numberOfLines={1}>{item.author?.name || "User"}</Text>
-              {item.author?.badge === "official" && <View style={[styles.badgeChip, { backgroundColor: colors.info }]}><Text style={{ color: colors.onInfo, fontSize: 9, fontWeight: "700" }}>OFFICIAL</Text></View>}
-              {item.author?.badge === "faculty" && <View style={[styles.badgeChip, { backgroundColor: colors.warning }]}><Text style={{ color: colors.onWarning, fontSize: 9, fontWeight: "700" }}>FACULTY</Text></View>}
+              {item.author?.badge === "official" && <View style={[styles.badgeChip, { backgroundColor: colors.officialBadge }]}><Text style={{ color: colors.onInfo, fontSize: 9, fontWeight: "700" }}>OFFICIAL</Text></View>}
+              {item.author?.badge === "faculty" && <View style={[styles.badgeChip, { backgroundColor: colors.facultyBadge }]}><Text style={{ color: colors.onWarning, fontSize: 9, fontWeight: "700" }}>FACULTY</Text></View>}
             </View>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>{[item.author?.institution, item.createdAt, item.group?.name ? `in ${item.group.name}` : ""].filter(Boolean).join(" · ")}</Text>
           </View>
           <Pressable onPress={() => setMenuVisible(true)} hitSlop={8} style={styles.menuBtn} accessibilityRole="button" accessibilityLabel="Post options"><Ionicons name="ellipsis-horizontal" size={20} color={colors.onSurfaceTertiary} /></Pressable>
         </View>
-        {item.announcement && <View style={[styles.announcement, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="megaphone" size={14} color={colors.luxuryGold} /><Text style={{ color: colors.luxuryGold, fontSize: font.sm, fontWeight: "800" }}>Announcement</Text></View>}
+        {item.announcement && <View style={[styles.announcement, { backgroundColor: `${colors.announcement}18` }]}><Ionicons name="megaphone" size={14} color={colors.announcement} /><Text style={{ color: colors.announcement, fontSize: font.sm, fontWeight: "800" }}>Announcement</Text></View>}
         {!!item.title && <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "800", lineHeight: 24, marginTop: spacing.md }}>{item.title}</Text>}
         {!!item.content && <View style={{ marginTop: spacing.md }}><RichPostText content={item.content} /></View>}
         {!!item.mediaUrl && item.mediaType !== "document" && <Image source={{ uri: item.mediaUrl }} style={styles.postImage} contentFit="cover" transition={180} cachePolicy="memory-disk" />}
-        {!!item.mediaUrl && item.mediaType === "document" && <View style={[styles.document, { borderColor: colors.border, backgroundColor: colors.surfaceTertiary }]}><Ionicons name="document-text-outline" size={22} color={colors.brandPrimary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.sm }} numberOfLines={1}>Attached document</Text></View>}
+        {!!item.mediaUrl && item.mediaType === "document" && <View style={[styles.document, { borderColor: colors.border, backgroundColor: colors.surfaceTertiary }]}><Ionicons name="document-text-outline" size={22} color={colors.actionPrimary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.sm }} numberOfLines={1}>Attached document</Text></View>}
         <View style={[styles.actions, { borderTopColor: colors.border }]}>
-          <ActionBtn emoji={reactionEmoji || undefined} icon={reactionEmoji ? undefined : "happy-outline"} label={String(item.counts?.reactions || 0)} color={item.userReaction ? colors.brandPrimary : colors.onSurfaceTertiary} onPress={() => setReactionMenuVisible(true)} accessibilityLabel="React to post" />
+          <ActionBtn emoji={reactionEmoji || undefined} icon={reactionEmoji ? undefined : "happy-outline"} label={String(item.counts?.reactions || 0)} color={item.userReaction ? colors.reactionActive : colors.onSurfaceTertiary} onPress={() => setReactionMenuVisible(true)} accessibilityLabel="React to post" />
           <ActionBtn icon="reader-outline" label={String(item.counts?.comments || item.comments || 0)} color={colors.onSurfaceTertiary} onPress={() => router.push(`/post/${item.id}`)} accessibilityLabel="Open comments" />
-          <ActionBtn icon={item.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={item.bookmarked ? colors.luxuryGold : colors.onSurfaceTertiary} onPress={toggleBookmark} accessibilityLabel={item.bookmarked ? "Remove bookmark" : "Save post"} />
+          <ActionBtn icon={item.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={item.bookmarked ? colors.actionPrimary : colors.onSurfaceTertiary} onPress={toggleBookmark} accessibilityLabel={item.bookmarked ? "Remove bookmark" : "Save post"} />
           <ActionBtn icon="share-social-outline" label="" color={colors.onSurfaceTertiary} onPress={() => void shareExternally()} accessibilityLabel="Share to another app" />
         </View>
       </Pressable>

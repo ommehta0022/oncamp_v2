@@ -97,7 +97,7 @@ export default function Groups() {
         data={data}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingBottom: 132 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.luxuryGold} colors={[colors.luxuryGold]} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.actionPrimary} colors={[colors.actionPrimary]} />}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View style={styles.headerWrap}>
@@ -144,8 +144,8 @@ export default function Groups() {
                 return (
                   <Pressable onPress={() => setFilter(item)} style={styles.filterButton} testID={`groups-filter-${item.toLowerCase()}`}>
                     <Text style={[styles.filterText, { color: active ? colors.onSurface : colors.onSurfaceTertiary, fontWeight: active ? "800" : "600" }]}>{item}</Text>
-                    {unreadCount > 0 && <View style={[styles.filterBadge, { backgroundColor: colors.luxuryGold }]}><Text style={styles.filterBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text></View>}
-                    <View style={[styles.filterUnderline, { backgroundColor: active ? colors.luxuryGold : "transparent" }]} />
+                    {unreadCount > 0 && <View style={[styles.filterBadge, { backgroundColor: colors.tabBadge }]}><Text style={[styles.filterBadgeText, { color: colors.onTabBadge }]}>{unreadCount > 99 ? "99+" : unreadCount}</Text></View>}
+                    <View style={[styles.filterUnderline, { backgroundColor: active ? colors.selectionStrong : "transparent" }]} />
                   </Pressable>
                 );
               }}
@@ -167,7 +167,7 @@ export default function Groups() {
         }}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <View style={[styles.emptyIcon, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={28} color={colors.luxuryGold} /></View>
+            <View style={[styles.emptyIcon, { backgroundColor: colors.selectionSoft }]}><Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={28} color={colors.onSelectionSoft} /></View>
             <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "800", marginTop: spacing.md }}>{error ? "Couldn’t load groups" : "No matching groups"}</Text>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, lineHeight: 20, textAlign: "center", marginTop: 5 }}>{error || "Try another filter or search term."}</Text>
             {error ? <Pressable onPress={() => void fetchGroups()} style={[styles.retry, { backgroundColor: colors.onSurface }]}><Text style={{ color: colors.surface, fontWeight: "800" }}>Try again</Text></Pressable> : null}
@@ -210,15 +210,15 @@ function GroupRow({ group, personalPinned, onPress, onTogglePin }: { group: Grou
           {!!group.category && <Text style={{ color: colors.muted }}>·</Text>}
           <Ionicons name="people-outline" size={12} color={colors.muted} />
           <Text style={{ color: colors.muted, fontSize: 10.5 }}>{Number(group.members || 0).toLocaleString()}</Text>
-          {group.role && group.role !== "member" && <><Text style={{ color: colors.muted }}>·</Text><Text style={{ color: colors.luxuryGold, fontSize: 10, fontWeight: "800" }}>{String(group.role).toUpperCase()}</Text></>}
+          {group.role && group.role !== "member" && <><Text style={{ color: colors.muted }}>·</Text><Text style={{ color: colors.brandPrimary, fontSize: 10, fontWeight: "800" }}>{String(group.role).toUpperCase()}</Text></>}
           {group.muted && <Ionicons name="volume-mute-outline" size={13} color={colors.muted} />}
         </View>
       </View>
       <View style={styles.trailing}>
         <Pressable onPress={(event) => { event.stopPropagation(); onTogglePin(); }} hitSlop={8} style={styles.pinButton} accessibilityRole="button" accessibilityLabel={personalPinned ? `Unpin ${group.name}` : `Pin ${group.name}`}>
-          <Ionicons name={personalPinned ? "pin" : "pin-outline"} size={17} color={personalPinned ? colors.luxuryGold : colors.onSurfaceTertiary} />
+          <Ionicons name={personalPinned ? "pin" : "pin-outline"} size={17} color={personalPinned ? colors.actionPrimary : colors.onSurfaceTertiary} />
         </Pressable>
-        {hasUnread && <View style={[styles.unreadBadge, { backgroundColor: colors.luxuryGold }]}><Text style={styles.unreadText}>{Number(group.unread || 0) > 99 ? "99+" : group.unread}</Text></View>}
+        {hasUnread && <View style={[styles.unreadBadge, { backgroundColor: colors.tabBadge }]}><Text style={[styles.unreadText, { color: colors.onTabBadge }]}>{Number(group.unread || 0) > 99 ? "99+" : group.unread}</Text></View>}
       </View>
     </Pressable>
   );
@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
   filterButton: { paddingVertical: 8, minHeight: 38, justifyContent: "center", flexDirection: "row", alignItems: "center", gap: 6, position: "relative" },
   filterText: { fontSize: 13.5 },
   filterBadge: { minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  filterBadgeText: { color: "#17130E", fontSize: 9, fontWeight: "900" },
+  filterBadgeText: { fontSize: 9, fontWeight: "900" },
   filterUnderline: { position: "absolute", left: 2, right: 2, bottom: 0, height: 2, borderRadius: 1 },
   sectionLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase", paddingHorizontal: spacing.lg, paddingTop: 22, paddingBottom: 8 },
   row: { flexDirection: "row", gap: spacing.md, alignItems: "center", minHeight: 78, paddingHorizontal: spacing.lg, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
   trailing: { width: 34, alignItems: "center", gap: 8 },
   pinButton: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   unreadBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  unreadText: { color: "#17130E", fontSize: 9.5, fontWeight: "900" },
+  unreadText: { fontSize: 9.5, fontWeight: "900" },
   empty: { paddingHorizontal: spacing.xl, paddingVertical: 54, alignItems: "center" },
   emptyIcon: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center" },
   retry: { marginTop: spacing.lg, paddingHorizontal: spacing.lg, paddingVertical: 10, borderRadius: radius.pill },
