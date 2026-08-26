@@ -16,6 +16,8 @@ const role = read('src/context/RoleProvider.tsx');
 const accessibility = read('src/context/AccessibilityProvider.tsx');
 const pins = read('src/context/PinnedContentProvider.tsx');
 const updateGate = read('src/components/AppUpdateGate.tsx');
+const backgroundCoordinator = read('src/components/BackgroundOtaCoordinator.tsx');
+const backgroundOta = read('src/updates/backgroundOta.ts');
 const nativeGuard = read('src/components/NativeOtaStartupGuard.tsx');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const strings = read('android/app/src/main/res/values/strings.xml');
@@ -76,8 +78,10 @@ expect(!theme.includes('type ThemeMode = "light" | "dark" | "system"'), 'System 
 const expectedDeps = {
   expo: '54.0.37',
   'expo-asset': '12.0.13',
+  'expo-background-task': '1.0.8',
   'expo-constants': '18.0.14',
   'expo-audio': '1.1.1',
+  'expo-task-manager': '14.0.7',
   'expo-updates': '29.0.20',
 };
 for (const [name, pinned] of Object.entries(expectedDeps)) {
@@ -86,6 +90,7 @@ for (const [name, pinned] of Object.entries(expectedDeps)) {
 
 expect(layout.includes('import { AccessibilityProvider }'), 'RootLayout must import AccessibilityProvider');
 expect(layout.includes('NativeOtaStartupGuard'), 'RootLayout must mount the native OTA startup observer');
+expect(layout.includes('BackgroundOtaCoordinator'), 'RootLayout must mount the resilient background OTA coordinator');
 expect(layout.includes('PinnedContentProvider'), 'RootLayout must mount personal pin persistence');
 const aOpen = layout.indexOf('<AccessibilityProvider>');
 const tOpen = layout.indexOf('<ThemeProvider>');
@@ -100,9 +105,19 @@ expect(accessibility.includes('.catch(() =>') && accessibility.includes('.finall
 expect(pins.includes('oncampus.personal-pins.v1'), 'personal pin storage key missing');
 expect(pins.includes('togglePostPin') && pins.includes('toggleGroupPin'), 'post/group pin controls missing');
 
-for (const feature of ['native-ota-startup-guard', 'app-update-gate', 'server-update-coordinator', 'session-expired-modal']) {
+for (const feature of ['background-ota-coordinator', 'native-ota-startup-guard', 'app-update-gate', 'server-update-coordinator', 'session-expired-modal']) {
   expect(layout.includes(`<OptionalFeatureBoundary name="${feature}">`), `${feature} must be isolated from the app shell`);
 }
+
+expect(backgroundCoordinator.includes('AppState.addEventListener'), 'background OTA coordinator must react to minimize/resume transitions');
+expect(backgroundCoordinator.includes('setupBackgroundOta()'), 'background OTA WorkManager registration missing');
+expect(backgroundCoordinator.includes('prefetchLatestOta'), 'foreground OTA prefetch missing');
+expect(backgroundOta.includes('TaskManager.defineTask'), 'headless OTA task must be defined at module scope');
+expect(backgroundOta.includes('BackgroundTask.registerTaskAsync'), 'background OTA task registration missing');
+expect(backgroundOta.includes('minimumInterval: BACKGROUND_MIN_INTERVAL_MINUTES'), 'background OTA interval contract missing');
+expect(backgroundOta.includes('FETCH_ATTEMPTS = 4'), 'OTA retry contract missing');
+expect(backgroundOta.includes('Updates.fetchUpdateAsync()'), 'background OTA must fetch the signed update');
+expect(!backgroundOta.includes('Updates.reloadAsync()'), 'background OTA worker must never reload the hidden app');
 
 expect(updateGate.includes('DEFER_MS = 6 * 60 * 60 * 1000'), 'OTA Later quiet-period contract missing');
 expect(updateGate.includes('phase: "available"'), 'unified update available UI missing');
@@ -119,4 +134,4 @@ expect(!index.includes('CampusLoader'), 'Startup route must not use CampusLoader
 expect(!index.includes('setTimeout('), 'Startup route must not contain artificial delays');
 expect(index.includes('router.replace(target)'), 'Startup route must deterministically leave the splash route');
 
-console.log(`OnCampus release/startup contracts verified for ${version} with luxury UI, personal pins and unified native ON_LOAD OTA`);
+console.log(`OnCampus release/startup contracts verified for ${version} with luxury UI, personal pins, unified OTA and resilient Android background prefetch`);
