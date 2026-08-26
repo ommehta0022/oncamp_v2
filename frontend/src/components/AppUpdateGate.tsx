@@ -548,7 +548,7 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
             <Image source={APP_ICON} style={styles.logo} contentFit="cover" />
             <View style={{ flex: 1 }}>
               <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
-              <Text style={[styles.phase, { color: colors.luxuryGold }]}>{label}</Text>
+              <Text style={[styles.phase, { color: state.phase === "error" ? colors.error : terminal ? colors.success : colors.info }]}>{label}</Text>
             </View>
             {busy ? <ActivityIndicator color={colors.brandPrimary} accessibilityLabel="Update in progress" /> : null}
           </View>
@@ -558,12 +558,12 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
 
           {busy && state.phase !== "checking" && (
             <View style={[styles.progressTrack, { backgroundColor: colors.surfaceTertiary }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: state.progress }}>
-              <LinearGradient colors={[colors.brandPrimary, colors.luxuryTeal]} style={[styles.progressFill, { width: `${Math.max(5, Math.min(100, state.progress || 5))}%` }]} />
+              <LinearGradient colors={[colors.actionPrimary, colors.success]} style={[styles.progressFill, { width: `${Math.max(5, Math.min(100, state.progress || 5))}%` }]} />
             </View>
           )}
 
           <View style={[styles.securityRow, { backgroundColor: colors.highlight }]}>
-            <View style={[styles.securityIcon, { backgroundColor: colors.surfaceSecondary }]}><Text style={{ color: colors.luxuryTeal, fontWeight: "900" }}>✓</Text></View>
+            <View style={[styles.securityIcon, { backgroundColor: colors.surfaceSecondary }]}><Text style={{ color: colors.success, fontWeight: "900" }}>✓</Text></View>
             <Text style={[styles.securityText, { color: colors.onSurfaceTertiary }]}>{state.kind === "apk" ? "Trusted endpoint • SHA-256 verified • signing continuity" : "Signed manifest • runtime verified • safe rollback"}</Text>
           </View>
 

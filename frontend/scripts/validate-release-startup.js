@@ -81,14 +81,14 @@ expect(stylesV33.includes('android:windowSplashScreenBehavior'), 'API 33 splash 
 
 const lightPalette = palette.split('export const lightColors = {')[1]?.split('};')[0] || '';
 const darkPalette = palette.split('export const darkColors = {')[1]?.split('};')[0] || '';
-expect(lightPalette.includes('surface: "#FAF9F6"'), 'light mode must keep the neutral pearl surface');
-expect(lightPalette.includes('brandPrimary: "#B38A4A"') && lightPalette.includes('luxuryGold: "#B38A4A"'), 'light champagne accent contract missing');
-expect(lightPalette.includes('luxuryTeal: "#72806E"'), 'light status sage accent missing');
-expect(darkPalette.includes('surface: "#080809"'), 'dark mode must keep the neutral obsidian surface');
-expect(darkPalette.includes('card: "#111112"'), 'dark mode cards must remain neutral charcoal');
-expect(darkPalette.includes('brandPrimary: "#C8A76B"') && darkPalette.includes('luxuryGold: "#C8A76B"'), 'dark champagne accent contract missing');
-expect(darkPalette.includes('luxuryTeal: "#859481"'), 'dark status sage accent missing');
-expect(darkPalette.includes('gradientStart: "#0B0A09"') && darkPalette.includes('gradientEnd: "#282119"'), 'dark neutral gradient contract changed');
+expect(lightPalette.includes('surface: "#FCFCF9"'), 'light mode must match the oncampuses-v1 foundation surface');
+expect(lightPalette.includes('brandPrimary: "#2E5C4E"') && lightPalette.includes('brandSecondary: "#E87A5D"'), 'light moss/terracotta brand identity contract missing');
+expect(lightPalette.includes('success: "#2F7D5C"') && lightPalette.includes('warning: "#B7791F"') && lightPalette.includes('error: "#C04444"') && lightPalette.includes('info: "#4A788C"'), 'light semantic state palette contract missing');
+expect(darkPalette.includes('surface: "#151717"'), 'dark mode must match the oncampuses-v1 foundation surface');
+expect(darkPalette.includes('card: "#1C1F1E"'), 'dark mode cards must match the reference neutral surface');
+expect(darkPalette.includes('brandPrimary: "#7FB19F"') && darkPalette.includes('brandSecondary: "#F0A48D"'), 'dark moss/terracotta brand identity contract missing');
+expect(darkPalette.includes('success: "#6FC99E"') && darkPalette.includes('warning: "#E2B66A"') && darkPalette.includes('error: "#E27A7A"') && darkPalette.includes('info: "#82B1C2"'), 'dark semantic state palette contract missing');
+for (const semanticToken of ['actionPrimary:', 'actionSecondary:', 'actionDanger:', 'tabActive:', 'tabBadge:', 'selectionStrong:', 'reactionActive:', 'announcement:']) { expect(lightPalette.includes(semanticToken) && darkPalette.includes(semanticToken), `semantic component token ${semanticToken} missing`); }
 for (const oldBlue of ['#1267F4', '#0B67C8', '#4AA8FF', '#0B49BD', '#075DAF', '#74BBFF']) {
   expect(!palette.includes(oldBlue), `legacy blue palette token ${oldBlue} must not return`);
   expect(!nativeColors.includes(oldBlue) && !nativeNightColors.includes(oldBlue), `legacy blue native startup token ${oldBlue} must not return`);
@@ -172,4 +172,4 @@ expect(!index.includes('name="school"'), 'startup route must use the real OnCamp
 expect(index.includes('APP_ICON'), 'startup route must render the OnCampus app icon');
 expect(index.includes('router.replace(target)'), 'Startup route must deterministically leave the splash route');
 
-console.log(`OnCampus release/startup contracts verified for ${version} with neutral luxury UI, resilient background OTA and durable Android APK downloads`);
+console.log(`OnCampus release/startup contracts verified for ${version} with business-semantic reference UI, resilient background OTA and durable Android APK downloads`);

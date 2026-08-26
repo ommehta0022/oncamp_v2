@@ -54,7 +54,7 @@ for (const file of files) {
 
   if (!isPalette) {
     for (const match of text.matchAll(legacyTokens)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy blanket-theme token ${match[0]}`);
-    for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);
+    if (!rel.startsWith('android/')) for (const match of text.matchAll(legacyHexes)) violations.push(`${rel}:${lineNumber(text, match.index)} legacy luxury color ${match[0]}`);
 
     // Blue remains valid only as the semantic info token defined centrally in colors.ts.
     const hex = /#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?/g;

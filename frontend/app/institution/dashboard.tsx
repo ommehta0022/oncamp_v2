@@ -40,11 +40,11 @@ export default function InstitutionDashboard({ embedded = false }: Props) {
   const counts = dashboard?.counts || {};
   const pendingStudents = dashboard?.verificationRequests?.length || 0;
   const actions = [
-    { icon: "business-outline", title: "Public profile", subtitle: "Logo, cover and essential public details", route: "/institution/branding", color: colors.luxuryGold },
-    { icon: "newspaper-outline", title: "Content", subtitle: "Create and manage official campus content", route: "/institution/content", color: colors.onSurface },
-    { icon: "people-outline", title: "Student approvals", subtitle: pendingStudents ? `${pendingStudents} items need review` : "Review student access", route: "/institution/campus-platform", color: colors.luxuryGold },
-    { icon: "calendar-outline", title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.onSurface },
-    { icon: "stats-chart-outline", title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.luxuryGold },
+    { icon: "business-outline", title: "Public profile", subtitle: "Logo, cover and essential public details", route: "/institution/branding", color: colors.actionPrimary },
+    { icon: "newspaper-outline", title: "Content", subtitle: "Create and manage official campus content", route: "/institution/content", color: colors.actionSecondary },
+    { icon: "people-outline", title: "Student approvals", subtitle: pendingStudents ? `${pendingStudents} items need review` : "Review student access", route: "/institution/campus-platform", color: pendingStudents ? colors.warning : colors.actionPrimary },
+    { icon: "calendar-outline", title: "Events", subtitle: "Create and update campus events", route: "/institution/campus-platform", color: colors.actionSecondary },
+    { icon: "stats-chart-outline", title: "Analytics", subtitle: "View engagement and campus activity", route: "/institution/analytics", color: colors.info },
     { icon: "shield-checkmark-outline", title: "Governance", subtitle: "Roles, audit and access settings", route: "/institution/governance", color: colors.onSurfaceTertiary },
   ];
 
@@ -57,8 +57,8 @@ export default function InstitutionDashboard({ embedded = false }: Props) {
 
   const content = <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 110 }}>
     <View style={[styles.identity, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-      {institution.logoUrl || institution.logo_url ? <Image source={{ uri: institution.logoUrl || institution.logo_url }} style={styles.logo} contentFit="cover" /> : <View style={[styles.logo, { backgroundColor: colors.luxuryGoldSoft, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={27} color={colors.luxuryGold} /></View>}
-      <View style={{ flex: 1 }}><View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: 20, fontWeight: "900", flexShrink: 1 }}>{institution.name || (loading ? "Loading…" : "Institution")}</Text>{institution.verified || institution.verified_at ? <Ionicons name="checkmark-circle" size={17} color={colors.luxuryGold} /> : null}</View><Text style={{ color: colors.onSurfaceTertiary, marginTop: 5 }}>{[institution.type || institution.institution_type, institution.city].filter(Boolean).join(" · ")}</Text></View>
+      {institution.logoUrl || institution.logo_url ? <Image source={{ uri: institution.logoUrl || institution.logo_url }} style={styles.logo} contentFit="cover" /> : <View style={[styles.logo, { backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }]}><Ionicons name="school-outline" size={27} color={colors.onBrandTertiary} /></View>}
+      <View style={{ flex: 1 }}><View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: 20, fontWeight: "900", flexShrink: 1 }}>{institution.name || (loading ? "Loading…" : "Institution")}</Text>{institution.verified || institution.verified_at ? <Ionicons name="checkmark-circle" size={17} color={colors.actionPrimary} /> : null}</View><Text style={{ color: colors.onSurfaceTertiary, marginTop: 5 }}>{[institution.type || institution.institution_type, institution.city].filter(Boolean).join(" · ")}</Text></View>
     </View>
 
     <View style={styles.stats}>
@@ -69,13 +69,13 @@ export default function InstitutionDashboard({ embedded = false }: Props) {
     </View>
 
     <View style={[styles.webStudio, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-      <View style={[styles.webIcon, { backgroundColor: colors.luxuryGoldSoft }]}><Ionicons name="desktop-outline" size={23} color={colors.luxuryGold} /></View>
+      <View style={[styles.webIcon, { backgroundColor: `${colors.info}18` }]}><Ionicons name="desktop-outline" size={23} color={colors.info} /></View>
       <View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontSize: 16, fontWeight: "900" }}>Institution Studio</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>Use web for campus story, gallery, departments, programs, student and faculty management, moderation, storage, backups and integrations.</Text></View>
     </View>
 
     <Text style={[styles.heading, { color: colors.onSurface }]}>Quick management</Text>
     <View style={{ gap: 10 }}>{actions.map((action) => <Pressable key={action.title} onPress={() => router.push(action.route as any)} style={({ pressed }) => [styles.action, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary }]}>
-      <View style={[styles.actionIcon, { backgroundColor: action.color === colors.luxuryGold ? colors.luxuryGoldSoft : colors.surfaceTertiary }]}><Ionicons name={action.icon as any} size={21} color={action.color} /></View>
+      <View style={[styles.actionIcon, { backgroundColor: `${action.color}18` }]}><Ionicons name={action.icon as any} size={21} color={action.color} /></View>
       <View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontSize: 15, fontWeight: "800" }}>{action.title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 3 }}>{action.subtitle}</Text></View>
       <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
     </Pressable>)}</View>

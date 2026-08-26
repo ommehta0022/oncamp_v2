@@ -96,7 +96,7 @@ export default function Feed() {
           data={displayPosts}
           keyExtractor={(p) => String(p.id)}
           contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: 120, flexGrow: 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.luxuryGold} colors={[colors.luxuryGold]} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.actionPrimary} colors={[colors.actionPrimary]} />}
           ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here automatically." />}
           ListFooterComponent={loadingMore ? <CampusLoader compact label="Loading more…" /> : null}
           renderItem={({ item }) => <PostCard post={item} onChange={(updated) => setPosts((current) => current.map((post) => post.id === updated.id ? updated : post))} onDeleted={(id) => setPosts((current) => current.filter((post) => post.id !== id))} style={{ marginHorizontal: spacing.lg }} />}
