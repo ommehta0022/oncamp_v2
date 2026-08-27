@@ -26,14 +26,14 @@ export default function Header({
       style={[
         {
           paddingHorizontal: spacing.lg,
-          paddingVertical: 10,
+          paddingVertical: spacing.md,
           backgroundColor: transparent ? "transparent" : colors.surface,
           borderBottomWidth: transparent ? 0 : StyleSheet.hairlineWidth,
-          borderBottomColor: colors.divider,
+          borderBottomColor: colors.border,
           flexDirection: "row",
           alignItems: "center",
           gap: spacing.md,
-          minHeight: 58,
+          minHeight: 56,
         },
         style,
       ]}
@@ -41,18 +41,20 @@ export default function Header({
       {(showBack || leftIcon) && (
         <Pressable
           testID="header-back-btn"
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
           onPress={onLeftPress || onBack}
           hitSlop={12}
-          style={({ pressed }) => [styles.back, { backgroundColor: pressed ? colors.surfaceTertiary : "transparent" }]}
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
         >
-          <Ionicons name={leftIcon || "chevron-back"} size={24} color={colors.onSurface} />
+          <Ionicons
+            name={leftIcon || "chevron-back"}
+            size={26}
+            color={colors.onSurface}
+          />
         </Pressable>
       )}
       <View style={{ flex: 1 }}>
         {!!title && (
-          <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "800", letterSpacing: -0.2 }} numberOfLines={1}>
+          <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }} numberOfLines={1}>
             {title}
           </Text>
         )}
@@ -66,7 +68,3 @@ export default function Header({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  back: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", marginLeft: -7 },
-});

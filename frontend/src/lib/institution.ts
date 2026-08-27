@@ -99,12 +99,12 @@ export type InstitutionSettingsData = {
 };
 
 export const BRAND_PALETTES = [
-  { name: "Moss", primary: "#315B50", secondary: "#C8A96B" },
-  { name: "Ocean", primary: "#504A43", secondary: "#C8A96B" },
-  { name: "Sunset", primary: "#8A4D3D", secondary: "#D8B57B" },
-  { name: "Forest", primary: "#526258", secondary: "#A88F68" },
-  { name: "Berry", primary: "#574650", secondary: "#C2A57B" },
-  { name: "Slate", primary: "#3D3B37", secondary: "#B08A52" },
+  { name: "Moss", primary: "#2E5C4E", secondary: "#E87A5D" },
+  { name: "Ocean", primary: "#1F4B6E", secondary: "#F4A261" },
+  { name: "Sunset", primary: "#C0392B", secondary: "#F1C40F" },
+  { name: "Forest", primary: "#264653", secondary: "#2A9D8F" },
+  { name: "Berry", primary: "#6A2C70", secondary: "#F08A5D" },
+  { name: "Slate", primary: "#3D3D3D", secondary: "#E63946" },
 ];
 
 export function getPolicy(institution?: InstitutionRecord | null) {
