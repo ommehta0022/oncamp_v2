@@ -67,7 +67,7 @@ def test_discover_is_institution_focused_and_invite_join_remains_dedicated():
     join = read("frontend/app/join.tsx")
     assert "campusApi.student.institutions" in discover
     assert "/institution-profile/" in discover
-    assert 'placeholder="Search campuses"' in discover
+    assert 'placeholder="Search universities, colleges, schools..."' in discover
     assert "campusApi.student.invite(value)" in join
     assert "campusApi.student.acceptInvite(resolvedCode)" in join
     assert "Join by QR or code" in join
