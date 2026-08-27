@@ -20,7 +20,10 @@ type Props = {
 export default function SettingsRow({ icon, iconColor, iconBg, title, subtitle, value, right, onPress, destructive, testID }: Props) {
   const { colors } = useTheme();
   const titleColor = destructive ? colors.error : colors.onSurface;
+  const resolvedIconColor = iconColor || (destructive ? colors.error : colors.onSurfaceTertiary);
+  const resolvedIconBg = iconBg || (destructive ? `${colors.error}12` : colors.surfaceTertiary);
   const accessibleLabel = [title, value, subtitle].filter(Boolean).join(", ");
+
   return (
     <Pressable
       testID={testID}
@@ -34,17 +37,17 @@ export default function SettingsRow({ icon, iconColor, iconBg, title, subtitle, 
       ]}
     >
       {icon && (
-        <View accessible={false} style={[styles.iconWrap, { backgroundColor: iconBg || colors.brandTertiary }]}>
-          <Ionicons name={icon} size={20} color={iconColor || colors.onBrandTertiary} />
+        <View accessible={false} style={[styles.iconWrap, { backgroundColor: resolvedIconBg }]}>
+          <Ionicons name={icon} size={19} color={resolvedIconColor} />
         </View>
       )}
       <View style={{ flex: 1 }} accessible={false}>
         <Text allowFontScaling maxFontSizeMultiplier={1.6} style={{ color: titleColor, fontSize: font.lg, fontWeight: "500" }}>{title}</Text>
-        {!!subtitle && <Text allowFontScaling maxFontSizeMultiplier={1.6} style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }}>{subtitle}</Text>}
+        {!!subtitle && <Text allowFontScaling maxFontSizeMultiplier={1.6} style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 3, lineHeight: 17 }}>{subtitle}</Text>}
       </View>
       {value !== undefined && <Text accessible={false} allowFontScaling maxFontSizeMultiplier={1.6} style={{ color: colors.onSurfaceTertiary, fontSize: font.base }}>{value}</Text>}
       {right}
-      {!right && onPress && <Ionicons accessible={false} name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />}
+      {!right && onPress && <Ionicons accessible={false} name="chevron-forward" size={18} color={colors.muted} />}
     </Pressable>
   );
 }
@@ -56,12 +59,12 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    minHeight: 56,
+    minHeight: 58,
   },
   iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
   },
