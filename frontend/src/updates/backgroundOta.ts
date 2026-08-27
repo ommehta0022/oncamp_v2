@@ -78,45 +78,23 @@ async function persistFailure(error: unknown) {
 
 async function fetchUpdateWithRetry(expectedUpdateId: string) {
   let lastError: unknown = null;
-
   for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt += 1) {
     try {
-      const check = await Updates.checkForUpdateAsync();
-      if (!check.isAvailable) {
-        // The runtime-specific server still advertises a newer update but Expo
-        // no longer reports it as downloadable. In production this is the
-        // normal state after expo-updates has already cached the update locally.
-        // Treat it as ready so Update Now can safely reload on foreground.
-        if (expectedUpdateId && expectedUpdateId !== String(Updates.updateId || "")) {
-          await persistReady(expectedUpdateId);
-          return true;
-        }
-        return false;
-      }
-
       const fetched = await Updates.fetchUpdateAsync();
-      const manifestId = String((check as any)?.manifest?.id || expectedUpdateId || "pending");
-      if (fetched.isNew) {
-        await persistReady(manifestId);
+      const manifestId = String((fetched as any)?.manifest?.id || expectedUpdateId || "pending");
+      if (expectedUpdateId && manifestId && manifestId !== expectedUpdateId) {
+        throw new Error(`OTA changed during download (${manifestId} != ${expectedUpdateId})`);
+      }
+      if (fetched.isNew || expectedUpdateId !== String(Updates.updateId || "")) {
+        await persistReady(expectedUpdateId || manifestId);
         return true;
       }
-
-      // expo-updates can report isNew=false when assets are already present.
-      // Re-check once; if there is no longer an available update, treat the
-      // local cache as complete instead of surfacing a false failure.
-      const recheck = await Updates.checkForUpdateAsync().catch(() => null);
-      if (!recheck?.isAvailable) {
-        await persistReady(manifestId);
-        return true;
-      }
+      return false;
     } catch (error) {
       lastError = error;
-      if (attempt < FETCH_ATTEMPTS - 1) {
-        await sleep(800 * 2 ** attempt);
-      }
+      if (attempt < FETCH_ATTEMPTS - 1) await sleep(800 * 2 ** attempt);
     }
   }
-
   await persistFailure(lastError);
   return false;
 }

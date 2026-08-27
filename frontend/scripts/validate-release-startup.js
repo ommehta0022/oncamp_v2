@@ -50,11 +50,11 @@ expect(app.android?.adaptiveIcon?.backgroundColor === '#FAF9F6', 'Android adapti
 expect(app.backgroundColor === '#FAF9F6', 'app background must remain neutral pearl');
 expect(app.plugins?.some((entry) => Array.isArray(entry) && entry[0] === 'expo-splash-screen' && entry[1]?.backgroundColor === '#FAF9F6' && entry[1]?.dark?.backgroundColor === '#080809'), 'Expo splash plugin must use neutral light/dark backgrounds');
 expect(app.updates?.enabled === true, 'Expo Updates must remain enabled');
-expect(app.updates?.checkAutomatically === 'ON_LOAD', 'Expo Updates must check natively on every cold launch');
+expect(app.updates?.checkAutomatically === 'NEVER', 'server-driven update discovery must not race native startup checks');
 expect(app.updates?.fallbackToCacheTimeout === 0, 'Startup OTA check must never block launching cached/embedded code');
 expect(app.extra?.otaRuntimeVersion === runtime, 'extra.otaRuntimeVersion must match runtime');
 expect(app.extra?.nativeStartupOta === true, 'nativeStartupOta feature flag must remain enabled');
-expect(manifest.includes('EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"'), 'native manifest must enable automatic Expo update checks');
+expect(manifest.includes('EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="NEVER"'), 'native manifest must disable concurrent startup update checks');
 expect(manifest.includes('expo.modules.updates.ENABLED" android:value="true"'), 'native Expo Updates module must remain enabled');
 expect(manifest.includes('android:icon="@mipmap/ic_launcher"'), 'Android manifest must use adaptive launcher icon resource');
 expect(manifest.includes('android:roundIcon="@mipmap/ic_launcher_round"'), 'Android manifest must use adaptive round launcher icon resource');
@@ -141,6 +141,7 @@ expect(backgroundOta.includes('minimumInterval: BACKGROUND_MIN_INTERVAL_MINUTES'
 expect(backgroundOta.includes('FETCH_ATTEMPTS = 4'), 'OTA retry contract missing');
 expect(backgroundOta.includes('Updates.fetchUpdateAsync()'), 'background OTA must fetch the signed update');
 expect(!backgroundOta.includes('Updates.reloadAsync()'), 'background OTA worker must never reload the hidden app');
+expect(!backgroundOta.includes('Updates.checkForUpdateAsync()'), 'background OTA discovery must not depend on Expo check promises');
 
 expect(updateGate.includes('DEFER_MS = 6 * 60 * 60 * 1000'), 'OTA Later quiet-period contract missing');
 expect(updateGate.includes('phase: "available"'), 'unified update available UI missing');
@@ -150,7 +151,8 @@ expect(updateGate.includes('APPLY_OTA_ON_RESUME_KEY'), 'minimize-safe persisted 
 expect(updateGate.includes('resumePendingOtaApply()'), 'OTA apply-on-resume handler missing');
 expect(updateGate.includes('AppState.currentState !== "active"'), 'hidden app must not reload itself');
 expect(updateGate.includes('You can minimize OnCampus'), 'background-safe OTA user guidance missing');
-expect(updateGate.includes('Updates.reloadAsync()'), 'OTA one-tap apply/reload step missing');
+expect(updateGate.includes('restartForOta'), 'isolated OTA cold-restart activation missing');
+expect(!updateGate.includes('Updates.checkForUpdateAsync()'), 'manual/automatic UI must not depend on rejected Expo check promises');
 expect(updateGate.includes('phase: "current"'), 'manual up-to-date state missing');
 expect(updateGate.includes('SUCCESS_SHOWN_KEY'), 'one-time update-success acknowledgement missing');
 expect(updateGate.includes('serverOtaId()'), 'OTA server/native acceptance cross-check missing');
@@ -160,6 +162,9 @@ expect(apkInstaller.includes('DownloadManager'), 'native APK updater must use An
 expect(apkInstaller.includes('setDestinationInExternalFilesDir'), 'native APK download must use durable app-owned external storage');
 expect(apkInstaller.includes('getSharedPreferences'), 'native APK download state must survive React process recreation');
 expect(apkInstaller.includes('override fun onHostResume()'), 'native APK updater must resume verification/install when app returns');
+expect(apkInstaller.includes('restartForOta') && apkInstaller.includes('OnCampusOtaRestartActivity'), 'isolated OTA cold-restart bridge missing');
+expect(apkInstaller.includes('VISIBILITY_VISIBLE_NOTIFY_COMPLETED'), 'background APK completion notification missing');
+expect(manifest.includes('android:name=".OnCampusOtaRestartActivity"') && manifest.includes('android:process=":ota_restart"'), 'isolated restart activity manifest contract missing');
 expect(apkInstaller.includes('APK checksum verification failed'), 'native APK updater must verify SHA-256 before install');
 expect(!apkInstaller.includes('HttpURLConnection'), 'native APK updater must not depend on a process-owned HTTP transfer');
 expect(apkFilePaths.includes('external-files-path'), 'FileProvider must expose the durable DownloadManager APK location');
@@ -172,4 +177,4 @@ expect(!index.includes('name="school"'), 'startup route must use the real OnCamp
 expect(index.includes('APP_ICON'), 'startup route must render the OnCampus app icon');
 expect(index.includes('router.replace(target)'), 'Startup route must deterministically leave the splash route');
 
-console.log(`OnCampus release/startup contracts verified for ${version} with business-semantic reference UI, resilient background OTA and durable Android APK downloads`);
+console.log(`OnCampus release/startup contracts verified for ${version} with server-driven OTA discovery, isolated cold-restart activation and verified Android installer handoff`);

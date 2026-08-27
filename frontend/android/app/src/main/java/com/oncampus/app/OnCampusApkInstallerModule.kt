@@ -6,6 +6,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.os.Process
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.facebook.react.bridge.Arguments
@@ -74,6 +77,26 @@ class OnCampusApkInstallerModule(
     }
   }
 
+  @ReactMethod
+  fun restartForOta(promise: Promise) {
+    if (!hostResumed) {
+      promise.reject("APP_NOT_ACTIVE", "OnCampus must be active to apply the downloaded update")
+      return
+    }
+    val intent = Intent(reactContext, OnCampusOtaRestartActivity::class.java).apply {
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+    }
+    reactContext.runOnUiQueueThread {
+      try {
+        reactContext.startActivity(intent)
+        promise.resolve(Arguments.createMap().apply { putString("status", "restarting") })
+        Handler(Looper.getMainLooper()).postDelayed({ Process.killProcess(Process.myPid()) }, 180L)
+      } catch (error: Exception) {
+        promise.reject("OTA_RESTART_FAILED", error.message ?: "Unable to restart OnCampus", error)
+      }
+    }
+  }
+
   private fun canInstallPackages(): Boolean {
     return Build.VERSION.SDK_INT < Build.VERSION_CODES.O || reactContext.packageManager.canRequestPackageInstalls()
   }
@@ -139,7 +162,7 @@ class OnCampusApkInstallerModule(
       setMimeType("application/vnd.android.package-archive")
       setAllowedOverMetered(true)
       setAllowedOverRoaming(false)
-      setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+      setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
       setDestinationInExternalFilesDir(reactContext, Environment.DIRECTORY_DOWNLOADS, APK_FILE_NAME)
       addRequestHeader("Accept", "application/vnd.android.package-archive, application/octet-stream")
       addRequestHeader("User-Agent", "OnCampus-Android-Updater/2.0")
@@ -292,7 +315,6 @@ class OnCampusApkInstallerModule(
     if (!hostResumed) return
     emit("installing", 100, "Opening Android installer", "APK verified. Confirm Install on the Android system screen.")
     launchInstaller(apkFile)
-    clearPendingMetadata()
   }
 
   private fun sha256(file: File): String {
@@ -309,22 +331,32 @@ class OnCampusApkInstallerModule(
   }
 
   private fun launchInstaller(apkFile: File) {
-    val uri = FileProvider.getUriForFile(
-      reactContext,
-      "${reactContext.packageName}.apkprovider",
-      apkFile
-    )
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-      setDataAndType(uri, "application/vnd.android.package-archive")
-      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    reactContext.runOnUiQueueThread {
+  val uri = FileProvider.getUriForFile(
+    reactContext,
+    "${reactContext.packageName}.apkprovider",
+    apkFile
+  )
+  val intent = Intent(Intent.ACTION_VIEW).apply {
+    setDataAndType(uri, "application/vnd.android.package-archive")
+    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+  }
+  if (intent.resolveActivity(reactContext.packageManager) == null) {
+    emit("error", 100, "Android installer unavailable", "The APK is downloaded and verified, but Android could not resolve its package installer.")
+    return
+  }
+  reactContext.runOnUiQueueThread {
+    try {
       reactContext.startActivity(intent)
+      clearPendingMetadata()
+    } catch (error: Exception) {
+      emit("error", 100, "Android installer could not open", error.message ?: "Return to OnCampus and try Install now again.")
     }
   }
+}
 
-  private fun clearPendingMetadata() {
+private fun clearPendingMetadata() {
     prefs.edit().clear().apply()
     monitoredDownloadId = -1L
   }

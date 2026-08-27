@@ -15,9 +15,6 @@ const MIN_POLL_SECONDS = 30;
 const MAX_POLL_SECONDS = 5 * 60;
 
 let inFlight = false;
-let currentCampaignInMemory: string | null = null;
-let currentCampaignTargetInMemory: string | null = null;
-let currentNativeReleaseInMemory: string | null = null;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -149,25 +146,10 @@ async function checkServerCampaign(force = false): Promise<number> {
     };
     nextPollSeconds = pollDelaySeconds(campaign.pollAfterSeconds);
 
-    if (campaign.nativeUpdateAvailable && campaign.nativeReleaseVersion) {
-      if (campaign.nativeReleaseVersion !== currentNativeReleaseInMemory) {
-        currentNativeReleaseInMemory = campaign.nativeReleaseVersion;
-        await checkForAppUpdate("campaign", true, true);
-      }
-      return nextPollSeconds;
-    }
-
-    if (!campaign.available || !campaign.campaignId) return nextPollSeconds;
-
-    const target = `${runtime}|${currentUpdateId}`;
-    if (currentCampaignTargetInMemory === target && currentCampaignInMemory === campaign.campaignId) {
-      return nextPollSeconds;
-    }
-    currentCampaignTargetInMemory = target;
-    currentCampaignInMemory = campaign.campaignId;
-
+    if (campaign.nativeUpdateAvailable || (campaign.available && campaign.campaignId)) {
     await checkForAppUpdate("campaign", true, true);
-    return nextPollSeconds;
+  }
+  return nextPollSeconds;
   } catch {
     return nextPollSeconds;
   } finally {
