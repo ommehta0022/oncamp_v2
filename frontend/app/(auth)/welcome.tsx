@@ -9,20 +9,6 @@ import { font, spacing } from "@/src/theme/colors";
 import Button from "@/src/components/Button";
 import { onboardingSlides } from "@/src/data/onboarding";
 
-function formatOnboardingTitle(title = "") {
-  return title
-    .replace("Your campus, in one feed", "Your campus,\nin one feed")
-    .replace("Discover groups worth joining", "Discover groups worth\njoining")
-    .replace("Communicate the campus way", "Communicate the\ncampus way");
-}
-
-function formatOnboardingSubtitle(subtitle = "") {
-  return subtitle
-    .replace(", all in one place.", ",\nall in one place.")
-    .replace(", find your people.", ",\nfind your people.")
-    .replace(". No spam.", ".\nNo spam.");
-}
-
 export default function Welcome() {
   const { width, height } = useWindowDimensions();
   useTheme();
@@ -30,7 +16,6 @@ export default function Welcome() {
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
-  const contentWidth = Math.max(0, width - spacing.xl * 2);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -71,50 +56,24 @@ export default function Welcome() {
           <Text style={styles.brandLabel}>OnCampus</Text>
         </View>
 
-        <View style={[styles.slideTextWrap, { width: contentWidth }]} pointerEvents="none">
-          <Text style={[styles.title, { maxWidth: contentWidth }]}>{formatOnboardingTitle(onboardingSlides[index]?.title)}</Text>
-          <Text style={[styles.subtitle, { maxWidth: contentWidth }]}>{formatOnboardingSubtitle(onboardingSlides[index]?.subtitle)}</Text>
+        <View style={styles.slideTextWrap} pointerEvents="none">
+          <Text style={styles.title}>{onboardingSlides[index]?.title}</Text>
+          <Text style={styles.subtitle}>{onboardingSlides[index]?.subtitle}</Text>
         </View>
 
         <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom + spacing.md, spacing.xl) }]}>
           <View style={styles.dots}>
             {onboardingSlides.map((_, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.dot,
-                  { backgroundColor: i === index ? "#fff" : "#ffffff55", width: i === index ? 24 : 6 },
-                ]}
-              />
+              <View key={i} style={[styles.dot, { backgroundColor: i === index ? "#fff" : "#ffffff55", width: i === index ? 24 : 6 }]} />
             ))}
           </View>
 
-          <Button
-            label="Get started"
-            fullWidth
-            size="lg"
-            onPress={() => router.push("/(auth)/signup")}
-            testID="welcome-get-started-btn"
-          />
-          <Pressable
-            onPress={() => router.push("/(auth)/login")}
-            style={{ marginTop: spacing.md, alignItems: "center", paddingVertical: 8 }}
-            testID="welcome-login-btn"
-          >
-            <Text style={styles.loginText}>
-              Already have an account?{" "}
-              <Text style={{ fontWeight: "500", color: "#fff" }}>Log in</Text>
-            </Text>
+          <Button label="Get started" fullWidth size="lg" onPress={() => router.push("/(auth)/signup")} testID="welcome-get-started-btn" />
+          <Pressable onPress={() => router.push("/(auth)/login")} style={styles.secondaryAction} testID="welcome-login-btn">
+            <Text style={styles.loginText}>Already have an account? <Text style={styles.strong}>Log in</Text></Text>
           </Pressable>
-          <Pressable
-            onPress={() => router.push("/(auth)/register-institution")}
-            style={{ marginTop: 2, alignItems: "center", paddingVertical: 8 }}
-            testID="welcome-register-institution-btn"
-          >
-            <Text style={styles.institutionText}>
-              Represent a school or college?{"\n"}
-              <Text style={{ fontWeight: "500", color: "#fff" }}>Register your institution</Text>
-            </Text>
+          <Pressable onPress={() => router.push("/(auth)/register-institution")} style={styles.institutionAction} testID="welcome-register-institution-btn">
+            <Text style={styles.institutionText}>Represent a school or college? <Text style={styles.strong}>Register your institution →</Text></Text>
           </Pressable>
         </View>
       </View>
@@ -124,32 +83,19 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  top: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.xl,
-  },
-  logoBadge: {
-    width: 40, height: 40, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 1,
-  },
+  top: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.xl },
+  logoBadge: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   brand: { color: "#fff", fontWeight: "500", fontSize: font.lg },
-  brandLabel: { color: "#fff", fontSize: font.lg, fontWeight: "500", letterSpacing: 0 },
-  slideTextWrap: {
-    position: "absolute",
-    left: spacing.xl,
-    bottom: 260,
-  },
-  title: { color: "#fff", fontSize: 32, fontWeight: "500", letterSpacing: 0, lineHeight: 38, flexShrink: 1 },
-  subtitle: { color: "#ffffffdd", fontSize: font.lg, marginTop: spacing.sm, lineHeight: 22, flexShrink: 1 },
-  bottom: {
-    position: "absolute", left: 0, right: 0, bottom: 0,
-    paddingHorizontal: spacing.xl,
-  },
-  loginText: { color: "#fff", fontSize: font.base, textAlign: "center", flexShrink: 1 },
-  institutionText: { color: "#ffffffcc", fontSize: font.sm, textAlign: "center", flexShrink: 1, lineHeight: 18 },
+  brandLabel: { color: "#fff", fontSize: font.lg, fontWeight: "500", letterSpacing: -0.3 },
+  slideTextWrap: { position: "absolute", left: spacing.xl, right: spacing.xl, bottom: 260 },
+  title: { color: "#fff", fontSize: 32, fontWeight: "500", letterSpacing: -0.6, lineHeight: 38 },
+  subtitle: { color: "#ffffffdd", fontSize: font.lg, marginTop: spacing.sm, lineHeight: 22 },
+  bottom: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.xl },
   dots: { flexDirection: "row", gap: 6, justifyContent: "center", marginBottom: spacing.xl },
   dot: { height: 6, borderRadius: 3 },
+  secondaryAction: { marginTop: spacing.md, alignItems: "center", paddingVertical: 8 },
+  institutionAction: { marginTop: 2, alignItems: "center", paddingVertical: 8 },
+  loginText: { color: "#fff", fontSize: font.base, textAlign: "center" },
+  institutionText: { color: "#ffffffcc", fontSize: font.sm, textAlign: "center" },
+  strong: { fontWeight: "500", color: "#fff" },
 });
