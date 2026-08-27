@@ -118,11 +118,11 @@ export default function InstitutionProfileV2({ institutionId }: InstitutionProfi
 
 function Hero({ institution, onBack, onShare }: { institution: any; onBack: () => void; onShare: () => void }) {
   return <View style={styles.hero}>
-    {institution.coverUrl ? <Image source={{ uri: institution.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} /> : <View style={[StyleSheet.absoluteFill, { backgroundColor: "#DCE9FF" }]} />}
+    {institution.coverUrl ? <Image source={{ uri: institution.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} /> : <View style={[StyleSheet.absoluteFill, { backgroundColor: "#E7EFEA" }]} />}
     <View style={styles.heroShade} />
-    <Pressable onPress={onBack} style={[styles.heroAction, { left: 16 }]}><Ionicons name="chevron-back" size={25} color="#0B1947" /></Pressable>
-    <Pressable onPress={onShare} style={[styles.heroAction, { right: 68 }]}><Ionicons name="share-outline" size={23} color="#0B1947" /></Pressable>
-    <View style={[styles.heroAction, { right: 16 }]}><Ionicons name="ellipsis-horizontal" size={23} color="#0B1947" /></View>
+    <Pressable onPress={onBack} style={[styles.heroAction, { left: 16 }]}><Ionicons name="chevron-back" size={25} color="#181A19" /></Pressable>
+    <Pressable onPress={onShare} style={[styles.heroAction, { right: 68 }]}><Ionicons name="share-outline" size={23} color="#181A19" /></Pressable>
+    <View style={[styles.heroAction, { right: 16 }]}><Ionicons name="ellipsis-horizontal" size={23} color="#181A19" /></View>
   </View>;
 }
 
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
   heroShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(7,20,54,0.10)" },
   heroAction: { position: "absolute", top: 16, width: 45, height: 45, borderRadius: 23, backgroundColor: "rgba(255,255,255,0.94)", alignItems: "center", justifyContent: "center" },
   identity: { paddingHorizontal: 18, paddingTop: 42, paddingBottom: 16 },
-  logoFloat: { position: "absolute", top: -44, left: 18, width: 94, height: 94, borderRadius: 47, padding: 6, backgroundColor: "#FFFFFF", shadowColor: "#0B1947", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  logoFloat: { position: "absolute", top: -44, left: 18, width: 94, height: 94, borderRadius: 47, padding: 6, backgroundColor: "#FFFFFF", shadowColor: "#181A19", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
   identityTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   nameLine: { flexDirection: "row", alignItems: "center", gap: 5 },
   name: { fontSize: 23, lineHeight: 28, fontWeight: "900", letterSpacing: -0.5, flexShrink: 1 },
