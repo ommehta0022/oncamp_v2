@@ -43,7 +43,7 @@ class MainApplication : Application(), ReactApplication {
 
   private fun isOtaRestartProcess(): Boolean {
     val processName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-      getProcessName()
+      Application.getProcessName()
     } else {
       val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
       manager.runningAppProcesses
