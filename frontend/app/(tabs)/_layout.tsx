@@ -23,39 +23,36 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.brandPrimary,
         tabBarInactiveTintColor: colors.onSurfaceTertiary,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginTop: -1 },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "500", marginTop: -2 },
         tabBarStyle: {
           position: "absolute",
           backgroundColor: Platform.OS === "ios" ? "transparent" : colors.surfaceSecondary,
           borderTopColor: colors.border,
           borderTopWidth: StyleSheet.hairlineWidth,
           height: Platform.OS === "ios" ? 84 : 68,
-          paddingBottom: Platform.OS === "ios" ? 24 : 9,
-          paddingTop: 7,
-          shadowColor: colors.shadow,
-          shadowOpacity: isDark ? 0.18 : 0.05,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: -3 },
-          elevation: 8,
+          paddingBottom: Platform.OS === "ios" ? 24 : 10,
+          paddingTop: 8,
+          elevation: 0,
+          shadowOpacity: 0,
         },
         tabBarBackground: () => Platform.OS === "ios" ? (
-          <BlurView intensity={88} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+          <BlurView intensity={80} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
         ) : null,
       }}
     >
       <Tabs.Screen name="feed" options={{ title: t("nav.feed"), tabBarIcon: ({ color, focused }) => icon("home-outline", "home", color, focused) }} />
       <Tabs.Screen name="groups" options={{
         title: t("nav.groups"),
-        tabBarIcon: ({ color, focused }) => icon("people-outline", "people", color, focused, 25),
+        tabBarIcon: ({ color, focused }) => icon("chatbubbles-outline", "chatbubbles", color, focused),
         tabBarBadge: groupsUnread > 0 ? groupsUnread : undefined,
-        tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: colors.onBrandSecondary, fontSize: 10, fontWeight: "700" },
+        tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: colors.onBrandSecondary, fontSize: 10, fontWeight: "500" },
       }} />
-      <Tabs.Screen name="discover" options={{ title: "Discover", tabBarIcon: ({ color, focused }) => icon("compass-outline", "compass", color, focused, 25) }} />
+      <Tabs.Screen name="discover" options={{ title: "Discover", tabBarIcon: ({ color, focused }) => icon("compass-outline", "compass", color, focused, 26) }} />
       <Tabs.Screen name="notifications" options={{
         title: t("nav.alerts"),
         tabBarIcon: ({ color, focused }) => icon("notifications-outline", "notifications", color, focused),
         tabBarBadge: notificationsUnread > 0 ? notificationsUnread : undefined,
-        tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: colors.onBrandSecondary, fontSize: 10, fontWeight: "700" },
+        tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: colors.onBrandSecondary, fontSize: 10, fontWeight: "500" },
       }} />
       <Tabs.Screen name="profile" options={{
         title: canManageInstitution ? t("nav.dashboard") : t("nav.profile"),

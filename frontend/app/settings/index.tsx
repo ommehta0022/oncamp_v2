@@ -2,6 +2,7 @@ import React, { useRef } from "react";
 import { Animated, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 
@@ -22,6 +23,7 @@ export default function Settings() {
   const { t } = useLanguage();
   const router = useRouter();
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const version = Constants.expoConfig?.version || "1.0.0";
 
   const logout = async () => {
     if (Platform.OS === "ios") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -32,21 +34,35 @@ export default function Settings() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]} testID="settings-screen">
       <Header title={t("settings.title")} onBack={() => router.back()} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 72 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 64 }}>
         <Pressable
           onPress={() => router.push("/settings/edit-profile")}
           accessibilityRole="button"
           accessibilityLabel="Edit profile"
-          onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.985, useNativeDriver: true }).start()}
+          onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start()}
           onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
         >
-          <Animated.View style={[styles.profileCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, transform: [{ scale: scaleAnim }] }]}>
-            <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={58} verified={user?.verified} />
+          <Animated.View style={[
+            styles.profileCard,
+            {
+              backgroundColor: colors.surfaceSecondary,
+              borderColor: colors.border,
+              transform: [{ scale: scaleAnim }],
+              shadowColor: colors.shadow,
+              shadowOpacity: 0.05,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 2,
+            },
+          ]}>
+            <Avatar uri={user?.avatarUrl} name={user?.name || "You"} size={62} verified={user?.verified} />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.onSurface, fontSize: 18, fontWeight: "700" }}>{user?.name || "Complete your profile"}</Text>
-              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4 }}>{user?.course || "Essential profile details"}</Text>
+              <Text style={{ color: colors.onSurface, fontSize: 18, fontWeight: "700", letterSpacing: -0.3 }}>{user?.name || "Complete your profile"}</Text>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 4, fontWeight: "500" }}>{user?.course || "Tap to view and edit profile"}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+            <View style={[styles.editIcon, { backgroundColor: colors.surfaceTertiary }]}>
+              <Ionicons name="pencil" size={16} color={colors.onSurfaceTertiary} />
+            </View>
           </Animated.View>
         </Pressable>
 
@@ -84,17 +100,17 @@ export default function Settings() {
           <SettingsRow icon="document-text-outline" title={t("settings.about")} onPress={() => router.push("/settings/about")} />
         </Section>
 
-        <View style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.xl }}>
+        <View style={styles.footer}>
           <Button
             label={t("settings.logout")}
             variant="outline"
-            fullWidth
             onPress={logout}
             style={{ borderColor: colors.error }}
             textStyle={{ color: colors.error }}
             leftIcon={<Ionicons name="log-out-outline" size={19} color={colors.error} />}
             testID="logout-btn"
           />
+          <Text style={[styles.version, { color: colors.onSurfaceTertiary }]}>ONCAMPUS v{version}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -104,16 +120,16 @@ export default function Settings() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   const { colors } = useTheme();
   return (
-    <View style={{ marginTop: spacing.lg }}>
+    <View style={{ marginTop: spacing.md }}>
       <Text style={[styles.sectionTitle, { color: colors.onSurfaceTertiary }]}>{title}</Text>
-      <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>{children}</View>
+      <View style={[styles.section, { backgroundColor: colors.surfaceSecondary }]}>{children}</View>
     </View>
   );
 }
 
 function Divider() {
   const { colors } = useTheme();
-  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 62 }} />;
+  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 56 }} />;
 }
 
 const styles = StyleSheet.create({
@@ -123,21 +139,26 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginHorizontal: spacing.xl,
     marginTop: spacing.lg,
+    marginBottom: spacing.sm,
     padding: spacing.md,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
+  editIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "700",
     paddingHorizontal: spacing.xl,
+    marginTop: spacing.md,
     marginBottom: spacing.sm,
-    letterSpacing: 0.1,
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   section: {
     marginHorizontal: spacing.xl,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
     overflow: "hidden",
   },
+  footer: { padding: spacing.xl, marginTop: spacing.lg },
+  version: { fontSize: 12, fontWeight: "600", textAlign: "center", marginTop: spacing.xl, letterSpacing: 0.5 },
 });

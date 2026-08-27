@@ -47,13 +47,13 @@ export default function Button({
     link: colors.link,
   };
   const border = variant === "outline" ? colors.borderStrong : "transparent";
-  const heights: Record<Size, number> = { sm: 36, md: 44, lg: 52, xl: 58 };
+  const heights: Record<Size, number> = { sm: 36, md: 44, lg: 52, xl: 60 };
   const fontSizes: Record<Size, number> = { sm: font.sm, md: font.base, lg: font.lg, xl: font.xl };
   const px: Record<Size, number> = { sm: spacing.md, md: spacing.lg, lg: spacing.xl, xl: spacing["2xl"] };
 
   const handlePressIn = () => {
     if (disabled || loading) return;
-    Animated.timing(scaleAnim, { toValue: 0.98, duration: 90, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+    Animated.timing(scaleAnim, { toValue: 0.97, duration: 90, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
   };
   const handlePressOut = () => {
     Animated.timing(scaleAnim, { toValue: 1, duration: 100, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
@@ -79,16 +79,16 @@ export default function Button({
         style={({ pressed }) => [
           {
             minHeight: variant === "link" ? 44 : heights[size],
-            paddingHorizontal: variant === "link" ? spacing.sm : px[size],
+            paddingHorizontal: variant === "link" ? 0 : px[size],
             paddingVertical: variant === "link" ? spacing.sm : 0,
-            borderRadius: variant === "link" ? radius.sm : radius.md,
+            borderRadius: variant === "link" ? radius.sm : radius.pill,
             backgroundColor: disabled && variant !== "link" && variant !== "ghost" ? colors.surfaceTertiary : bg[variant],
             borderWidth: variant === "outline" ? 1 : 0,
             borderColor: disabled ? colors.border : border,
             alignItems: "center",
             justifyContent: "center",
             flexDirection: "row",
-            opacity: disabled ? 0.55 : (pressed && (variant === "link" || variant === "ghost") ? 0.7 : 1),
+            opacity: disabled ? 0.55 : (pressed && (variant === "link" || variant === "ghost") ? 0.68 : 1),
             alignSelf: fullWidth ? "stretch" : "flex-start",
             gap: spacing.sm,
           },
@@ -105,7 +105,7 @@ export default function Button({
                 {
                   color: disabled ? colors.textDisabled : fg[variant],
                   fontSize: fontSizes[size],
-                  fontWeight: "600",
+                  fontWeight: variant === "link" ? "600" : "500",
                   textDecorationLine: "none",
                 },
                 textStyle,

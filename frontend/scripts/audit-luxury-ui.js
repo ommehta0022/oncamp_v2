@@ -23,14 +23,17 @@ const groups = read('app/(tabs)/groups.tsx');
 const feed = read('app/(tabs)/feed.tsx');
 const tabs = read('app/(tabs)/_layout.tsx');
 const login = read('app/(auth)/login.tsx');
+const welcome = read('app/(auth)/welcome.tsx');
 const settings = read('app/settings/index.tsx');
 const button = read('src/components/Button.tsx');
+const header = read('src/components/Header.tsx');
 const settingsRow = read('src/components/SettingsRow.tsx');
 
 for (const token of [
   'surface: "#F9F8F6"',
   'onSurface: "#181A19"',
   'surfaceSecondary: "#FFFFFF"',
+  'surfaceTertiary: "#F1EFED"',
   'brandPrimary: "#2E5C4E"',
   'actionPrimary: "#2E5C4E"',
   'actionSecondary: "#E87A5D"',
@@ -39,6 +42,7 @@ for (const token of [
   'warning: "#D9983A"',
   'error: "#D14D4D"',
   'info: "#4A788C"',
+  'inputBg: "#F1EFED"',
   'surface: "#121413"',
   'surfaceSecondary: "#1A1D1C"',
   'brandPrimary: "#3B7564"',
@@ -61,12 +65,18 @@ for (const file of sourceFiles) {
 expect(!tabs.includes('activeIcon'), 'bottom navigation must not use filled active-icon circles');
 expect(tabs.includes('tabBarActiveTintColor: colors.brandPrimary'), 'bottom navigation must use restrained active tint');
 expect(tabs.includes('backgroundColor: colors.brandSecondary'), 'tab unread badges must use engagement accent');
+expect(tabs.includes('elevation: 0') && tabs.includes('shadowOpacity: 0'), 'bottom navigation must stay flat and visually quiet');
+expect(tabs.includes('fontWeight: "500"'), 'bottom navigation labels must use restrained weight');
 
 expect(button.includes('primary: colors.actionPrimary'), 'primary buttons must use semantic primary action token');
 expect(button.includes('secondary: colors.actionSecondary'), 'secondary buttons must use semantic secondary action token');
 expect(button.includes('danger: colors.actionDanger'), 'danger buttons must use semantic danger token');
-expect(button.includes('borderRadius: variant === "link" ? radius.sm : radius.md'), 'buttons must use professional medium radius instead of global pills');
+expect(button.includes('borderRadius: variant === "link" ? radius.sm : radius.pill'), 'buttons must use the proven soft pill control language');
+expect(button.includes('fontWeight: variant === "link" ? "600" : "500"'), 'button typography must stay restrained');
 expect(!button.includes('textDecorationLine: variant === "link" ? "underline"'), 'link buttons must not force decorative underlines');
+
+expect(header.includes('fontWeight: "500"'), 'shared header typography must stay restrained');
+expect(!header.includes('backgroundColor: colors.surfaceTertiary'), 'shared back buttons must not use decorative filled circles');
 
 expect(settingsRow.includes('colors.surfaceTertiary'), 'settings icons must default to neutral chrome');
 expect(!settingsRow.includes('iconBg || colors.brandTertiary'), 'settings must not tint every row with the brand theme');
@@ -79,8 +89,9 @@ expect(groups.includes('backgroundColor: colors.brandSecondary'), 'Groups unread
 
 expect(feed.includes('backgroundColor: colors.surface') && !feed.includes('fontWeight: "900"'), 'Feed must use restrained professional chrome');
 expect(login.includes('backgroundColor: colors.surfaceTertiary') && login.includes('color={colors.brandPrimary}'), 'Login must keep neutral chrome with restrained brand emphasis');
+expect(!welcome.includes('formatOnboardingTitle') && !welcome.includes('formatOnboardingSubtitle'), 'Welcome copy must flow naturally without forced editorial line breaks');
 expect(settings.includes('checkForAppUpdate("manual")'), 'Settings manual update action must remain wired to repaired updater');
-expect(settings.includes('settings.preferences') && settings.includes('settings.privacySafety') && settings.includes('settings.support'), 'grouped Settings information architecture missing');
+expect(settings.includes('ONCAMPUS v') && settings.includes('radius.lg'), 'Settings must keep the professional grouped-card and version-footer treatment');
 
 if (violations.length) {
   console.error('Professional UI audit failed:');

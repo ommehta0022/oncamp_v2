@@ -36,11 +36,13 @@ export default function Header({
       {(showBack || leftIcon) && (
         <Pressable
           testID="header-back-btn"
+          accessibilityRole="button"
+          accessibilityLabel="Back"
           onPress={onLeftPress || onBack}
           hitSlop={12}
-          style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.surfaceTertiary }]}
+          style={({ pressed }) => ({ opacity: pressed ? 0.58 : 1 })}
         >
-          <Ionicons name={leftIcon || "chevron-back"} size={24} color={colors.onSurface} />
+          <Ionicons name={leftIcon || "chevron-back"} size={26} color={colors.onSurface} />
         </Pressable>
       )}
       <View style={{ flex: 1 }}>
@@ -55,13 +57,12 @@ export default function Header({
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
+    gap: spacing.md,
     minHeight: 56,
   },
-  back: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginLeft: -8 },
-  title: { fontSize: font.lg, fontWeight: "600", letterSpacing: -0.1 },
+  title: { fontSize: font.lg, fontWeight: "500" },
   subtitle: { fontSize: font.sm, marginTop: 2 },
 });
