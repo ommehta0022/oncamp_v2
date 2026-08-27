@@ -66,12 +66,16 @@ export default function Feed() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surfaceSecondary }} edges={["top"]} testID="feed-screen">
-      <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="feed-screen">
+      <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
         <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={[styles.iconBtn, { backgroundColor: colors.surfaceTertiary }]} testID="feed-search-btn"><Ionicons name="search" size={21} color={colors.onSurface} /></Pressable>
-          <Pressable onPress={() => router.push("/saved")} style={[styles.iconBtn, { backgroundColor: colors.surfaceTertiary }]} testID="feed-saved-btn"><Ionicons name="bookmark-outline" size={21} color={colors.onSurface} /></Pressable>
+          <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.surfaceTertiary }]} testID="feed-search-btn">
+            <Ionicons name="search-outline" size={22} color={colors.onSurface} />
+          </Pressable>
+          <Pressable onPress={() => router.push("/saved")} style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.surfaceTertiary }]} testID="feed-saved-btn">
+            <Ionicons name="bookmark-outline" size={22} color={colors.onSurface} />
+          </Pressable>
         </View>
       </View>
 
@@ -83,7 +87,7 @@ export default function Feed() {
           data={posts}
           keyExtractor={(p) => p.id}
           contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: 120, flexGrow: 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
           ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here automatically." />}
           ListFooterComponent={loadingMore ? <CampusLoader compact label="Loading more…" /> : null}
           renderItem={({ item }) => <PostCard post={item} onChange={(updated) => setPosts((current) => current.map((post) => post.id === updated.id ? updated : post))} onDeleted={(id) => setPosts((current) => current.filter((post) => post.id !== id))} style={{ marginHorizontal: spacing.lg }} />}
@@ -97,8 +101,16 @@ export default function Feed() {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 58 },
-  brand: { fontSize: 23, fontWeight: "900", letterSpacing: -0.45 },
-  headerActions: { flexDirection: "row", gap: spacing.sm },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 56,
+  },
+  brand: { fontSize: 22, fontWeight: "700", letterSpacing: -0.2 },
+  headerActions: { flexDirection: "row", gap: spacing.xs },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 },
 });
