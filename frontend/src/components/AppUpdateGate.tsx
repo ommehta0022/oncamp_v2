@@ -15,7 +15,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as Updates from "expo-updates";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing } from "@/src/theme/colors";
@@ -26,11 +25,11 @@ const NATIVE_RELEASE_API = `${API_BASE}/updates/native/latest`;
 const TRUSTED_NATIVE_APK_PREFIX = `${API_BASE}/updates/native/apk?version=`;
 const AUTOMATIC_CHECK_INTERVAL_MS = 60 * 1000;
 const DEFER_MS = 6 * 60 * 60 * 1000;
-const PENDING_OTA_KEY = "oncampus.update.pending_ota.v4";
-const APPLY_OTA_ON_RESUME_KEY = "oncampus.update.apply_ota_on_resume.v1";
-const PENDING_NATIVE_KEY = "oncampus.update.pending_native.v3";
-const DEFER_KEY = "oncampus.update.defer.v1";
-const SUCCESS_SHOWN_KEY = "oncampus.update.success_shown.v3";
+const PENDING_OTA_KEY = "oncampus.update.pending_ota.v5";
+const APPLY_OTA_ON_RESUME_KEY = "oncampus.update.apply_ota_on_resume.v2";
+const PENDING_NATIVE_KEY = "oncampus.update.pending_native.v4";
+const DEFER_KEY = "oncampus.update.defer.v2";
+const SUCCESS_SHOWN_KEY = "oncampus.update.success_shown.v4";
 const APP_ICON = require("../../assets/images/icon.png");
 
 let lastAutomaticCheckAt = 0;
@@ -53,7 +52,7 @@ type NativeRelease = {
   apkUrl?: string;
 };
 
-type NativeInstallerResult = { status?: "permission_required" | "downloading" | string };
+type NativeInstallerResult = { status?: "permission_required" | "downloading" | "installing" | "restarting" | string };
 type NativeInstaller = {
   startInstall: (url: string, sha256: string) => Promise<NativeInstallerResult>;
   restartForOta: () => Promise<NativeInstallerResult>;
@@ -129,7 +128,7 @@ function isTrustedNativeRelease(release: NativeRelease) {
   return Boolean(
     release.apkUrl?.startsWith(TRUSTED_NATIVE_APK_PREFIX) &&
     release.sha256?.match(/^[a-fA-F0-9]{64}$/) &&
-    release.version?.match(/^\d+\.\d+\.\d+$/)
+    release.version?.match(/^\d+\.\d+\.\d+$/),
   );
 }
 
@@ -162,12 +161,8 @@ async function deferUpdate(key?: string) {
 
 async function clearDeferral(key?: string) {
   if (!key) return;
-  try {
-    const deferred = await readDeferred();
-    if (!deferred || deferred.key === key) await AsyncStorage.removeItem(DEFER_KEY);
-  } catch {
-    // Deferral cleanup is best effort only.
-  }
+  const deferred = await readDeferred();
+  if (!deferred || deferred.key === key) await AsyncStorage.removeItem(DEFER_KEY).catch(() => undefined);
 }
 
 async function serverOtaId(strict = false) {
@@ -200,6 +195,7 @@ async function reconcileAppliedUpdate(): Promise<boolean> {
     ]);
 
     let applied = false;
+    let kind: UpdateKind = "ota";
     if (pendingOtaRaw) {
       try {
         const marker = JSON.parse(pendingOtaRaw) as PendingOtaMarker;
@@ -211,37 +207,32 @@ async function reconcileAppliedUpdate(): Promise<boolean> {
             AsyncStorage.removeItem(DEFER_KEY),
           ]);
         } else if (Date.now() - Number(marker?.startedAt || 0) > 24 * 60 * 60 * 1000) {
-          await Promise.all([
-            AsyncStorage.removeItem(PENDING_OTA_KEY),
-            AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-          ]);
+          await Promise.all([AsyncStorage.removeItem(PENDING_OTA_KEY), AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY)]);
         }
       } catch {
-        await Promise.all([
-          AsyncStorage.removeItem(PENDING_OTA_KEY),
-          AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-        ]);
+        await Promise.all([AsyncStorage.removeItem(PENDING_OTA_KEY), AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY)]);
       }
     }
 
     if (pendingNative && compareVersions(installedVersion, pendingNative) >= 0) {
       applied = true;
+      kind = "apk";
       await Promise.all([AsyncStorage.removeItem(PENDING_NATIVE_KEY), AsyncStorage.removeItem(DEFER_KEY)]);
     }
 
     if (applied && successShown !== identity) {
       await AsyncStorage.setItem(SUCCESS_SHOWN_KEY, identity);
       emitUpdateUi({
-        kind: "ota",
+        kind,
         phase: "applied",
         progress: 100,
-        message: "Update complete",
-        detail: "OnCampus is running the new version successfully. You’ll only see this confirmation once.",
+        message: "Update installed",
+        detail: `OnCampus ${installedVersion} is running successfully.`,
       });
       return true;
     }
   } catch {
-    // Never block app startup because update bookkeeping failed.
+    // Update bookkeeping must never block startup.
   }
   return false;
 }
@@ -255,8 +246,8 @@ async function showDownloadedPending(mode: UpdateCheckMode) {
     phase: "available",
     progress: 100,
     releaseKey: downloadedPendingKey,
-    message: "Update ready to install",
-    detail: "The signed update is already downloaded. Apply it now with one restart, or choose Later and OnCampus will remind you after a quiet period.",
+    message: "Update downloaded",
+    detail: "The signed update is ready. Apply it with one quick restart, or choose Later.",
   });
   return true;
 }
@@ -268,8 +259,6 @@ async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
   const serverId = await serverOtaId(mode === "manual");
   if (!serverId || serverId === currentUpdateId()) return false;
   const releaseKey = `ota:${serverId}`;
-
-  void prefetchLatestOta(true).catch(() => undefined);
   if (await isDeferred(releaseKey, mode)) return true;
 
   pendingOtaReleaseKey = releaseKey;
@@ -278,18 +267,15 @@ async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
     phase: "available",
     progress: 0,
     releaseKey,
-    message: "A new OnCampus update is ready",
-    detail: "This signed production update matches your runtime. Download starts immediately and Android can continue retrying if you minimize OnCampus.",
+    message: "OnCampus update available",
+    detail: "A signed update for this app version is ready to download.",
   });
+  void prefetchLatestOta(true).catch(() => undefined);
   return true;
 }
 
 async function markOtaApply(releaseKey: string) {
-  const marker: PendingOtaMarker = {
-    beforeUpdateId: currentUpdateId(),
-    releaseKey,
-    startedAt: Date.now(),
-  };
+  const marker: PendingOtaMarker = { beforeUpdateId: currentUpdateId(), releaseKey, startedAt: Date.now() };
   await AsyncStorage.setItem(PENDING_OTA_KEY, JSON.stringify(marker));
 }
 
@@ -305,16 +291,17 @@ async function reloadReadyOta(releaseKey: string) {
   emitUpdateUi({
     kind: "ota",
     phase: "verifying",
-    progress: 100,
+    progress: 94,
     releaseKey,
-    message: "Verified and ready",
-    detail: "The signed update is ready. Restarting OnCampus into the new version…",
+    message: "Update verified",
+    detail: "The signed bundle is ready. Preparing a clean restart…",
   });
-  await new Promise((resolve) => setTimeout(resolve, 120));
+  await new Promise((resolve) => setTimeout(resolve, 180));
   if (!nativeInstaller?.restartForOta) {
-    emitUpdateUi({ kind: "ota", phase: "error", progress: 100, releaseKey, message: "Update downloaded", detail: "Close OnCampus completely and reopen it to apply the downloaded update." });
+    emitUpdateUi({ kind: "ota", phase: "available", progress: 100, releaseKey, message: "Update ready", detail: "Close OnCampus completely and reopen it to apply this update." });
     return false;
   }
+  emitUpdateUi({ kind: "ota", phase: "installing", progress: 100, releaseKey, message: "Restarting OnCampus", detail: "Applying the verified update now…" });
   await nativeInstaller.restartForOta();
   return true;
 }
@@ -330,19 +317,19 @@ async function resumePendingOtaApply(): Promise<boolean> {
   }
 
   activeOtaApply = (async () => {
+    emitUpdateUi({ kind: "ota", phase: "downloading", progress: 58, releaseKey, message: "Finishing update", detail: "Checking the background download before applying it…" });
     const ready = Boolean(downloadedPendingKey) || await prefetchLatestOta(true);
-    if (!ready || AppState.currentState !== "active") return;
-    await reloadReadyOta(releaseKey);
+    if (!ready) {
+      emitUpdateUi({ kind: "ota", phase: "downloading", progress: 42, releaseKey, message: "Update still downloading", detail: "Android will keep retrying in the background. Keep this screen open or return later." });
+      return;
+    }
+    downloadedPendingKey = releaseKey;
+    if (AppState.currentState === "active") await reloadReadyOta(releaseKey);
   })()
     .catch(() => {
-      // Keep the persisted apply intent. The foreground coordinator and Android
-      // WorkManager will retry without turning a temporary network pause into a
-      // user-facing failed installation.
-      emitUpdateUi(INITIAL_UI);
+      emitUpdateUi({ kind: "ota", phase: "downloading", progress: 42, releaseKey, message: "Update will keep retrying", detail: "The network changed or Android paused the task. Your update is safe and will resume automatically." });
     })
-    .finally(() => {
-      activeOtaApply = null;
-    });
+    .finally(() => { activeOtaApply = null; });
 
   await activeOtaApply;
   return true;
@@ -357,54 +344,51 @@ async function downloadAndApplyOta(releaseKey: string) {
 
     if (downloadedPendingKey) {
       if (AppState.currentState === "active") await reloadReadyOta(releaseKey);
+      else emitUpdateUi({ kind: "ota", phase: "available", progress: 100, releaseKey, message: "Update downloaded", detail: "Return to OnCampus to apply the verified update." });
       return;
     }
 
     emitUpdateUi({
       kind: "ota",
       phase: "downloading",
-      progress: 18,
+      progress: 24,
       releaseKey,
       message: "Downloading update",
-      detail: "OnCampus is fetching the signed update with automatic retries. You can minimize the app; Android will continue/retry the download and apply it safely when OnCampus is active again.",
+      detail: "Fetching the signed bundle. You can minimize OnCampus; Android will continue or retry in the background.",
     });
 
     const ready = await prefetchLatestOta(true);
     if (!ready) {
       const serverId = await serverOtaId();
       if (!serverId || serverId === currentUpdateId()) {
-        await Promise.all([
-          AsyncStorage.removeItem(PENDING_OTA_KEY),
-          AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-        ]);
+        await Promise.all([AsyncStorage.removeItem(PENDING_OTA_KEY), AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY)]);
         emitUpdateUi({ kind: "ota", phase: "current", progress: 100, message: "Already up to date", detail: "There is no newer signed update for this installation." });
         return;
       }
-
-      // A compatible release still exists but the immediate network window did
-      // not complete. Leave the apply intent persisted and let WorkManager plus
-      // the foreground prefetch loop continue automatically.
-      emitUpdateUi(INITIAL_UI);
+      emitUpdateUi({
+        kind: "ota",
+        phase: "downloading",
+        progress: 42,
+        releaseKey,
+        message: "Download continuing",
+        detail: "The update is still available. Android will retry automatically; this screen will stay here instead of reporting a false failure.",
+      });
+      void prefetchLatestOta(true).catch(() => undefined);
       return;
     }
 
+    downloadedPendingKey = releaseKey;
     if (AppState.currentState !== "active") {
-      emitUpdateUi(INITIAL_UI);
+      emitUpdateUi({ kind: "ota", phase: "available", progress: 100, releaseKey, message: "Update downloaded", detail: "Return to OnCampus to apply the verified update." });
       return;
     }
-
     await reloadReadyOta(releaseKey);
   })()
     .catch(() => {
-      // Do not mark the update failed simply because Android suspended the app
-      // or the network changed. The durable background task retains the intent
-      // and retries. Manual Check for updates remains available for diagnostics.
-      emitUpdateUi(INITIAL_UI);
+      emitUpdateUi({ kind: "ota", phase: "downloading", progress: 42, releaseKey, message: "Update will keep retrying", detail: "Android paused the transfer or the connection changed. The update remains queued and will resume automatically." });
       void prefetchLatestOta(true).catch(() => undefined);
     })
-    .finally(() => {
-      activeOtaApply = null;
-    });
+    .finally(() => { activeOtaApply = null; });
 
   return activeOtaApply;
 }
@@ -425,9 +409,7 @@ async function checkForNativeUpdate(mode: UpdateCheckMode) {
   const latest = normalizeVersion(release?.version);
 
   if (!release?.available || !latest || compareVersions(latest, installed) <= 0) {
-    if (mode === "manual") {
-      emitUpdateUi({ kind: "ota", phase: "current", progress: 100, message: "You’re up to date", detail: `OnCampus ${installed} has no newer compatible OTA or Android release right now.` });
-    }
+    if (mode === "manual") emitUpdateUi({ kind: "ota", phase: "current", progress: 100, message: "You’re up to date", detail: `OnCampus ${installed} has no newer compatible update right now.` });
     return;
   }
 
@@ -441,8 +423,8 @@ async function checkForNativeUpdate(mode: UpdateCheckMode) {
   if (await isDeferred(releaseKey, mode, force)) return;
 
   pendingNativeRelease = release;
-  const notes = String(release.notes || "").trim().slice(0, 420);
-  const size = release.size && release.size > 0 ? ` ${(release.size / 1024 / 1024).toFixed(1)} MB download.` : "";
+  const notes = String(release.notes || "").trim().slice(0, 360);
+  const size = release.size && release.size > 0 ? ` ${(release.size / 1024 / 1024).toFixed(1)} MB.` : "";
   emitUpdateUi({
     kind: "apk",
     phase: "available",
@@ -450,7 +432,7 @@ async function checkForNativeUpdate(mode: UpdateCheckMode) {
     releaseKey,
     force,
     message: force ? "Android update required" : `OnCampus ${latest} is available`,
-    detail: `${notes || "This release includes native improvements that require an APK update."}${size}`,
+    detail: `${notes || "This release includes native improvements and requires Android installation."}${size}`,
   });
 }
 
@@ -464,11 +446,11 @@ async function startNativeInstall(release: NativeRelease) {
   }
 
   await AsyncStorage.setItem(PENDING_NATIVE_KEY, version);
-  emitUpdateUi({ kind: "apk", phase: "downloading", progress: 1, releaseKey, message: "Preparing Android update", detail: "Downloading through the trusted OnCampus update endpoint and verifying SHA-256 before install." });
+  emitUpdateUi({ kind: "apk", phase: "downloading", progress: 1, releaseKey, message: "Starting Android download", detail: "The APK will show real download percentage, then SHA-256 verification before Android asks you to confirm installation." });
   try {
     const result = await nativeInstaller.startInstall(release.apkUrl, release.sha256);
     if (result?.status === "permission_required") {
-      emitUpdateUi({ kind: "apk", phase: "permission", progress: 0, releaseKey, message: "Allow OnCampus to install updates", detail: "Enable “Allow from this source”, then return. The verified installation will continue safely." });
+      emitUpdateUi({ kind: "apk", phase: "permission", progress: 100, releaseKey, message: "Allow app installation", detail: "Enable “Allow from this source”, then return. The verified installation will continue." });
     }
   } catch (error) {
     emitUpdateUi({ kind: "apk", phase: "error", progress: 0, releaseKey, message: "Android update could not start", detail: error instanceof Error ? error.message.slice(0, 180) : "Your current app is unchanged. Please try again." });
@@ -494,17 +476,13 @@ export async function checkForAppUpdate(
   if (mode === "automatic" && !bypassThrottle) lastAutomaticCheckAt = now;
 
   activeCheck = (async () => {
-    if (mode === "manual") emitUpdateUi({ kind: "ota", phase: "checking", progress: 10, message: "Checking for updates", detail: "Looking for a signed OTA first, then a verified Android release." });
+    if (mode === "manual") emitUpdateUi({ kind: "ota", phase: "checking", progress: 10, message: "Checking for updates", detail: "Checking the signed OTA channel first, then the verified Android release." });
     try {
       const otaAvailable = await checkForOtaUpdate(mode);
       if (otaAvailable) return;
       await checkForNativeUpdate(mode);
     } catch (error) {
-      if (mode === "manual") {
-        emitUpdateUi({ kind: "ota", phase: "error", progress: 0, message: "Couldn’t complete the update check", detail: error instanceof Error ? error.message.slice(0, 180) : "Check your connection and try again." });
-      } else {
-        emitUpdateUi(INITIAL_UI);
-      }
+      if (mode === "manual") emitUpdateUi({ kind: "ota", phase: "error", progress: 0, message: "Couldn’t complete the update check", detail: error instanceof Error ? error.message.slice(0, 180) : "Check your connection and try again." });
     }
   })();
 
@@ -529,13 +507,14 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
   const error = state.phase === "error";
   const terminal = state.phase === "current" || state.phase === "applied";
   const permission = state.phase === "permission";
+  const progress = Math.max(0, Math.min(100, Math.round(state.progress || 0)));
 
   const label = useMemo(() => {
     if (state.phase === "checking") return "SECURE CHECK";
-    if (state.phase === "available") return state.kind === "ota" ? "OTA AVAILABLE" : "ANDROID RELEASE";
+    if (state.phase === "available") return state.kind === "ota" ? "UPDATE READY" : "ANDROID RELEASE";
     if (state.phase === "downloading") return "DOWNLOADING";
     if (state.phase === "verifying") return "VERIFYING";
-    if (state.phase === "installing") return "ANDROID INSTALLER";
+    if (state.phase === "installing") return state.kind === "apk" ? "ANDROID INSTALLER" : "APPLYING";
     if (state.phase === "permission") return "PERMISSION NEEDED";
     if (state.phase === "applied") return "UPDATED";
     if (state.phase === "current") return "CURRENT";
@@ -544,14 +523,13 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!busy && !state.force) onClose(); }}>
-      <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
+      <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}> 
         <View style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, shadowColor: colors.shadow }]} accessible accessibilityViewIsModal>
-          <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.topGlow} />
           <View style={styles.brandRow}>
             <Image source={APP_ICON} style={styles.logo} contentFit="cover" />
             <View style={{ flex: 1 }}>
               <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
-              <Text style={[styles.phase, { color: state.phase === "error" ? colors.error : terminal ? colors.success : colors.info }]}>{label}</Text>
+              <Text style={[styles.phase, { color: state.phase === "error" ? colors.error : terminal ? colors.success : colors.onSurfaceTertiary }]}>{label}</Text>
             </View>
             {busy ? <ActivityIndicator color={colors.brandPrimary} accessibilityLabel="Update in progress" /> : null}
           </View>
@@ -559,44 +537,45 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
           <Text style={[styles.title, { color: colors.onSurface }]} accessibilityRole="header">{state.message}</Text>
           {!!state.detail && <Text style={[styles.detail, { color: colors.onSurfaceTertiary }]}>{state.detail}</Text>}
 
-          {busy && state.phase !== "checking" && (
-            <View style={[styles.progressTrack, { backgroundColor: colors.surfaceTertiary }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: state.progress }}>
-              <LinearGradient colors={[colors.actionPrimary, colors.success]} style={[styles.progressFill, { width: `${Math.max(5, Math.min(100, state.progress || 5))}%` }]} />
+          {busy ? (
+            <View style={styles.progressBlock}>
+              <View style={styles.progressHeader}>
+                <Text style={[styles.progressLabel, { color: colors.onSurfaceTertiary }]}>{state.kind === "apk" && state.phase === "downloading" ? "Downloaded" : "Progress"}</Text>
+                <Text style={[styles.progressPercent, { color: colors.onSurface }]}>{progress}%</Text>
+              </View>
+              <View style={[styles.progressTrack, { backgroundColor: colors.surfaceTertiary }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progress }}>
+                <View style={[styles.progressFill, { backgroundColor: colors.brandPrimary, width: `${Math.max(4, progress)}%` }]} />
+              </View>
+              {state.kind === "ota" ? <Text style={[styles.progressNote, { color: colors.muted }]}>OTA percentage is staged because Expo does not expose byte-level download progress.</Text> : null}
             </View>
-          )}
+          ) : null}
 
-          <View style={[styles.securityRow, { backgroundColor: colors.highlight }]}>
-            <View style={[styles.securityIcon, { backgroundColor: colors.surfaceSecondary }]}><Text style={{ color: colors.success, fontWeight: "900" }}>✓</Text></View>
-            <Text style={[styles.securityText, { color: colors.onSurfaceTertiary }]}>{state.kind === "apk" ? "Trusted endpoint • SHA-256 verified • signing continuity" : "Signed manifest • runtime verified • safe rollback"}</Text>
+          <View style={[styles.securityRow, { backgroundColor: colors.surfaceTertiary }]}> 
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.success} />
+            <Text style={[styles.securityText, { color: colors.onSurfaceTertiary }]}>{state.kind === "apk" ? "Trusted endpoint • SHA-256 verification • Android system installer" : "Signed manifest • matching runtime • rollback-safe cache"}</Text>
           </View>
 
-          {available && (
+          {available ? (
             <View style={styles.actions}>
-              {!state.force && <Pressable style={[styles.secondaryButton, { borderColor: colors.borderStrong }]} onPress={onLater} accessibilityRole="button"><Text style={[styles.secondaryText, { color: colors.onSurface }]}>Later</Text></Pressable>}
-              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onUpdateNow} accessibilityRole="button"><Text style={{ color: colors.onBrandPrimary, fontWeight: "900", fontSize: 14 }}>{state.kind === "ota" ? "Update now" : "Install now"}</Text></Pressable>
+              {!state.force ? <Pressable style={[styles.secondaryButton, { borderColor: colors.borderStrong }]} onPress={onLater} accessibilityRole="button"><Text style={[styles.secondaryText, { color: colors.onSurface }]}>Later</Text></Pressable> : null}
+              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onUpdateNow} accessibilityRole="button"><Text style={{ color: colors.onBrandPrimary, fontWeight: "800", fontSize: 14 }}>{state.kind === "ota" ? (state.progress >= 100 ? "Restart & apply" : "Update now") : "Install now"}</Text></Pressable>
             </View>
-          )}
+          ) : null}
 
-          {(terminal || permission) && (
+          {(terminal || permission) ? (
             <View style={styles.actions}>
-              <Pressable style={[styles.primaryButton, { backgroundColor: terminal ? colors.onSurface : colors.brandPrimary }]} onPress={onClose} accessibilityRole="button"><Text style={{ color: terminal ? colors.surface : colors.onBrandPrimary, fontWeight: "900", fontSize: 14 }}>{permission ? "I’ll return after allowing" : "Done"}</Text></Pressable>
+              <Pressable style={[styles.primaryButton, { backgroundColor: terminal ? colors.onSurface : colors.brandPrimary }]} onPress={onClose} accessibilityRole="button"><Text style={{ color: terminal ? colors.surface : colors.onBrandPrimary, fontWeight: "800", fontSize: 14 }}>{permission ? "Continue after allowing" : "Done"}</Text></Pressable>
             </View>
-          )}
+          ) : null}
 
-          {error && (
+          {error ? (
             <View style={styles.actions}>
               <Pressable style={[styles.secondaryButton, { borderColor: colors.borderStrong }]} onPress={onClose} accessibilityRole="button"><Text style={[styles.secondaryText, { color: colors.onSurface }]}>Close</Text></Pressable>
-              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onRetry} accessibilityRole="button"><Text style={{ color: colors.onBrandPrimary, fontWeight: "900", fontSize: 14 }}>Try again</Text></Pressable>
+              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onRetry} accessibilityRole="button"><Text style={{ color: colors.onBrandPrimary, fontWeight: "800", fontSize: 14 }}>Try again</Text></Pressable>
             </View>
-          )}
+          ) : null}
 
-          {busy && (
-            <Text style={[styles.keepOpen, { color: colors.muted }]}>
-              {state.kind === "ota"
-                ? "You can minimize OnCampus. Android keeps a durable retry scheduled and the signed update will apply safely when the app is active again."
-                : "You can minimize OnCampus while Android downloads the APK. Return after it finishes and the verified Android installer will open automatically."}
-            </Text>
-          )}
+          {busy ? <Text style={[styles.keepOpen, { color: colors.muted }]}>{state.kind === "ota" ? "You may minimize OnCampus. The update stays queued and this status will be restored when you return." : "You may minimize OnCampus while Android DownloadManager continues the APK transfer."}</Text> : null}
         </View>
       </View>
     </Modal>
@@ -609,23 +588,15 @@ export default function AppUpdateGate() {
 
   useEffect(() => {
     updateUiListener = setUpdateUi;
-    return () => {
-      if (updateUiListener === setUpdateUi) updateUiListener = null;
-    };
+    return () => { if (updateUiListener === setUpdateUi) updateUiListener = null; };
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== "android" || !Updates.isEnabled || !isUpdatePending) {
-      downloadedPendingKey = null;
-      return;
-    }
+    if (Platform.OS !== "android" || !Updates.isEnabled || !isUpdatePending) return;
     downloadedPendingKey = `ota:${String(downloadedUpdate?.updateId || currentRuntime() || "pending")}`;
     void AsyncStorage.getItem(APPLY_OTA_ON_RESUME_KEY).then((applyIntent) => {
-      if (applyIntent && AppState.currentState === "active") {
-        void resumePendingOtaApply();
-        return;
-      }
-      void showDownloadedPending("automatic");
+      if (applyIntent && AppState.currentState === "active") void resumePendingOtaApply();
+      else void showDownloadedPending("automatic");
     });
   }, [downloadedUpdate?.updateId, isUpdatePending]);
 
@@ -633,10 +604,9 @@ export default function AppUpdateGate() {
     if (!nativeInstaller) return;
     const emitter = new NativeEventEmitter(nativeInstaller as never);
     const subscription = emitter.addListener("OnCampusApkInstall", (event: { phase?: UpdatePhase; progress?: number; message?: string; detail?: string }) => {
-      const phase = event.phase || "error";
       setUpdateUi({
         kind: "apk",
-        phase,
+        phase: event.phase || "error",
         progress: Number.isFinite(event.progress) ? Number(event.progress) : 0,
         message: event.message || "Android update",
         detail: event.detail,
@@ -654,15 +624,15 @@ export default function AppUpdateGate() {
       if (cancelled || showedApplied) return;
       const resumed = await resumePendingOtaApply();
       if (cancelled || resumed) return;
-      timer = setTimeout(() => { void checkForAppUpdate("automatic"); }, 900);
+      timer = setTimeout(() => { void checkForAppUpdate("automatic"); }, 650);
     };
     void initialize();
 
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
-        void resumePendingOtaApply().then((resumed) => {
-          if (!resumed) void checkForAppUpdate("automatic");
-        });
+        void resumePendingOtaApply().then((resumed) => { if (!resumed) void checkForAppUpdate("automatic"); });
+      } else if (activeOtaApply && pendingOtaReleaseKey) {
+        emitUpdateUi({ kind: "ota", phase: "downloading", progress: 38, releaseKey: pendingOtaReleaseKey, message: "Update continuing in background", detail: "Android will keep the signed download queued. Return to OnCampus to finish applying it." });
       }
     });
     return () => {
@@ -676,10 +646,7 @@ export default function AppUpdateGate() {
   const later = () => {
     const key = updateUi.releaseKey;
     if (key?.startsWith("ota:")) {
-      void Promise.all([
-        AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-        AsyncStorage.removeItem(PENDING_OTA_KEY),
-      ]).catch(() => undefined);
+      void Promise.all([AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY), AsyncStorage.removeItem(PENDING_OTA_KEY)]).catch(() => undefined);
     }
     void deferUpdate(key).finally(close);
   };
@@ -697,22 +664,25 @@ export default function AppUpdateGate() {
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 20 },
-  card: { borderRadius: 28, padding: 22, borderWidth: 1, overflow: "hidden", shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 16 },
-  topGlow: { position: "absolute", left: 0, right: 0, top: 0, height: 5 },
+  card: { borderRadius: 22, padding: 22, borderWidth: 1, shadowOpacity: 0.16, shadowRadius: 22, shadowOffset: { width: 0, height: 10 }, elevation: 14 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  logo: { width: 44, height: 44, borderRadius: 14 },
-  brand: { fontSize: 17, fontWeight: "900" },
-  phase: { marginTop: 2, fontSize: 9, fontWeight: "900", letterSpacing: 1.25 },
-  title: { marginTop: 22, fontSize: 23, lineHeight: 29, fontWeight: "900", letterSpacing: -0.4 },
+  logo: { width: 42, height: 42, borderRadius: 12 },
+  brand: { fontSize: 17, fontWeight: "800" },
+  phase: { marginTop: 2, fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
+  title: { marginTop: 20, fontSize: 22, lineHeight: 28, fontWeight: "800", letterSpacing: -0.35 },
   detail: { marginTop: 8, fontSize: 14, lineHeight: 21 },
-  progressTrack: { height: 9, borderRadius: 7, marginTop: 22, overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 7 },
+  progressBlock: { marginTop: 20 },
+  progressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  progressLabel: { fontSize: 12, fontWeight: "600" },
+  progressPercent: { fontSize: 14, fontWeight: "800" },
+  progressTrack: { height: 8, borderRadius: 6, marginTop: 8, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 6 },
+  progressNote: { marginTop: 7, fontSize: 10, lineHeight: 14 },
   securityRow: { marginTop: 18, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: radius.md, padding: spacing.md },
-  securityIcon: { width: 24, height: 24, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   securityText: { flex: 1, fontSize: 11, lineHeight: 16, fontWeight: "600" },
-  actions: { marginTop: 24, flexDirection: "row", gap: 10 },
-  secondaryButton: { flex: 1, height: 50, borderRadius: radius.md, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  secondaryText: { fontWeight: "800", fontSize: 14 },
-  primaryButton: { flex: 1.35, height: 50, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
-  keepOpen: { marginTop: 16, textAlign: "center", fontSize: 11, fontWeight: "600" },
+  actions: { marginTop: 22, flexDirection: "row", gap: 10 },
+  secondaryButton: { flex: 1, height: 48, borderRadius: radius.md, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  secondaryText: { fontWeight: "700", fontSize: 14 },
+  primaryButton: { flex: 1.35, height: 48, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  keepOpen: { marginTop: 14, textAlign: "center", fontSize: 11, lineHeight: 16, fontWeight: "500" },
 });
