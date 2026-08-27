@@ -10,12 +10,12 @@ import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
 import { useRole } from "@/src/context/RoleProvider";
 import { normalizeGroup } from "@/src/lib/mappers";
-type Group = any;
 
+type Group = any;
 const FILTERS = ["All", "Unread", "Announcements", "Muted"];
 
 type RowItem =
-  | { type: "section"; id: string; label: string; count: number }
+  | { type: "section"; id: string; label: string }
   | { type: "group"; id: string; group: Group };
 
 export default function Groups() {
@@ -43,9 +43,7 @@ export default function Groups() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchGroups();
-  }, [fetchGroups]);
+  useEffect(() => { void fetchGroups(); }, [fetchGroups]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -58,44 +56,43 @@ export default function Groups() {
     if (filter === "Unread") list = list.filter((g) => (g.unread || 0) > 0);
     else if (filter === "Announcements") list = list.filter((g) => g.category === "Official");
     else if (filter === "Muted") list = list.filter((g) => g.muted);
-    if (query) list = list.filter((g) => g.name.toLowerCase().includes(query.toLowerCase()) || String(g.institution || "").toLowerCase().includes(query.toLowerCase()));
+    if (query) {
+      const value = query.toLowerCase();
+      list = list.filter((g) => String(g.name || "").toLowerCase().includes(value) || String(g.institution || "").toLowerCase().includes(value));
+    }
     return list;
   }, [filter, groups, query]);
 
   const pinned = filtered.filter((g) => g.pinned);
   const others = filtered.filter((g) => !g.pinned);
-  const totalUnread = groups.reduce((s, g) => s + (g.unread || 0), 0);
+  const totalUnread = groups.reduce((sum, group) => sum + Number(group.unread || 0), 0);
 
   const data: RowItem[] = [];
   if (pinned.length > 0) {
-    data.push({ type: "section", id: "s-pinned", label: "Pinned", count: pinned.length });
-    pinned.forEach((g) => data.push({ type: "group", id: g.id, group: g }));
+    data.push({ type: "section", id: "s-pinned", label: "Pinned" });
+    pinned.forEach((group) => data.push({ type: "group", id: group.id, group }));
   }
   if (others.length > 0) {
-    data.push({ type: "section", id: "s-all", label: filter === "All" ? "All groups" : filter, count: others.length });
-    others.forEach((g) => data.push({ type: "group", id: g.id, group: g }));
+    data.push({ type: "section", id: "s-all", label: filter === "All" ? "Your groups" : filter });
+    others.forEach((group) => data.push({ type: "group", id: group.id, group }));
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="groups-screen">
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.title, { color: colors.onSurface }]}>Groups</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
-            <View style={[styles.livedot, { backgroundColor: totalUnread > 0 ? colors.brandSecondary : colors.muted }]} />
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>
-              {groups.length} joined · {totalUnread} unread
-            </Text>
-          </View>
-        </View>
-        <Pressable style={[styles.iconBtn, { backgroundColor: colors.surfaceTertiary }]} testID="groups-search-btn" onPress={() => router.push("/search")}>
-          <Ionicons name="search" size={20} color={colors.onSurface} />
+        <Text style={[styles.title, { color: colors.onSurface }]}>Groups</Text>
+        <Pressable
+          style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.surfaceTertiary }]}
+          testID="groups-search-btn"
+          onPress={() => router.push("/search")}
+        >
+          <Ionicons name="search-outline" size={22} color={colors.onSurface} />
         </Pressable>
       </View>
 
-      <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.xs }}>
-        <View style={[styles.searchBox, { backgroundColor: colors.surfaceTertiary }]}>
-          <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
+      <View style={{ paddingHorizontal: spacing.lg }}>
+        <View style={[styles.searchBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Ionicons name="search-outline" size={18} color={colors.onSurfaceTertiary} />
           <TextInput
             value={query}
             onChangeText={setQuery}
@@ -103,21 +100,21 @@ export default function Groups() {
             placeholderTextColor={colors.muted}
             style={{ flex: 1, color: colors.onSurface, fontSize: font.base, marginLeft: spacing.sm }}
           />
-          {query.length > 0 && (
+          {query.length > 0 ? (
             <Pressable onPress={() => setQuery("")} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
+              <Ionicons name="close-circle" size={18} color={colors.muted} />
             </Pressable>
-          )}
+          ) : null}
         </View>
       </View>
 
-      <View style={{ height: 56, marginTop: spacing.md }}>
+      <View style={styles.filtersWrap}>
         <FlatList
           horizontal
           data={FILTERS}
-          keyExtractor={(f) => f}
+          keyExtractor={(item) => item}
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: "center" }}
+          contentContainerStyle={styles.filters}
           renderItem={({ item }) => {
             const active = filter === item;
             const unreadCount = item === "Unread" ? totalUnread : 0;
@@ -127,18 +124,20 @@ export default function Groups() {
                 style={[
                   styles.chip,
                   {
-                    backgroundColor: active ? "#111414" : colors.surface,
-                    borderColor: active ? "#111414" : colors.borderStrong,
+                    backgroundColor: active ? colors.surfaceInverse : colors.surface,
+                    borderColor: active ? colors.surfaceInverse : colors.borderStrong,
                   },
                 ]}
                 testID={`groups-filter-${item.toLowerCase()}`}
               >
-                <Text style={{ color: active ? "#fff" : colors.onSurface, fontSize: font.base, fontWeight: "500" }}>{item}</Text>
-                {unreadCount > 0 && (
-                  <View style={[styles.chipBadge, { backgroundColor: active ? "#ffffff33" : colors.brandSecondary }]}>
-                    <Text style={{ color: "#fff", fontSize: 10, fontWeight: "500" }}>{unreadCount}</Text>
+                <Text style={{ color: active ? colors.onSurfaceInverse : colors.onSurface, fontSize: font.base, fontWeight: "600" }}>{item}</Text>
+                {unreadCount > 0 ? (
+                  <View style={[styles.chipBadge, { backgroundColor: active ? `${colors.onSurfaceInverse}26` : colors.brandSecondary }]}>
+                    <Text style={{ color: active ? colors.onSurfaceInverse : colors.onBrandSecondary, fontSize: 10, fontWeight: "700" }}>
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </Text>
                   </View>
-                )}
+                ) : null}
               </Pressable>
             );
           }}
@@ -149,78 +148,69 @@ export default function Groups() {
         data={data}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 140 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.brandPrimary}
-            colors={[colors.brandPrimary]}
-          />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
         showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => {
-          if (item.type === "section") {
-            return (
-              <View style={styles.sectionHead}>
-                <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>
-                  {item.label.toUpperCase()}
-                </Text>
-                <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{item.count}</Text>
-              </View>
-            );
-          }
-          return <GroupRow group={item.group} onPress={() => router.push(`/group/${item.group.id}`)} />;
-        }}
+        renderItem={({ item }) => item.type === "section"
+          ? <SectionHeader label={item.label} />
+          : <GroupRow group={item.group} onPress={() => router.push(`/group/${item.group.id}`)} />
+        }
         ListEmptyComponent={
-          <View style={{ padding: spacing["2xl"], alignItems: "center" }}>
-            <Ionicons name={error ? "cloud-offline-outline" : "folder-open-outline"} size={36} color={colors.muted} />
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.md }}>
+          <View style={styles.empty}>
+            <Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={34} color={colors.muted} />
+            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.md, textAlign: "center" }}>
               {error || "No groups match this filter"}
             </Text>
             {error ? (
-              <Pressable onPress={() => void fetchGroups()} style={{ marginTop: spacing.lg, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brandPrimary }}>
-                <Text style={{ color: colors.onBrandPrimary, fontWeight: "600" }}>Try Again</Text>
+              <Pressable onPress={() => void fetchGroups()} style={[styles.retry, { borderColor: colors.borderStrong }]}>
+                <Text style={{ color: colors.onSurface, fontWeight: "600" }}>Try again</Text>
               </Pressable>
             ) : null}
           </View>
         }
       />
 
-      {canCreateGroups && (
+      {canCreateGroups ? (
         <Pressable
           onPress={() => router.push("/create-group")}
-          style={[styles.fab, { backgroundColor: colors.brandPrimary, bottom: insets.bottom + 92 }]}
+          style={[styles.fab, { backgroundColor: colors.actionPrimary, bottom: insets.bottom + 88 }]}
           testID="new-group-fab"
         >
           <Ionicons name="add" size={26} color={colors.onBrandPrimary} />
         </Pressable>
-      )}
+      ) : null}
     </SafeAreaView>
+  );
+}
+
+function SectionHeader({ label }: { label: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.sectionHead}>
+      <Text style={[styles.sectionLabel, { color: colors.onSurfaceTertiary }]}>{label}</Text>
+    </View>
   );
 }
 
 function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
   const { colors } = useTheme();
-  const hasUnread = (group.unread || 0) > 0;
-
-  // Parse sender + message
-  const lastMsg = group.lastMessage || group.description;
-  const senderMatch = lastMsg.match(/^([^:]+):\s(.*)$/);
+  const hasUnread = Number(group.unread || 0) > 0;
+  const lastMessage = String(group.lastMessage || group.description || "");
+  const senderMatch = lastMessage.match(/^([^:]+):\s(.*)$/);
   const sender = senderMatch?.[1];
-  const msgBody = senderMatch?.[2] || lastMsg;
+  const messageBody = senderMatch?.[2] || lastMessage;
 
   const categoryColors: Record<string, string> = {
     Batch: colors.info,
     Clubs: colors.brandPrimary,
     Official: colors.brandSecondary,
     Events: colors.warning,
-    Study: "#B85E9F",
+    Study: "#8B668E",
     Sports: colors.success,
     Tech: colors.info,
     Arts: colors.brandSecondary,
     Career: colors.brandPrimary,
   };
-  const catColor = categoryColors[group.category] || colors.muted;
+  const categoryColor = categoryColors[group.category] || colors.muted;
 
   return (
     <Pressable
@@ -228,87 +218,48 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
       testID={`group-row-${group.id}`}
       style={({ pressed }) => [
         styles.row,
-        {
-          backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary,
-          borderColor: hasUnread ? catColor + "44" : colors.border,
-        },
+        { backgroundColor: pressed ? colors.surfaceTertiary : "transparent", borderBottomColor: colors.divider },
       ]}
     >
-      {/* Left accent bar shows unread + category color */}
-      {hasUnread && <View style={[styles.leftBar, { backgroundColor: catColor }]} />}
+      <Avatar uri={group.image} name={group.name} size={50} verified={group.verified} />
 
-      <View style={{ position: "relative" }}>
-        <Avatar uri={group.image} name={group.name} size={52} verified={group.verified} />
-      </View>
-
-      <View style={{ flex: 1, gap: 4 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          {group.pinned && <Ionicons name="pin" size={12} color={colors.onSurfaceTertiary} />}
-          <Text
-            style={{
-              color: colors.onSurface,
-              fontSize: font.lg,
-              fontWeight: hasUnread ? "500" : "400",
-              flex: 1,
-              letterSpacing: 0,
-            }}
-            numberOfLines={1}
-          >
-            {group.name}
-          </Text>
-          <Text
-            style={{
-              color: hasUnread ? catColor : colors.onSurfaceTertiary,
-              fontSize: font.sm,
-              fontWeight: hasUnread ? "500" : "400",
-            }}
-          >
-            {group.lastMessageAt || ""}
-          </Text>
-        </View>
-
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-          <View style={[styles.catPill, { backgroundColor: catColor + "22" }]}>
-            <Text style={{ color: catColor, fontSize: 10, fontWeight: "500", letterSpacing: 0.3 }}>
-              {group.category.toUpperCase()}
+      <View style={styles.rowBody}>
+        <View style={styles.rowTop}>
+          <View style={styles.nameWrap}>
+            {group.pinned ? <Ionicons name="pin" size={12} color={colors.onSurfaceTertiary} /> : null}
+            <Text
+              style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: hasUnread ? "700" : "600", flex: 1 }}
+              numberOfLines={1}
+            >
+              {group.name}
             </Text>
           </View>
-          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, flex: 1 }} numberOfLines={1}>
-            {sender && (
-              <Text style={{ color: colors.onSurface, fontWeight: "500" }}>{sender}: </Text>
-            )}
-            {msgBody}
-          </Text>
+          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{group.lastMessageAt || ""}</Text>
         </View>
 
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: 2 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-            <Ionicons name="people" size={11} color={colors.muted} />
-            <Text style={{ color: colors.muted, fontSize: 11 }}>
-              {group.members.toLocaleString()}
-            </Text>
-          </View>
-          {group.role && group.role !== "member" && (
-            <View style={[styles.roleTag, { backgroundColor: colors.brandTertiary }]}>
-              <Text style={{ color: colors.onBrandTertiary, fontSize: 9, fontWeight: "500", letterSpacing: 0.3 }}>
-                {group.role.toUpperCase()}
+        <View style={styles.messageRow}>
+          <Text style={{ color: hasUnread ? colors.onSurface : colors.onSurfaceTertiary, fontSize: font.sm, flex: 1 }} numberOfLines={1}>
+            {sender ? <Text style={{ fontWeight: "600" }}>{sender}: </Text> : null}
+            {messageBody}
+          </Text>
+          {hasUnread ? (
+            <View style={[styles.unreadBadge, { backgroundColor: colors.brandSecondary }]}>
+              <Text style={{ color: colors.onBrandSecondary, fontSize: 10, fontWeight: "700" }}>
+                {Number(group.unread || 0) > 99 ? "99+" : group.unread}
               </Text>
             </View>
-          )}
-          {group.muted && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-              <Ionicons name="volume-mute" size={11} color={colors.muted} />
-              <Text style={{ color: colors.muted, fontSize: 11 }}>muted</Text>
+          ) : null}
+        </View>
+
+        <View style={styles.metaRow}>
+          {group.category ? (
+            <View style={[styles.categoryPill, { backgroundColor: `${categoryColor}14` }]}>
+              <Text style={{ color: categoryColor, fontSize: 10, fontWeight: "700" }}>{String(group.category).toUpperCase()}</Text>
             </View>
-          )}
-          <View style={{ flex: 1 }} />
-          {hasUnread && (
-            <View style={[styles.unreadBadge, { backgroundColor: catColor }]}>
-              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "500" }}>
-                {(group.unread || 0) > 99 ? "99+" : group.unread}
-              </Text>
-            </View>
-          )}
+          ) : null}
+          <Text style={{ color: colors.muted, fontSize: 11 }}>{Number(group.members || 0).toLocaleString()} members</Text>
+          {group.role && group.role !== "member" ? <Text style={{ color: colors.onSurfaceTertiary, fontSize: 11, fontWeight: "600" }}>{String(group.role).replace("_", " ")}</Text> : null}
+          {group.muted ? <Ionicons name="volume-mute-outline" size={13} color={colors.muted} /> : null}
         </View>
       </View>
     </Pressable>
@@ -317,58 +268,66 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
 
 const styles = StyleSheet.create({
   header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
   },
-  title: { fontSize: 30, fontWeight: "500", letterSpacing: 0 },
-  livedot: { width: 8, height: 8, borderRadius: 4 },
+  title: { fontSize: 28, fontWeight: "700", letterSpacing: -0.4 },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   searchBox: {
-    flexDirection: "row", alignItems: "center",
-    height: 46, borderRadius: radius.pill, paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    height: 44,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
   },
+  filtersWrap: { height: 54, marginTop: spacing.sm },
+  filters: { paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: "center" },
   chip: {
-    height: 38, paddingHorizontal: spacing.lg, borderRadius: radius.pill,
-    borderWidth: 1, alignItems: "center", justifyContent: "center", flexShrink: 0,
-    flexDirection: "row", gap: 6,
+    height: 36,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
   },
-  chipBadge: {
-    minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10,
-    alignItems: "center", justifyContent: "center",
-  },
-
-  sectionHead: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    marginTop: spacing.lg, marginBottom: spacing.sm, paddingHorizontal: 2,
-  },
-  sectionLabel: {
-    fontSize: 11, fontWeight: "500", letterSpacing: 0.6,
-  },
-
+  chipBadge: { minWidth: 19, height: 19, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  sectionHead: { paddingTop: spacing.lg, paddingBottom: spacing.xs },
+  sectionLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 0.2 },
   row: {
-    flexDirection: "row", gap: spacing.md, alignItems: "center",
-    padding: spacing.md, borderRadius: radius.md, borderWidth: 1,
-    marginBottom: spacing.sm, position: "relative", overflow: "hidden",
+    flexDirection: "row",
+    gap: spacing.md,
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  leftBar: {
-    position: "absolute", left: 0, top: 0, bottom: 0, width: 3,
-  },
-  catPill: {
-    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
-  },
-  roleTag: {
-    paddingHorizontal: 5, paddingVertical: 2, borderRadius: 3,
-  },
-  unreadBadge: {
-    minWidth: 22, height: 22, paddingHorizontal: 6,
-    borderRadius: 11, alignItems: "center", justifyContent: "center",
-  },
-
+  rowBody: { flex: 1, gap: 5 },
+  rowTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  nameWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 5 },
+  messageRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  categoryPill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  unreadBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  empty: { paddingHorizontal: spacing.xl, paddingVertical: spacing["3xl"], alignItems: "center" },
+  retry: { marginTop: spacing.lg, paddingHorizontal: spacing.lg, paddingVertical: 10, borderRadius: radius.md, borderWidth: 1 },
   fab: {
-    position: "absolute", right: spacing.lg,
-    width: 56, height: 56, borderRadius: 28,
-    alignItems: "center", justifyContent: "center",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25, shadowRadius: 8, elevation: 6,
+    position: "absolute",
+    right: spacing.lg,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 7,
+    elevation: 5,
   },
 });

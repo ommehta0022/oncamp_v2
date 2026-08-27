@@ -24,16 +24,11 @@ export default function Header({
   return (
     <View
       style={[
+        styles.header,
         {
-          paddingHorizontal: spacing.lg,
-          paddingVertical: spacing.md,
           backgroundColor: transparent ? "transparent" : colors.surface,
           borderBottomWidth: transparent ? 0 : StyleSheet.hairlineWidth,
           borderBottomColor: colors.border,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: spacing.md,
-          minHeight: 56,
         },
         style,
       ]}
@@ -43,28 +38,30 @@ export default function Header({
           testID="header-back-btn"
           onPress={onLeftPress || onBack}
           hitSlop={12}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          style={({ pressed }) => [styles.back, pressed && { backgroundColor: colors.surfaceTertiary }]}
         >
-          <Ionicons
-            name={leftIcon || "chevron-back"}
-            size={26}
-            color={colors.onSurface}
-          />
+          <Ionicons name={leftIcon || "chevron-back"} size={24} color={colors.onSurface} />
         </Pressable>
       )}
       <View style={{ flex: 1 }}>
-        {!!title && (
-          <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "500" }} numberOfLines={1}>
-            {title}
-          </Text>
-        )}
-        {!!subtitle && (
-          <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>
-            {subtitle}
-          </Text>
-        )}
+        {!!title && <Text style={[styles.title, { color: colors.onSurface }]} numberOfLines={1}>{title}</Text>}
+        {!!subtitle && <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{subtitle}</Text>}
       </View>
       {right}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    minHeight: 56,
+  },
+  back: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginLeft: -8 },
+  title: { fontSize: font.lg, fontWeight: "600", letterSpacing: -0.1 },
+  subtitle: { fontSize: font.sm, marginTop: 2 },
+});

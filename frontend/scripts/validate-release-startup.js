@@ -37,7 +37,7 @@ const expectedCode = parts[0] * 10000 + parts[1] * 100 + parts[2];
 expect(app.android?.versionCode === expectedCode, `versionCode must be ${expectedCode}`);
 expect(app.android?.package === 'com.oncampus.app', 'Android package changed unexpectedly');
 
-// Native identity / startup remains the repaired 1.6.7 baseline.
+// Native identity and startup stay on the repaired 1.6.7 baseline.
 expect(app.icon === './assets/images/icon.png', 'Expo app icon must use OnCampus icon');
 expect(app.android?.icon === './assets/images/icon.png', 'Android icon must use OnCampus icon');
 expect(app.android?.adaptiveIcon?.foregroundImage === './assets/images/adaptive-icon.png', 'adaptive icon foreground missing');
@@ -59,12 +59,23 @@ expect(!index.includes('CampusLoader') && !index.includes('setTimeout('), 'start
 expect(!index.includes('name="school"'), 'startup must not use generic school/Expo glyph');
 expect(index.includes('APP_ICON') && index.includes('router.replace(target)'), 'startup must render OnCampus icon and route deterministically');
 
-// Restore the exact clean pre-luxury visual foundation from 1.6.3.
+// Professional historical UI foundation: July/1.5 warm neutral + moss/terracotta semantics.
 const light = palette.split('export const lightColors = {')[1]?.split('};')[0] || '';
 const dark = palette.split('export const darkColors = {')[1]?.split('};')[0] || '';
-for (const token of ['surface: "#F8FAFD"','onSurface: "#0B1947"','brandPrimary: "#1267F4"','brandSecondary: "#7B3FF2"','success: "#2DA65A"','warning: "#F28C28"','error: "#E6465B"']) expect(light.includes(token), `clean light palette token missing: ${token}`);
-for (const token of ['surface: "#0A0A0A"','surfaceSecondary: "#121214"','brandPrimary: "#E7E7EA"','brandSecondary: "#A5A5AD"','success: "#52C97A"','warning: "#F4B15E"','error: "#FF7484"']) expect(dark.includes(token), `clean dark palette token missing: ${token}`);
-expect(theme.includes('type ThemeMode = "light" | "dark" | "system"'), 'clean Light/Dark/System theme contract missing');
+for (const token of [
+  'surface: "#F9F8F6"', 'onSurface: "#181A19"', 'brandPrimary: "#2E5C4E"',
+  'actionPrimary: "#2E5C4E"', 'actionSecondary: "#E87A5D"', 'brandSecondary: "#E87A5D"',
+  'success: "#347D5B"', 'warning: "#D9983A"', 'error: "#D14D4D"', 'info: "#4A788C"'
+]) expect(light.includes(token), `professional light palette token missing: ${token}`);
+for (const token of [
+  'surface: "#121413"', 'surfaceSecondary: "#1A1D1C"', 'brandPrimary: "#3B7564"',
+  'actionPrimary: "#3B7564"', 'actionSecondary: "#E87A5D"', 'success: "#44A377"',
+  'warning: "#E8B058"', 'error: "#E36666"', 'info: "#5B96AE"'
+]) expect(dark.includes(token), `professional dark palette token missing: ${token}`);
+for (const rejected of ['#1267F4', '#0B4BC2', '#7B3FF2', '#0D4FC4', '#EAF2FF', '#0B1947']) {
+  expect(!palette.toUpperCase().includes(rejected.toUpperCase()), `rejected blue palette token returned: ${rejected}`);
+}
+expect(theme.includes('type ThemeMode = "light" | "dark" | "system"'), 'Light/Dark/System theme contract missing');
 expect(theme.includes('useAccessibilityPreferences()'), 'theme accessibility support missing');
 expect(theme.includes('.catch(() =>') && theme.includes('.finally(() =>'), 'theme hydration must remain fail-safe');
 expect(settings.includes('checkForAppUpdate("manual")'), 'manual Settings update action must remain wired');
@@ -81,18 +92,17 @@ expect(updateGate.includes('restartForOta'), 'OTA activation must use isolated c
 expect(nativeGuard.includes('Updates.addListener') || nativeGuard.includes('useUpdates'), 'native OTA state observer missing');
 expect(!nativeGuard.includes('Alert.alert'), 'native observer must not create duplicate prompts');
 
-// Automatic prompt delivery must keep retrying the live campaign instead of marking it seen too early.
+// Automatic delivery remains fast in foreground and durable in background.
 expect(serverCoordinator.includes('DEFAULT_POLL_SECONDS = 30'), 'automatic campaign polling interval missing');
 expect(serverCoordinator.includes('checkForAppUpdate("campaign", true, true)'), 'campaign must force repaired update discovery/prompt');
 expect(serverCoordinator.includes('checkServerCampaign(true)'), 'startup/resume campaign check missing');
 expect(serverCoordinator.includes('schedulePoll(next)'), 'campaign retry scheduling missing');
 expect(serverCoordinator.includes('AppState.addEventListener'), 'automatic prompt must retry on foreground');
-
-// Background OTA download stays process-resilient.
 expect(backgroundCoordinator.includes('setupBackgroundOta()') && backgroundCoordinator.includes('prefetchLatestOta'), 'background OTA coordinator missing');
 expect(backgroundCoordinator.includes('AppState.addEventListener'), 'background OTA coordinator must react to resume/minimize');
 expect(backgroundOta.includes('TaskManager.defineTask'), 'headless OTA task must be module scoped');
 expect(backgroundOta.includes('BackgroundTask.registerTaskAsync'), 'WorkManager OTA registration missing');
+expect(backgroundOta.includes('BACKGROUND_MIN_INTERVAL_MINUTES = 15'), 'Android background OTA interval contract changed');
 expect(backgroundOta.includes('FETCH_ATTEMPTS = 4'), 'OTA retry count contract missing');
 expect(backgroundOta.includes('Updates.fetchUpdateAsync()'), 'OTA download must use signed Expo fetch');
 expect(!backgroundOta.includes('Updates.checkForUpdateAsync()'), 'background discovery must not use rejected Expo check promise');
@@ -120,7 +130,8 @@ const expectedDeps = {
   'expo-updates': '29.0.20',
 };
 for (const [name, pinned] of Object.entries(expectedDeps)) expect(pkg.dependencies?.[name] === pinned, `${name} must stay pinned to ${pinned}`);
+for (const feature of ['background-ota-coordinator','native-ota-startup-guard','app-update-gate','server-update-coordinator','session-expired-modal']) {
+  expect(layout.includes(`<OptionalFeatureBoundary name="${feature}">`), `${feature} must remain isolated in RootLayout`);
+}
 
-for (const feature of ['background-ota-coordinator','native-ota-startup-guard','app-update-gate','server-update-coordinator','session-expired-modal']) expect(layout.includes(`<OptionalFeatureBoundary name="${feature}">`), `${feature} must remain isolated in RootLayout`);
-
-console.log(`OnCampus ${version} verified: clean 1.6.3 UI restored on repaired server-driven OTA and Android installer baseline.`);
+console.log(`OnCampus ${version} verified: professional historical UI on repaired server-driven OTA and Android installer baseline.`);
