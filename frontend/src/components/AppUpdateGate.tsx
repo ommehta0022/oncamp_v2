@@ -24,7 +24,7 @@ import { prefetchLatestOta } from "@/src/updates/backgroundOta";
 const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
 const NATIVE_RELEASE_API = `${API_BASE}/updates/native/latest`;
 const TRUSTED_NATIVE_APK_PREFIX = `${API_BASE}/updates/native/apk?version=`;
-const AUTOMATIC_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+const AUTOMATIC_CHECK_INTERVAL_MS = 60 * 1000;
 const DEFER_MS = 6 * 60 * 60 * 1000;
 const PENDING_OTA_KEY = "oncampus.update.pending_ota.v4";
 const APPLY_OTA_ON_RESUME_KEY = "oncampus.update.apply_ota_on_resume.v1";
@@ -56,6 +56,7 @@ type NativeRelease = {
 type NativeInstallerResult = { status?: "permission_required" | "downloading" | string };
 type NativeInstaller = {
   startInstall: (url: string, sha256: string) => Promise<NativeInstallerResult>;
+  restartForOta: () => Promise<NativeInstallerResult>;
   addListener: (eventName: string) => void;
   removeListeners: (count: number) => void;
 };
@@ -169,17 +170,21 @@ async function clearDeferral(key?: string) {
   }
 }
 
-async function serverOtaId() {
+async function serverOtaId(strict = false) {
   const runtime = currentRuntime();
-  if (!runtime) return null;
+  if (!runtime) {
+    if (strict) throw new Error("This installation has no OTA runtime identity.");
+    return null;
+  }
   try {
     const response = await fetch(`${API_BASE}/updates/status?runtimeVersion=${encodeURIComponent(runtime)}`, {
       headers: { Accept: "application/json", "Cache-Control": "no-cache" },
     });
-    if (!response.ok) return null;
+    if (!response.ok) throw new Error(`Update service returned ${response.status}`);
     const payload = await response.json() as { releaseAvailable?: boolean; updateId?: string | null };
     return payload.releaseAvailable && payload.updateId ? String(payload.updateId) : null;
   } catch {
+    if (strict) throw new Error("Couldn’t reach the OnCampus update service. Check your connection and try again.");
     return null;
   }
 }
@@ -260,17 +265,11 @@ async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
   if (Platform.OS !== "android" || !Updates.isEnabled) return false;
   if (await showDownloadedPending(mode)) return true;
 
-  const serverId = await serverOtaId();
-  const result = await Updates.checkForUpdateAsync();
-  if (!result.isAvailable) return false;
+  const serverId = await serverOtaId(mode === "manual");
+  if (!serverId || serverId === currentUpdateId()) return false;
+  const releaseKey = `ota:${serverId}`;
 
-  const manifestId = String((result as any)?.manifest?.id || "");
-  const releaseKey = `ota:${serverId || manifestId || currentRuntime() || "compatible"}`;
-
-  // Start downloading as soon as a compatible update is discovered. This makes
-  // Update now fast and lets Android continue/retry the work after minimization.
   void prefetchLatestOta(true).catch(() => undefined);
-
   if (await isDeferred(releaseKey, mode)) return true;
 
   pendingOtaReleaseKey = releaseKey;
@@ -280,7 +279,7 @@ async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
     progress: 0,
     releaseKey,
     message: "A new OnCampus update is ready",
-    detail: "Signed for your installed runtime. OnCampus is already preloading it securely, so Update now can finish quickly. You can also choose Later.",
+    detail: "This signed production update matches your runtime. Download starts immediately and Android can continue retrying if you minimize OnCampus.",
   });
   return true;
 }
@@ -312,7 +311,11 @@ async function reloadReadyOta(releaseKey: string) {
     detail: "The signed update is ready. Restarting OnCampus into the new version…",
   });
   await new Promise((resolve) => setTimeout(resolve, 120));
-  await Updates.reloadAsync();
+  if (!nativeInstaller?.restartForOta) {
+    emitUpdateUi({ kind: "ota", phase: "error", progress: 100, releaseKey, message: "Update downloaded", detail: "Close OnCampus completely and reopen it to apply the downloaded update." });
+    return false;
+  }
+  await nativeInstaller.restartForOta();
   return true;
 }
 
@@ -591,7 +594,7 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
             <Text style={[styles.keepOpen, { color: colors.muted }]}>
               {state.kind === "ota"
                 ? "You can minimize OnCampus. Android keeps a durable retry scheduled and the signed update will apply safely when the app is active again."
-                : "Keep OnCampus open until the Android installer starts."}
+                : "You can minimize OnCampus while Android downloads the APK. Return after it finishes and the verified Android installer will open automatically."}
             </Text>
           )}
         </View>
@@ -651,7 +654,7 @@ export default function AppUpdateGate() {
       if (cancelled || showedApplied) return;
       const resumed = await resumePendingOtaApply();
       if (cancelled || resumed) return;
-      timer = setTimeout(() => { void checkForAppUpdate("automatic"); }, 2200);
+      timer = setTimeout(() => { void checkForAppUpdate("automatic"); }, 900);
     };
     void initialize();
 

@@ -1,7 +1,7 @@
-version=1.6.6
-runtime=1.6.6
-versionCode=10606
+version=1.6.7
+runtime=1.6.7
+versionCode=10607
 mode=direct-signed-apk
-requested=2026-08-26T15:37:00+05:30
-source=merged-main-ec7e298
+requested=2026-08-27T10:30:00+05:30
+source=ota-installer-final
 skipColdLaunch=true
