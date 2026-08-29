@@ -148,9 +148,20 @@ export function getLastOtaPrefetchError() {
 
 export function prefetchLatestOta(force = false): Promise<boolean> {
   if (activePrefetch) return activePrefetch;
-  activePrefetch = runPrefetch(force).finally(() => {
-    activePrefetch = null;
-  });
+  activePrefetch = runPrefetch(force)
+    .then((downloaded) => {
+      // Explicit/user-driven and background forced checks must not silently turn
+      // a native expo-updates rejection into a generic `false`. Throw the real
+      // persisted reason so AppUpdateGate can show it, while silent coordinators
+      // already catch and suppress it and WorkManager reports a failed attempt.
+      if (!downloaded && force && lastPrefetchError) {
+        throw new Error(lastPrefetchError);
+      }
+      return downloaded;
+    })
+    .finally(() => {
+      activePrefetch = null;
+    });
   return activePrefetch;
 }
 
@@ -169,10 +180,7 @@ export async function setupBackgroundOta() {
 
 TaskManager.defineTask(BACKGROUND_TASK_NAME, async () => {
   try {
-    const downloaded = await prefetchLatestOta(true);
-    if (!downloaded && getLastOtaPrefetchError()) {
-      return BackgroundTask.BackgroundTaskResult.Failed;
-    }
+    await prefetchLatestOta(true);
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch (error) {
     await persistFailure(error);
