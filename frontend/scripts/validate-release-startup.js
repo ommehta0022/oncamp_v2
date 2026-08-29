@@ -16,6 +16,7 @@ const updateGate = read('src/components/AppUpdateGate.tsx');
 const serverCoordinator = read('src/components/ServerUpdateCoordinator.tsx');
 const apkInstaller = read('android/app/src/main/java/com/oncampus/app/OnCampusApkInstallerModule.kt');
 const apkFilePaths = read('android/app/src/main/res/xml/apk_file_paths.xml');
+const authorizationCertificate = read('android/app/src/main/res/raw/oncampus_update_authorization_certificate.pem');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const strings = read('android/app/src/main/res/values/strings.xml');
 const nativeColors = read('android/app/src/main/res/values/colors.xml');
@@ -53,6 +54,7 @@ expect(manifest.includes('android:roundIcon="@mipmap/ic_launcher_round"'), 'roun
 expect(launcher.includes('@drawable/oncampus_app_icon') && launcherRound.includes('@drawable/oncampus_app_icon'), 'launcher must use OnCampus artwork');
 expect(strings.includes(`name="expo_runtime_version" translatable="false">${runtime}</string>`), 'native runtime string mismatch');
 expect(!strings.includes('BEGIN CERTIFICATE'), 'unused legacy Expo OTA certificate should not be embedded as a string resource');
+expect(authorizationCertificate.includes('-----BEGIN CERTIFICATE-----') && authorizationCertificate.includes('-----END CERTIFICATE-----'), 'native v2 release authorization certificate missing');
 expect(gradle.includes(`?: "${version}"`) && gradle.includes(`?: "${expectedCode}"`), 'Gradle version defaults mismatch');
 expect(nativeColors.includes('<color name="splashscreen_background">#FAF9F6</color>'), 'neutral light startup splash missing');
 expect(nativeNightColors.includes('<color name="splashscreen_background">#080809</color>'), 'neutral dark startup splash missing');
@@ -92,6 +94,9 @@ expect(updateGate.includes('NativeEventEmitter'), 'native updater progress bridg
 expect(updateGate.includes('nativeInstaller.getStatus()'), 'process-recovery status hydration missing');
 expect(updateGate.includes('nativeInstaller.startInstall('), 'native APK update start missing');
 expect(updateGate.includes('versionCode') && updateGate.includes('sha256'), 'v2 release integrity metadata missing');
+expect(updateGate.includes('AUTH_KEY_ID = "oncampus-main"'), 'v2 RSA authorization key ID pin missing');
+expect(updateGate.includes('AUTH_ALGORITHM = "rsa-v1_5-sha256"'), 'v2 RSA authorization algorithm pin missing');
+expect(updateGate.includes('release.authorization?.signature'), 'v2 signed authorization metadata handoff missing');
 expect(updateGate.includes('["Check", "Download", "Verify", "Install"]'), 'native update stage stepper missing');
 expect(updateGate.includes('DEFER_MS = 6 * 60 * 60 * 1000'), 'Later quiet period missing');
 
@@ -114,6 +119,13 @@ expect(apkInstaller.includes('/v1/updates/v2/apk/'), 'native updater must pin th
 expect(!apkInstaller.includes('/v1/updates/native/apk'), 'legacy redirecting APK endpoint must not be trusted by final updater');
 expect(!apkInstaller.includes('github.com'), 'device updater must never trust a direct GitHub URL');
 expect(apkInstaller.includes('APK checksum verification failed'), 'APK SHA-256 verification missing');
+
+// Independent release authorization must pass before DownloadManager can run.
+expect(apkInstaller.includes('verifyReleaseAuthorization('), 'native RSA release authorization verification missing');
+expect(apkInstaller.includes('SHA256withRSA'), 'native RSA/SHA-256 verifier missing');
+expect(apkInstaller.includes('R.raw.oncampus_update_authorization_certificate'), 'native release authorization certificate pin missing');
+expect(apkInstaller.includes('UNTRUSTED_AUTHORIZATION'), 'native updater must reject unauthorized release metadata');
+expect(apkInstaller.indexOf('verifyReleaseAuthorization(') < apkInstaller.indexOf('startOrResumeSystemDownload('), 'release authorization must run before starting DownloadManager');
 
 // Native APK trust: package, upgrade versionCode and same signing certificate.
 expect(apkInstaller.includes('getPackageArchiveInfo'), 'downloaded APK package inspection missing');
@@ -142,4 +154,4 @@ for (const feature of ['app-update-gate', 'server-update-coordinator', 'session-
   expect(layout.includes(`<OptionalFeatureBoundary name="${feature}">`), `${feature} must remain isolated in RootLayout`);
 }
 
-console.log(`OnCampus ${version} verified: native Update Engine v2, Expo remote OTA disabled, persistent Android download and package/signature pinning enabled.`);
+console.log(`OnCampus ${version} verified: native Update Engine v2, production RSA release authorization, Expo remote OTA disabled, persistent Android download and package/signature pinning enabled.`);
