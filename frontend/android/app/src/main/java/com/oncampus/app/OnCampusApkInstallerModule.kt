@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.provider.Settings
+import android.util.Base64
 import androidx.core.content.FileProvider
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
@@ -22,6 +23,8 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
 import java.security.MessageDigest
+import java.security.Signature
+import java.security.cert.CertificateFactory
 import kotlin.concurrent.thread
 
 class OnCampusApkInstallerModule(
@@ -41,6 +44,8 @@ class OnCampusApkInstallerModule(
     private const val KEY_INSTALLER_LAUNCHED_AT = "installer_launched_at"
     private const val APK_FILE_NAME = "OnCampus-update-v2.apk"
     private const val TRUSTED_HOST = "oncampus-backend-production.up.railway.app"
+    private const val AUTH_KEY_ID = "oncampus-main"
+    private const val AUTH_ALGORITHM = "rsa-v1_5-sha256"
   }
 
   private val prefs = reactContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -68,6 +73,10 @@ class OnCampusApkInstallerModule(
     sha256: String,
     targetVersionCode: Double,
     targetVersion: String,
+    expectedSize: Double,
+    authorizationKeyId: String,
+    authorizationAlgorithm: String,
+    authorizationSignature: String,
     traceId: String,
     promise: Promise,
   ) {
@@ -86,6 +95,25 @@ class OnCampusApkInstallerModule(
     }
     if (!targetVersion.matches(Regex("^\\d+\\.\\d+\\.\\d+$"))) {
       promise.reject("INVALID_VERSION", "Update version is invalid")
+      return
+    }
+    val releaseSize = expectedSize.toLong()
+    if (releaseSize < 1024L * 1024L) {
+      promise.reject("INVALID_SIZE", "Update size is invalid")
+      return
+    }
+    if (authorizationKeyId != AUTH_KEY_ID || authorizationAlgorithm != AUTH_ALGORITHM) {
+      promise.reject("UNTRUSTED_AUTHORIZATION", "Update authorization identity is invalid")
+      return
+    }
+    if (!verifyReleaseAuthorization(
+        targetVersion,
+        expectedVersionCode,
+        sha256.lowercase(),
+        releaseSize,
+        authorizationSignature,
+      )) {
+      promise.reject("UNTRUSTED_AUTHORIZATION", "Update release authorization signature is invalid")
       return
     }
     if (!traceId.matches(Regex("^[A-Za-z0-9._:-]{8,160}$"))) {
@@ -177,6 +205,39 @@ class OnCampusApkInstallerModule(
     } catch (_: Exception) {
       false
     }
+  }
+
+  private fun releaseAuthorizationPayload(
+    targetVersion: String,
+    targetVersionCode: Long,
+    sha256: String,
+    size: Long,
+  ): String = buildString {
+    append("oncampus-update-v2\n")
+    append("version=").append(targetVersion).append('\n')
+    append("versionCode=").append(targetVersionCode).append('\n')
+    append("sha256=").append(sha256.lowercase()).append('\n')
+    append("size=").append(size).append('\n')
+    append("package=").append(reactContext.packageName).append('\n')
+  }
+
+  private fun verifyReleaseAuthorization(
+    targetVersion: String,
+    targetVersionCode: Long,
+    sha256: String,
+    size: Long,
+    signatureBase64: String,
+  ): Boolean {
+    return runCatching {
+      if (signatureBase64.length !in 64..2048) return@runCatching false
+      val certificate = reactContext.resources
+        .openRawResource(R.raw.oncampus_update_authorization_certificate)
+        .use { stream -> CertificateFactory.getInstance("X.509").generateCertificate(stream) }
+      val verifier = Signature.getInstance("SHA256withRSA")
+      verifier.initVerify(certificate.publicKey)
+      verifier.update(releaseAuthorizationPayload(targetVersion, targetVersionCode, sha256, size).toByteArray(Charsets.UTF_8))
+      verifier.verify(Base64.decode(signatureBase64, Base64.DEFAULT))
+    }.getOrDefault(false)
   }
 
   private fun canInstallPackages(): Boolean {
@@ -386,7 +447,7 @@ class OnCampusApkInstallerModule(
           .putBoolean(KEY_PERMISSION_PROMPTED, false)
           .putLong(KEY_INSTALLER_LAUNCHED_AT, 0L)
           .apply()
-        emit("ready", 100, "Update verified", "Hash, package, versionCode and signing certificate all passed. Android can now install it.")
+        emit("ready", 100, "Update verified", "Release authorization, hash, package, versionCode and Android signing certificate all passed. Android can now install it.")
         if (hostResumed) finishVerifiedInstall()
       } catch (error: Exception) {
         runCatching { downloadManager.remove(downloadId) }
