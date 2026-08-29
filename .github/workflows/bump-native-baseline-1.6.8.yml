@@ -1,0 +1,32 @@
+name: Bump Native Baseline 1.6.8
+
+on:
+  push:
+    branches:
+      - release-1.6.8-ota-reliability-final
+    paths:
+      - frontend/BUMP_NATIVE_BASELINE_1_6_8
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: release-1.6.8-ota-reliability-final
+          fetch-depth: 0
+      - name: Apply guarded native identity migration
+        working-directory: frontend
+        run: node scripts/bump-native-baseline-1.6.8.mjs
+      - name: Commit 1.6.8 baseline
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app.json frontend/android/app/build.gradle frontend/android/app/src/main/res/values/strings.xml
+          git diff --cached --quiet && { echo "No 1.6.8 baseline changes produced"; exit 1; }
+          git commit -m "OnCampus 1.6.8 native OTA reliability baseline"
+          git push origin HEAD:release-1.6.8-ota-reliability-final
