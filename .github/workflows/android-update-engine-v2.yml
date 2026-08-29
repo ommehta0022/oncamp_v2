@@ -26,6 +26,7 @@ on:
       - "frontend/scripts/validate-release-startup.js"
       - "frontend/RELEASE_NOTES.md"
       - ".github/workflows/android-update-engine-v2.yml"
+      - "frontend/UPDATE_ENGINE_V2_RELEASE"
 
 concurrency:
   group: oncampus-update-engine-v2-${{ github.event_name }}-${{ github.ref }}
@@ -156,6 +157,7 @@ jobs:
           grep -F 'lib/arm64-v8a/' apk-files.txt >/dev/null
           grep -F 'lib/x86_64/' apk-files.txt >/dev/null
           grep -E '(^|/)assets/(index\.android\.bundle|.*\.hbc)$' apk-files.txt >/dev/null
+          unzip -Z1 "$APK" | grep -F 'res/raw/oncampus_update_authorization_certificate.pem' >/dev/null
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' apk-signature.txt | head -1 | tr 'A-F' 'a-f')
           PREVIOUS_CERT=$(node -e "try{process.stdout.write(String(require('./APK_RELEASE_STATUS.json').signingCertificateSha256||''))}catch{}")
           if [ -n "$PREVIOUS_CERT" ] && [ "$CERT_SHA" != "$PREVIOUS_CERT" ]; then
@@ -173,6 +175,7 @@ jobs:
           abis=arm64-v8a,x86_64
           updateEngine=native-apk-v2
           expoRemoteUpdates=disabled
+          releaseAuthorization=rsa-v1_5-sha256:oncampus-main
           signingCertificateSha256=$CERT_SHA
           size=$SIZE
           sha256=$(awk '{print $1}' OnCampus.apk.sha256)
@@ -235,11 +238,11 @@ jobs:
     needs: build-verify
     if: github.event_name != 'pull_request' && (github.event_name == 'push' || inputs.publish_release == true)
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
-      - name: Check out release notes and status
+      - name: Check out release notes and authorization certificate
         uses: actions/checkout@v5
 
       - name: Download verified APK artifact
@@ -247,6 +250,37 @@ jobs:
         with:
           name: OnCampus-${{ needs.build-verify.outputs.version }}-UpdateEngineV2
           path: release
+
+      - name: Wait for production v2 control plane and RSA authorization
+        env:
+          API_BASE: https://oncampus-backend-production.up.railway.app/v1
+        run: |
+          set -euo pipefail
+          READY=false
+          for attempt in $(seq 1 120); do
+            if curl -fsS --connect-timeout 5 --max-time 20 -H 'Cache-Control: no-cache' \
+              "$API_BASE/updates/v2/latest?currentVersion=99.99.99" -o /tmp/v2-control.json; then
+              if API_BASE="$API_BASE" node <<'NODE'
+          const fs = require('fs');
+          const crypto = require('crypto');
+          const m = JSON.parse(fs.readFileSync('/tmp/v2-control.json','utf8'));
+          if (m.schemaVersion !== 2 || m.transport !== 'native-apk') process.exit(2);
+          if (m.authorization?.keyId !== 'oncampus-main' || m.authorization?.algorithm !== 'rsa-v1_5-sha256') process.exit(3);
+          if (typeof m.authorization?.signature !== 'string' || m.authorization.signature.length < 64) process.exit(4);
+          if (m.integrity?.releaseAuthorization !== 'rsa-v1_5-sha256') process.exit(5);
+          const payload = `oncampus-update-v2\nversion=${m.version}\nversionCode=${Number(m.versionCode)}\nsha256=${m.sha256}\nsize=${Number(m.size)}\npackage=com.oncampus.app\n`;
+          const cert = fs.readFileSync('frontend/certs/ota-certificate.pem','utf8');
+          if (!crypto.verify('RSA-SHA256', Buffer.from(payload), cert, Buffer.from(m.authorization.signature, 'base64'))) process.exit(6);
+          NODE
+              then
+                READY=true
+                break
+              fi
+            fi
+            sleep 3
+          done
+          test "$READY" = true
+          echo "Production Update Engine v2 control plane and RSA release authorization are ready."
 
       - name: Publish exact APK as latest GitHub release
         uses: softprops/action-gh-release@v3
@@ -261,7 +295,7 @@ jobs:
             release/OnCampus.apk.sha256
             release/APK_INSTALL_INFO.txt
 
-      - name: Verify live Update Engine v2 metadata, resume and full APK integrity
+      - name: Verify live Update Engine v2 metadata, authorization, resume and full APK integrity
         env:
           VERSION: ${{ needs.build-verify.outputs.version }}
           VERSION_CODE: ${{ needs.build-verify.outputs.version_code }}
@@ -276,12 +310,17 @@ jobs:
               "$API_BASE/updates/v2/latest?currentVersion=0.0.0" -o /tmp/v2-latest.json; then
               if VERSION="$VERSION" VERSION_CODE="$VERSION_CODE" EXPECTED_SHA="$EXPECTED_SHA" EXPECTED_SIZE="$EXPECTED_SIZE" API_BASE="$API_BASE" node <<'NODE'
           const fs = require('fs');
+          const crypto = require('crypto');
           const m = JSON.parse(fs.readFileSync('/tmp/v2-latest.json','utf8'));
           const expectedUrl = `${process.env.API_BASE}/updates/v2/apk/${process.env.VERSION}`;
           if (m.schemaVersion !== 2 || m.transport !== 'native-apk' || m.available !== true) process.exit(2);
           if (m.version !== process.env.VERSION || Number(m.versionCode) !== Number(process.env.VERSION_CODE)) process.exit(3);
           if (m.sha256 !== process.env.EXPECTED_SHA || Number(m.size) !== Number(process.env.EXPECTED_SIZE)) process.exit(4);
           if (m.apkUrl !== expectedUrl || m.integrity?.package !== 'com.oncampus.app' || m.integrity?.requireSameSigningCertificate !== true) process.exit(5);
+          if (m.authorization?.keyId !== 'oncampus-main' || m.authorization?.algorithm !== 'rsa-v1_5-sha256' || m.integrity?.releaseAuthorization !== 'rsa-v1_5-sha256') process.exit(6);
+          const payload = `oncampus-update-v2\nversion=${m.version}\nversionCode=${Number(m.versionCode)}\nsha256=${m.sha256}\nsize=${Number(m.size)}\npackage=com.oncampus.app\n`;
+          const cert = fs.readFileSync('frontend/certs/ota-certificate.pem','utf8');
+          if (!crypto.verify('RSA-SHA256', Buffer.from(payload), cert, Buffer.from(m.authorization.signature, 'base64'))) process.exit(7);
           NODE
               then
                 METADATA_OK=true
@@ -308,7 +347,7 @@ jobs:
           ACTUAL_SHA=$(sha256sum /tmp/OnCampus-live-v2.apk | awk '{print $1}')
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
           cmp -s release/OnCampus.apk /tmp/OnCampus-live-v2.apk
-          echo "Live Update Engine v2 verified exact APK $VERSION ($VERSION_CODE), $EXPECTED_SIZE bytes, SHA-256 $EXPECTED_SHA"
+          echo "Live Update Engine v2 verified RSA authorization and exact APK $VERSION ($VERSION_CODE), $EXPECTED_SIZE bytes, SHA-256 $EXPECTED_SHA"
 
       - name: Persist verified APK release status
         env:
@@ -336,8 +375,10 @@ jobs:
             abis: ['arm64-v8a','x86_64'],
             signingCertificateSha256: process.env.CERT_SHA,
             updateEngine: 'native-apk-v2',
+            releaseAuthorization: 'rsa-v1_5-sha256:oncampus-main',
             expoRemoteUpdates: false,
             liveRelayValidated: true,
+            liveAuthorizationValidated: true,
             rangeResumeValidated: true,
             installValidated: true,
             launchValidated: true,
