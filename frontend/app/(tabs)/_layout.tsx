@@ -9,7 +9,7 @@ import { useLanguage } from "@/src/context/LanguageProvider";
 
 export default function TabsLayout() {
   const { colors, isDark } = useTheme();
-  const { groupsUnread, notificationsUnread } = useTabBadges();
+  const { notificationsUnread } = useTabBadges();
   const { canManageInstitution } = useRole();
   const { t } = useLanguage();
 
@@ -44,8 +44,6 @@ export default function TabsLayout() {
       <Tabs.Screen name="groups" options={{
         title: t("nav.groups"),
         tabBarIcon: ({ color, focused }) => icon("chatbubbles-outline", "chatbubbles", color, focused),
-        tabBarBadge: groupsUnread > 0 ? groupsUnread : undefined,
-        tabBarBadgeStyle: { backgroundColor: colors.brandSecondary, color: colors.onBrandSecondary, fontSize: 10, fontWeight: "500" },
       }} />
       <Tabs.Screen name="discover" options={{ title: "Discover", tabBarIcon: ({ color, focused }) => icon("compass-outline", "compass", color, focused, 26) }} />
       <Tabs.Screen name="notifications" options={{
