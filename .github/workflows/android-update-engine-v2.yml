@@ -1,0 +1,360 @@
+name: OnCampus Android Update Engine v2 Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish the verified APK as the latest release"
+        required: false
+        default: true
+        type: boolean
+  push:
+    branches: [main]
+    paths:
+      - "frontend/UPDATE_ENGINE_V2_RELEASE"
+  pull_request:
+    branches: [main]
+    paths:
+      - "native_update_v2.py"
+      - "production_server.py"
+      - "tests/test_native_update_v2.py"
+      - "frontend/app.json"
+      - "frontend/app/_layout.tsx"
+      - "frontend/src/components/AppUpdateGate.tsx"
+      - "frontend/src/components/ServerUpdateCoordinator.tsx"
+      - "frontend/android/**"
+      - "frontend/scripts/validate-release-startup.js"
+      - "frontend/RELEASE_NOTES.md"
+      - ".github/workflows/android-update-engine-v2.yml"
+
+concurrency:
+  group: oncampus-update-engine-v2-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      runtime: ${{ steps.identity.outputs.runtime }}
+      version_code: ${{ steps.identity.outputs.version_code }}
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_PUBLIC_API_URL: "https://oncampus-backend-production.up.railway.app/v1"
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install deterministic Android toolchain
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Read and validate release identity
+        id: identity
+        run: |
+          set -euo pipefail
+          VERSION=$(node -e "process.stdout.write(String(require('./app.json').expo.version))")
+          RUNTIME=$(node -e "process.stdout.write(String(require('./app.json').expo.runtimeVersion))")
+          VERSION_CODE=$(node -e "process.stdout.write(String(require('./app.json').expo.android.versionCode))")
+          EXPECTED=$(node -e "const p=require('./app.json').expo.version.split('.').map(Number);if(p.length!==3||p.some(n=>!Number.isInteger(n)||n<0||n>99))process.exit(2);process.stdout.write(String(p[0]*10000+p[1]*100+p[2]))")
+          NATIVE_RUNTIME=$(sed -n 's/.*name="expo_runtime_version"[^>]*>\([^<]*\)<.*/\1/p' android/app/src/main/res/values/strings.xml)
+          test "$VERSION_CODE" = "$EXPECTED"
+          test "$RUNTIME" = "$VERSION"
+          test "$NATIVE_RUNTIME" = "$VERSION"
+          grep -F 'expo.modules.updates.ENABLED" android:value="false"' android/app/src/main/AndroidManifest.xml
+          grep -F 'EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="NEVER"' android/app/src/main/AndroidManifest.xml
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "runtime=$RUNTIME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Install exact locked dependencies
+        env:
+          NODE_ENV: development
+        run: npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
+
+      - name: Validate Update Engine v2 source contracts
+        run: |
+          set -euo pipefail
+          node scripts/validate-release-startup.js
+          npx tsc --noEmit
+          npx expo install --check
+
+      - name: Export production Android bundle
+        env:
+          NODE_ENV: production
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/oncampus-v2-export
+          npx expo export --platform android --output-dir /tmp/oncampus-v2-export
+          test "$(find /tmp/oncampus-v2-export -type f | wc -l)" -gt 3
+
+      - name: Build signed universal release APK
+        timeout-minutes: 55
+        env:
+          NODE_ENV: production
+          APP_VERSION_NAME: ${{ steps.identity.outputs.version }}
+          APP_VERSION_CODE: ${{ steps.identity.outputs.version_code }}
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dkotlin.compiler.execution.strategy=in-process"
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --stop || true
+          ./gradlew :app:assembleRelease \
+            -PreactNativeArchitectures=arm64-v8a,x86_64 \
+            -Pandroid.enablePngCrunchInReleaseBuilds=false \
+            --no-daemon --no-parallel --max-workers=1 --build-cache --console=plain --stacktrace
+
+      - name: Deep-validate APK identity and signing continuity
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          VERSION_CODE: ${{ steps.identity.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          test -s "$APK"
+          test "$(stat -c%s "$APK")" -gt 10000000
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee apk-signature.txt
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$APK" > apk-zipalign.txt
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | tee apk-badging.txt
+          unzip -t "$APK" > apk-zip-test.txt
+          unzip -Z1 "$APK" > apk-files.txt
+          grep -F "package: name='com.oncampus.app'" apk-badging.txt
+          grep -F "versionCode='$VERSION_CODE'" apk-badging.txt
+          grep -F "versionName='$VERSION'" apk-badging.txt
+          grep -F "launchable-activity: name='com.oncampus.app.MainActivity'" apk-badging.txt
+          grep -F 'lib/arm64-v8a/' apk-files.txt >/dev/null
+          grep -F 'lib/x86_64/' apk-files.txt >/dev/null
+          grep -E '(^|/)assets/(index\.android\.bundle|.*\.hbc)$' apk-files.txt >/dev/null
+          CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' apk-signature.txt | head -1 | tr 'A-F' 'a-f')
+          PREVIOUS_CERT=$(node -e "try{process.stdout.write(String(require('./APK_RELEASE_STATUS.json').signingCertificateSha256||''))}catch{}")
+          if [ -n "$PREVIOUS_CERT" ] && [ "$CERT_SHA" != "$PREVIOUS_CERT" ]; then
+            echo "Signing certificate changed: $CERT_SHA != $PREVIOUS_CERT" >&2
+            exit 1
+          fi
+          cp "$APK" OnCampus.apk
+          sha256sum OnCampus.apk | tee OnCampus.apk.sha256
+          SIZE=$(stat -c%s OnCampus.apk)
+          cat > APK_INSTALL_INFO.txt <<EOF
+          package=com.oncampus.app
+          version=$VERSION
+          runtimeVersion=$VERSION
+          versionCode=$VERSION_CODE
+          abis=arm64-v8a,x86_64
+          updateEngine=native-apk-v2
+          expoRemoteUpdates=disabled
+          signingCertificateSha256=$CERT_SHA
+          size=$SIZE
+          sha256=$(awk '{print $1}' OnCampus.apk.sha256)
+          EOF
+
+      - name: Enable KVM for Android emulator
+        working-directory: ${{ github.workspace }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Install and cold-launch exact release APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            APK="$GITHUB_WORKSPACE/frontend/OnCampus.apk"
+            LOG="$GITHUB_WORKSPACE/frontend/android-v2-smoke-logcat.txt"
+            adb wait-for-device
+            adb install -r "$APK"
+            INSTALLED_CODE=$(adb shell dumpsys package com.oncampus.app | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -1)
+            test "$INSTALLED_CODE" = "${{ steps.identity.outputs.version_code }}"
+            adb shell am force-stop com.oncampus.app
+            adb logcat -c
+            adb shell am start -W -n com.oncampus.app/.MainActivity | tee android-v2-smoke-start.txt
+            sleep 15
+            PID=$(adb shell pidof com.oncampus.app | tr -d '\r' || true)
+            test -n "$PID"
+            adb shell dumpsys activity activities | grep -F "com.oncampus.app/.MainActivity"
+            adb logcat -d > "$LOG"
+            if grep -E "FATAL EXCEPTION|Unable to start activity|ReactNativeJS.*(TypeError|ReferenceError|Invariant Violation|Error:)" "$LOG"; then
+              echo "Fatal startup signature found" >&2
+              exit 1
+            fi
+            echo "OnCampus ${{ steps.identity.outputs.version }} cold-launch passed with process $PID"
+
+      - name: Upload verified APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnCampus-${{ steps.identity.outputs.version }}-UpdateEngineV2
+          path: |
+            frontend/OnCampus.apk
+            frontend/OnCampus.apk.sha256
+            frontend/APK_INSTALL_INFO.txt
+            frontend/apk-signature.txt
+            frontend/apk-badging.txt
+            frontend/android-v2-smoke-start.txt
+            frontend/android-v2-smoke-logcat.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-verify-live:
+    needs: build-verify
+    if: github.event_name != 'pull_request' && (github.event_name == 'push' || inputs.publish_release == true)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release notes and status
+        uses: actions/checkout@v5
+
+      - name: Download verified APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: OnCampus-${{ needs.build-verify.outputs.version }}-UpdateEngineV2
+          path: release
+
+      - name: Publish exact APK as latest GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.build-verify.outputs.version }}
+          name: OnCampus ${{ needs.build-verify.outputs.version }}
+          body_path: frontend/RELEASE_NOTES.md
+          make_latest: true
+          overwrite_files: true
+          files: |
+            release/OnCampus.apk
+            release/OnCampus.apk.sha256
+            release/APK_INSTALL_INFO.txt
+
+      - name: Verify live Update Engine v2 metadata, resume and full APK integrity
+        env:
+          VERSION: ${{ needs.build-verify.outputs.version }}
+          VERSION_CODE: ${{ needs.build-verify.outputs.version_code }}
+          API_BASE: https://oncampus-backend-production.up.railway.app/v1
+        run: |
+          set -euo pipefail
+          EXPECTED_SHA=$(awk '{print $1}' release/OnCampus.apk.sha256)
+          EXPECTED_SIZE=$(stat -c%s release/OnCampus.apk)
+          METADATA_OK=false
+          for attempt in $(seq 1 60); do
+            if curl -fsS --connect-timeout 5 --max-time 20 -H 'Cache-Control: no-cache' \
+              "$API_BASE/updates/v2/latest?currentVersion=0.0.0" -o /tmp/v2-latest.json; then
+              if VERSION="$VERSION" VERSION_CODE="$VERSION_CODE" EXPECTED_SHA="$EXPECTED_SHA" EXPECTED_SIZE="$EXPECTED_SIZE" API_BASE="$API_BASE" node <<'NODE'
+          const fs = require('fs');
+          const m = JSON.parse(fs.readFileSync('/tmp/v2-latest.json','utf8'));
+          const expectedUrl = `${process.env.API_BASE}/updates/v2/apk/${process.env.VERSION}`;
+          if (m.schemaVersion !== 2 || m.transport !== 'native-apk' || m.available !== true) process.exit(2);
+          if (m.version !== process.env.VERSION || Number(m.versionCode) !== Number(process.env.VERSION_CODE)) process.exit(3);
+          if (m.sha256 !== process.env.EXPECTED_SHA || Number(m.size) !== Number(process.env.EXPECTED_SIZE)) process.exit(4);
+          if (m.apkUrl !== expectedUrl || m.integrity?.package !== 'com.oncampus.app' || m.integrity?.requireSameSigningCertificate !== true) process.exit(5);
+          NODE
+              then
+                METADATA_OK=true
+                break
+              fi
+            fi
+            sleep 3
+          done
+          test "$METADATA_OK" = true
+
+          APK_URL="$API_BASE/updates/v2/apk/$VERSION"
+          RANGE_CODE=$(curl -sS --connect-timeout 5 --max-time 90 \
+            -D /tmp/v2-range-headers.txt -o /tmp/v2-range.bin -w '%{http_code}' \
+            -H 'Range: bytes=0-65535' "$APK_URL")
+          test "$RANGE_CODE" = 206
+          grep -qi '^accept-ranges: bytes' /tmp/v2-range-headers.txt
+          grep -qi '^content-range: bytes 0-65535/' /tmp/v2-range-headers.txt
+          grep -qi "^x-checksum-sha256: $EXPECTED_SHA" /tmp/v2-range-headers.txt
+          test "$(stat -c%s /tmp/v2-range.bin)" = 65536
+
+          curl -fsS --retry 3 --retry-all-errors --connect-timeout 5 --max-time 300 \
+            -H 'Cache-Control: no-cache' "$APK_URL" -o /tmp/OnCampus-live-v2.apk
+          test "$(stat -c%s /tmp/OnCampus-live-v2.apk)" = "$EXPECTED_SIZE"
+          ACTUAL_SHA=$(sha256sum /tmp/OnCampus-live-v2.apk | awk '{print $1}')
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          cmp -s release/OnCampus.apk /tmp/OnCampus-live-v2.apk
+          echo "Live Update Engine v2 verified exact APK $VERSION ($VERSION_CODE), $EXPECTED_SIZE bytes, SHA-256 $EXPECTED_SHA"
+
+      - name: Persist verified APK release status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build-verify.outputs.version }}
+          RUNTIME: ${{ needs.build-verify.outputs.runtime }}
+          VERSION_CODE: ${{ needs.build-verify.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          SHA256=$(awk '{print $1}' release/OnCampus.apk.sha256)
+          SIZE=$(stat -c%s release/OnCampus.apk)
+          CERT_SHA=$(awk -F= '/^signingCertificateSha256=/{print $2}' release/APK_INSTALL_INFO.txt)
+          PUBLISHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export SHA256 SIZE CERT_SHA PUBLISHED_AT
+          node <<'NODE'
+          const fs = require('fs');
+          const status = {
+            version: process.env.VERSION,
+            runtimeVersion: process.env.RUNTIME,
+            versionCode: Number(process.env.VERSION_CODE),
+            tag: `v${process.env.VERSION}`,
+            apk: 'OnCampus.apk',
+            sha256: process.env.SHA256,
+            size: Number(process.env.SIZE),
+            abis: ['arm64-v8a','x86_64'],
+            signingCertificateSha256: process.env.CERT_SHA,
+            updateEngine: 'native-apk-v2',
+            expoRemoteUpdates: false,
+            liveRelayValidated: true,
+            rangeResumeValidated: true,
+            installValidated: true,
+            launchValidated: true,
+            launchActivity: 'com.oncampus.app.MainActivity',
+            publishedAt: process.env.PUBLISHED_AT,
+            sourceCommit: process.env.GITHUB_SHA,
+          };
+          fs.writeFileSync('/tmp/apk-v2-status.json', JSON.stringify(status, null, 2) + '\n');
+          NODE
+          CONTENT=$(base64 -w0 /tmp/apk-v2-status.json)
+          EXISTING_SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/frontend/APK_RELEASE_STATUS.json?ref=main" --jq '.sha' 2>/dev/null || true)
+          if [ -n "$EXISTING_SHA" ]; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/frontend/APK_RELEASE_STATUS.json" \
+              -f message="release(android): verify OnCampus $VERSION Update Engine v2" \
+              -f content="$CONTENT" -f sha="$EXISTING_SHA" -f branch=main >/dev/null
+          else
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/frontend/APK_RELEASE_STATUS.json" \
+              -f message="release(android): verify OnCampus $VERSION Update Engine v2" \
+              -f content="$CONTENT" -f branch=main >/dev/null
+          fi
