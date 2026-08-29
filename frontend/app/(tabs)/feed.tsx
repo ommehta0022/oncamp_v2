@@ -12,6 +12,7 @@ import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
 import { normalizePost } from "@/src/lib/mappers";
 import CampusLoader from "@/src/components/CampusLoader";
+import SkeletonLoader from "@/src/components/SkeletonLoader";
 import EmptyState from "@/src/components/EmptyState";
 import { NetworkError } from "@/src/components/NetworkError";
 import { useToast } from "@/src/components/Toast";
@@ -104,7 +105,11 @@ export default function Feed() {
         </View>
       </View>
 
-      {loading && posts.length === 0 ? <CampusLoader fullScreen label="Loading your campus feed…" /> : error && posts.length === 0 ? (
+      {loading && posts.length === 0 ? (
+        <View style={styles.skeletonWrap} testID="feed-loading-skeleton">
+          <SkeletonLoader type="post" count={3} label="Loading your campus feed…" />
+        </View>
+      ) : error && posts.length === 0 ? (
         <NetworkError onRetry={() => void loadPosts()} message={error} />
       ) : (
         <FlatList
@@ -113,7 +118,7 @@ export default function Feed() {
           keyExtractor={(p) => String(p.id)}
           contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: 120, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
-          ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here automatically." />}
+          ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and campus announcements will appear here automatically." />}
           ListFooterComponent={loadingMore ? <CampusLoader compact label="Loading more…" /> : null}
           renderItem={({ item }) => <PostCard post={item} onChange={(updated) => setPosts((current) => current.map((post) => post.id === updated.id ? updated : post))} onDeleted={(id) => setPosts((current) => current.filter((post) => post.id !== id))} style={{ marginHorizontal: spacing.lg }} />}
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
@@ -140,4 +145,5 @@ const styles = StyleSheet.create({
   brand: { fontSize: 23, fontWeight: "800", letterSpacing: -0.5 },
   headerActions: { flexDirection: "row", gap: 2 },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill },
+  skeletonWrap: { flex: 1, paddingHorizontal: spacing.lg, paddingBottom: 120 },
 });
