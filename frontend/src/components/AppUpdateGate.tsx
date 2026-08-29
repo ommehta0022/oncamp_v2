@@ -40,6 +40,7 @@ let updateUiListener: ((state: UpdateUiState) => void) | null = null;
 let pendingOtaReleaseKey: string | null = null;
 let downloadedPendingKey: string | null = null;
 let pendingNativeRelease: NativeRelease | null = null;
+let lastOtaProgress = 0;
 
 type NativeRelease = {
   available?: boolean;
@@ -73,6 +74,9 @@ type UpdateUiState = {
   detail?: string;
   releaseKey?: string;
   force?: boolean;
+  bytesDownloaded?: number;
+  bytesTotal?: number;
+  nextStep?: string;
 };
 
 type DeferredUpdate = { key: string; until: number };
@@ -269,17 +273,19 @@ async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
   if (!serverId || serverId === currentUpdateId()) return false;
   const releaseKey = `ota:${serverId}`;
 
-  void prefetchLatestOta(true).catch(() => undefined);
+  // Discovery only announces the release. The explicit Download action owns
+  // the foreground transfer so progress belongs to the user-visible operation.
   if (await isDeferred(releaseKey, mode)) return true;
 
   pendingOtaReleaseKey = releaseKey;
+  lastOtaProgress = 0;
   emitUpdateUi({
     kind: "ota",
     phase: "available",
     progress: 0,
     releaseKey,
     message: "A new OnCampus update is ready",
-    detail: "Download starts automatically in the background. You can keep using OnCampus and choose when to restart after it reaches 100%.",
+    detail: "Tap Download update to start the signed transfer. You can keep using OnCampus while it downloads, then choose when to restart.",
   });
   return true;
 }
@@ -309,7 +315,8 @@ async function applyReadyOta(releaseKey: string) {
       progress: 100,
       releaseKey,
       message: "Update downloaded",
-      detail: "Return to OnCampus and tap Restart to apply when the app is active.",
+      detail: "100% downloaded and verified. Return to OnCampus and restart when the app is active.",
+      nextStep: "Restart OnCampus once to load the verified update.",
     });
     return false;
   }
@@ -322,50 +329,40 @@ async function applyReadyOta(releaseKey: string) {
     progress: 100,
     releaseKey,
     message: "Applying update",
-    detail: "The update is fully downloaded. OnCampus will restart once to switch to the new version.",
+    detail: "The signed update is fully downloaded and verified. OnCampus is starting a clean Android restart now.",
+    nextStep: "The app will reopen automatically on the new update.",
   });
   await new Promise((resolve) => setTimeout(resolve, 250));
 
-  try {
-    await Updates.reloadAsync();
-    return true;
-  } catch (expoReloadError) {
-    if (nativeInstaller?.restartForOta) {
-      try {
-        await nativeInstaller.restartForOta();
-        return true;
-      } catch (nativeRestartError) {
-        await Promise.all([
-          AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-          AsyncStorage.removeItem(PENDING_OTA_KEY),
-        ]).catch(() => undefined);
-        emitUpdateUi({
-          kind: "ota",
-          phase: "error",
-          progress: 100,
-          releaseKey,
-          message: "Update downloaded safely",
-          detail: nativeRestartError instanceof Error
-            ? "Restart could not start: " + nativeRestartError.message.slice(0, 140) + ". Close OnCampus completely and reopen it to apply the downloaded update."
-            : "Close OnCampus completely and reopen it to apply the downloaded update.",
-        });
-        return false;
-      }
-    }
-
-    await Promise.all([
-      AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-      AsyncStorage.removeItem(PENDING_OTA_KEY),
-    ]).catch(() => undefined);
+  if (!nativeInstaller?.restartForOta) {
     emitUpdateUi({
       kind: "ota",
       phase: "error",
       progress: 100,
       releaseKey,
-      message: "Update downloaded safely",
-      detail: expoReloadError instanceof Error
-        ? "Automatic restart is unavailable: " + expoReloadError.message.slice(0, 140) + ". Close OnCampus completely and reopen it to apply the update."
-        : "Close OnCampus completely and reopen it to apply the update.",
+      message: "Update is ready — restart required",
+      detail: "The update is safely stored, but this build cannot trigger the Android restart. Close OnCampus completely and reopen it; the downloaded update will load on cold start.",
+      nextStep: "Close OnCampus completely, then open it again.",
+    });
+    return false;
+  }
+
+  try {
+    await nativeInstaller.restartForOta();
+    return true;
+  } catch (error) {
+    // Keep PENDING_OTA_KEY/APPLY_OTA_ON_RESUME_KEY intact. A manual cold start
+    // must still be able to activate the already downloaded update.
+    emitUpdateUi({
+      kind: "ota",
+      phase: "error",
+      progress: 100,
+      releaseKey,
+      message: "Update is downloaded — restart again",
+      detail: error instanceof Error
+        ? `Android restart did not start: ${error.message.slice(0, 140)}. The update is still safe on this device.`
+        : "Android restart did not start. The update is still safe on this device.",
+      nextStep: "Close OnCampus completely and reopen it to finish applying the update.",
     });
     return false;
   }
@@ -374,14 +371,16 @@ async function applyReadyOta(releaseKey: string) {
 async function downloadOtaUpdate(releaseKey: string) {
   await clearDeferral(releaseKey);
   pendingOtaReleaseKey = releaseKey;
+  lastOtaProgress = 0;
 
   emitUpdateUi({
     kind: "ota",
     phase: "downloading",
-    progress: 1,
+    progress: 0,
     releaseKey,
     message: "Downloading update",
-    detail: "Starting the signed update download…",
+    detail: "Connecting to the signed production update…",
+    nextStep: "Download progress will appear live, then verification runs automatically.",
   });
 
   try {
@@ -402,7 +401,7 @@ async function downloadOtaUpdate(releaseKey: string) {
       emitUpdateUi({
         kind: "ota",
         phase: "error",
-        progress: 0,
+        progress: lastOtaProgress,
         releaseKey,
         message: "Download paused",
         detail: "The update is still available. Check your connection and tap Try again; background retry remains scheduled.",
@@ -412,6 +411,7 @@ async function downloadOtaUpdate(releaseKey: string) {
 
     downloadedPendingKey = releaseKey;
     pendingOtaReleaseKey = releaseKey;
+    lastOtaProgress = 100;
     emitUpdateUi({
       kind: "ota",
       phase: "ready",
@@ -424,7 +424,7 @@ async function downloadOtaUpdate(releaseKey: string) {
     emitUpdateUi({
       kind: "ota",
       phase: "error",
-      progress: 0,
+      progress: lastOtaProgress,
       releaseKey,
       message: "Update download paused",
       detail: error instanceof Error ? error.message.slice(0, 180) : "Check your connection and try again.",
@@ -526,7 +526,8 @@ export async function checkForAppUpdate(
       if (mode === "manual") {
         emitUpdateUi({ kind: "ota", phase: "error", progress: 0, message: "Couldn’t complete the update check", detail: error instanceof Error ? error.message.slice(0, 180) : "Check your connection and try again." });
       } else {
-        emitUpdateUi(INITIAL_UI);
+        // Automatic checks never hide or replace an active update UI. A
+        // transient campaign/network failure is retried on the next poll/resume.
       }
     }
   })();
@@ -536,6 +537,14 @@ export async function checkForAppUpdate(
   } finally {
     activeCheck = null;
   }
+}
+
+function formatBytes(value?: number) {
+  if (!Number.isFinite(value) || Number(value) < 0) return "";
+  const bytes = Number(value);
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
@@ -553,6 +562,27 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
   const error = state.phase === "error";
   const terminal = state.phase === "current" || state.phase === "applied";
   const permission = state.phase === "permission";
+  const stages = ["Check", "Download", "Verify", "Apply"];
+  const stageIndex = useMemo(() => {
+    if (["checking", "current"].includes(state.phase)) return 0;
+    if (["available", "downloading"].includes(state.phase)) return 1;
+    if (state.phase === "verifying") return 2;
+    if (["ready", "permission", "installing", "applied"].includes(state.phase)) return 3;
+    if (state.phase === "error") return state.progress >= 100 ? 3 : state.progress > 0 ? 1 : 0;
+    return 0;
+  }, [state.phase, state.progress]);
+  const nextStep = useMemo(() => {
+    if (state.nextStep) return state.nextStep;
+    if (state.phase === "checking") return "If a compatible update exists, OnCampus will show it before downloading.";
+    if (state.phase === "available") return "Tap Download update to start the signed transfer.";
+    if (state.phase === "downloading") return "Verification starts automatically when the transfer reaches 100%.";
+    if (state.phase === "verifying") return "After verification, Android will prepare the safe apply step.";
+    if (state.phase === "ready") return "Restart once to switch to the downloaded update.";
+    if (state.phase === "installing") return state.kind === "ota" ? "OnCampus will reopen on the new update." : "Confirm Install on Android's system screen.";
+    if (state.phase === "permission") return "Allow installation from OnCampus, then return to continue.";
+    if (state.phase === "error") return state.progress >= 100 ? "Close and reopen OnCampus to finish applying the stored update." : "Tap Try again; the current app remains unchanged.";
+    return "No action is required.";
+  }, [state.kind, state.nextStep, state.phase, state.progress]);
 
   const label = useMemo(() => {
     if (state.phase === "checking") return "SECURE CHECK";
@@ -584,16 +614,38 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
           <Text style={[styles.title, { color: colors.onSurface }]} accessibilityRole="header">{state.message}</Text>
           {!!state.detail && <Text style={[styles.detail, { color: colors.onSurfaceTertiary }]}>{state.detail}</Text>}
 
-          {busy && state.phase !== "checking" && (
+          <View style={styles.stageRow} accessibilityLabel={`Update stage ${stages[Math.min(stageIndex, stages.length - 1)]}`}>
+            {stages.map((stage, index) => {
+              const done = index < stageIndex || state.phase === "applied";
+              const active = index === stageIndex && state.phase !== "current";
+              return (
+                <View key={stage} style={styles.stageItem}>
+                  <View style={[styles.stageDot, { backgroundColor: done || active ? colors.brandPrimary : colors.surfaceTertiary, borderColor: done || active ? colors.brandPrimary : colors.borderStrong }]}>
+                    <Text style={[styles.stageNumber, { color: done || active ? colors.onBrandPrimary : colors.onSurfaceTertiary }]}>{done ? "✓" : String(index + 1)}</Text>
+                  </View>
+                  <Text style={[styles.stageName, { color: active ? colors.onSurface : colors.onSurfaceTertiary }]}>{stage}</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          {((busy && state.phase !== "checking") || ready) && (
             <>
               <View style={[styles.progressTrack, { backgroundColor: colors.surfaceTertiary }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: state.progress }}>
-                <View style={[styles.progressFill, { width: (String(Math.max(2, Math.min(100, state.progress || 2))) + "%") as `${number}%`, backgroundColor: state.kind === "apk" ? colors.actionPrimary : colors.brandPrimary }]} />
+                <View style={[styles.progressFill, { width: (String(state.progress <= 0 ? 0 : Math.max(2, Math.min(100, state.progress))) + "%") as `${number}%`, backgroundColor: state.kind === "apk" ? colors.actionPrimary : colors.brandPrimary }]} />
               </View>
               <View style={styles.progressMeta}>
                 <Text style={[styles.progressValue, { color: colors.onSurface }]}>{Math.round(state.progress)}%</Text>
-                <Text style={[styles.progressLabel, { color: colors.onSurfaceTertiary }]}>{state.phase === "downloading" ? "Downloaded" : state.phase === "verifying" ? "Verifying" : "Applying"}</Text>
+                <Text style={[styles.progressLabel, { color: colors.onSurfaceTertiary }]}>{state.bytesTotal && state.bytesDownloaded !== undefined ? `${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.bytesTotal)}` : state.phase === "downloading" ? "Live download progress" : state.phase === "ready" ? "Downloaded & verified" : state.phase === "verifying" ? "Verifying" : "Applying"}</Text>
               </View>
             </>
+          )}
+
+          {!terminal && (
+            <View style={[styles.nextCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+              <Text style={[styles.nextLabel, { color: colors.onSurfaceTertiary }]}>NEXT</Text>
+              <Text style={[styles.nextText, { color: colors.onSurface }]}>{nextStep}</Text>
+            </View>
           )}
 
           <View style={[styles.securityRow, { backgroundColor: colors.highlight }]}>
@@ -655,15 +707,18 @@ export default function AppUpdateGate() {
   useEffect(() => {
     if (!isDownloading) return;
     const fraction = Number.isFinite(downloadProgress) ? Number(downloadProgress) : 0;
-    const percent = Math.max(1, Math.min(99, Math.round(fraction * 100)));
+    const percent = Math.max(0, Math.min(99, Math.round(fraction * 100)));
     setUpdateUi((previous) => {
-      if (previous.kind !== "ota" || !["available", "downloading"].includes(previous.phase)) return previous;
+      if (previous.kind !== "ota" || !["available", "downloading", "error"].includes(previous.phase)) return previous;
+      const nextPercent = Math.max(lastOtaProgress, previous.progress || 0, percent);
+      lastOtaProgress = nextPercent;
       return {
         ...previous,
         phase: "downloading",
-        progress: percent,
+        progress: nextPercent,
         message: "Downloading update",
-        detail: String(percent) + "% downloaded • signed content is being verified as it arrives.",
+        detail: `${nextPercent}% downloaded • this is live Expo Updates transfer progress.`,
+        nextStep: "Verification starts automatically at 100%, then you choose when to restart.",
       };
     });
   }, [downloadProgress, isDownloading]);
@@ -672,11 +727,14 @@ export default function AppUpdateGate() {
     if (!downloadError) return;
     setUpdateUi((previous) => {
       if (previous.kind !== "ota" || previous.phase !== "downloading") return previous;
+      const at = Math.max(0, Math.min(99, previous.progress || 0));
       return {
         ...previous,
         phase: "error",
+        progress: at,
         message: "Update download paused",
-        detail: "The signed update did not finish. Tap Try again; your current app remains unchanged.",
+        detail: `Download paused at ${at}% before completion. The current app is unchanged and this message will stay open until you choose what to do.`,
+        nextStep: "Tap Try again to resume/retry the signed update.",
       };
     });
   }, [downloadError]);
@@ -694,7 +752,7 @@ export default function AppUpdateGate() {
   useEffect(() => {
     if (!nativeInstaller) return;
     const emitter = new NativeEventEmitter(nativeInstaller as never);
-    const subscription = emitter.addListener("OnCampusApkInstall", (event: { phase?: UpdatePhase; progress?: number; message?: string; detail?: string }) => {
+    const subscription = emitter.addListener("OnCampusApkInstall", (event: { phase?: UpdatePhase; progress?: number; message?: string; detail?: string; downloadedBytes?: number; totalBytes?: number }) => {
       const phase = event.phase || "error";
       setUpdateUi({
         kind: "apk",
@@ -702,6 +760,9 @@ export default function AppUpdateGate() {
         progress: Number.isFinite(event.progress) ? Number(event.progress) : 0,
         message: event.message || "Android update",
         detail: event.detail,
+        bytesDownloaded: Number.isFinite(event.downloadedBytes) ? Number(event.downloadedBytes) : undefined,
+        bytesTotal: Number.isFinite(event.totalBytes) ? Number(event.totalBytes) : undefined,
+        nextStep: phase === "downloading" ? "Android verifies the APK at 100%, then opens the system installer." : undefined,
         releaseKey: pendingNativeRelease?.version ? `apk:${normalizeVersion(pendingNativeRelease.version)}` : undefined,
       });
     });
@@ -754,7 +815,21 @@ export default function AppUpdateGate() {
     if (pendingNativeRelease) void startNativeInstall(pendingNativeRelease);
   };
 
-  return <UpdateModal state={updateUi} onClose={close} onLater={later} onUpdateNow={updateNow} onRetry={() => { close(); void checkForAppUpdate("manual", true, true); }} />;
+  const retry = () => {
+    const key = updateUi.releaseKey || pendingOtaReleaseKey || downloadedPendingKey;
+    if (updateUi.kind === "ota" && key?.startsWith("ota:")) {
+      if (isUpdatePending || updateUi.progress >= 100) void applyReadyOta(key);
+      else void downloadOtaUpdate(key);
+      return;
+    }
+    if (updateUi.kind === "apk" && pendingNativeRelease) {
+      void startNativeInstall(pendingNativeRelease);
+      return;
+    }
+    void checkForAppUpdate("manual", true, true);
+  };
+
+  return <UpdateModal state={updateUi} onClose={close} onLater={later} onUpdateNow={updateNow} onRetry={retry} />;
 }
 
 const styles = StyleSheet.create({
@@ -772,7 +847,15 @@ const styles = StyleSheet.create({
   progressMeta: { marginTop: 8, flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
   progressValue: { fontSize: 14, fontWeight: "800", fontVariant: ["tabular-nums"] },
   progressLabel: { fontSize: 11, fontWeight: "600" },
-  securityRow: { marginTop: 18, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: radius.md, padding: spacing.md },
+  stageRow: { marginTop: 18, flexDirection: "row", justifyContent: "space-between", gap: 6 },
+  stageItem: { flex: 1, alignItems: "center", gap: 6 },
+  stageDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  stageNumber: { fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  stageName: { fontSize: 9, lineHeight: 12, fontWeight: "700" },
+  nextCard: { marginTop: 14, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 10 },
+  nextLabel: { fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
+  nextText: { marginTop: 3, fontSize: 12, lineHeight: 17, fontWeight: "600" },
+  securityRow: { marginTop: 14, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: radius.md, padding: spacing.md },
   securityIcon: { width: 24, height: 24, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   securityText: { flex: 1, fontSize: 11, lineHeight: 16, fontWeight: "600" },
   actions: { marginTop: 24, flexDirection: "row", gap: 10 },

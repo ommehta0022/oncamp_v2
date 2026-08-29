@@ -204,7 +204,7 @@ class OnCampusApkInstallerModule(
   private fun currentProgress(downloadId: Long): Int {
     val state = queryDownload(downloadId) ?: return 1
     if (state.total <= 0L) return 1
-    return ((state.downloaded * 84L) / state.total).toInt().coerceIn(1, 84)
+    return ((state.downloaded * 100L) / state.total).toInt().coerceIn(1, 100)
   }
 
   private fun monitorDownload(downloadId: Long) {
@@ -236,11 +236,11 @@ class OnCampusApkInstallerModule(
             DownloadManager.STATUS_PAUSED,
             DownloadManager.STATUS_PENDING -> {
               val progress = if (state.total > 0L) {
-                ((state.downloaded * 84L) / state.total).toInt().coerceIn(1, 84)
+                ((state.downloaded * 100L) / state.total).toInt().coerceIn(1, 100)
               } else 1
               if (progress != lastProgress) {
                 lastProgress = progress
-                emit("downloading", progress, "Downloading OnCampus update", "$progress% downloaded • safe to minimize OnCampus")
+                emit("downloading", progress, "Downloading OnCampus update", "$progress% downloaded • safe to minimize OnCampus", state.downloaded, state.total)
               }
             }
           }
@@ -271,7 +271,7 @@ class OnCampusApkInstallerModule(
           throw IllegalStateException("Downloaded APK is incomplete")
         }
 
-        emit("verifying", 90, "Verifying update", "Checking the completed APK before Android can install it…")
+        emit("verifying", 100, "Verifying update", "Download complete • checking the APK before Android can install it…")
         val actualSha256 = sha256(apkFile)
         if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
           runCatching { downloadManager.remove(downloadId) }
@@ -368,13 +368,15 @@ private fun clearPendingMetadata() {
     if (removeFile) runCatching { updateFile().delete() }
   }
 
-  private fun emit(phase: String, progress: Int, message: String, detail: String) {
+  private fun emit(phase: String, progress: Int, message: String, detail: String, downloadedBytes: Long = -1L, totalBytes: Long = -1L) {
     reactContext.runOnUiQueueThread {
       val event = Arguments.createMap().apply {
         putString("phase", phase)
         putInt("progress", progress)
         putString("message", message)
         putString("detail", detail)
+        if (downloadedBytes >= 0L) putDouble("downloadedBytes", downloadedBytes.toDouble())
+        if (totalBytes > 0L) putDouble("totalBytes", totalBytes.toDouble())
       }
       reactContext
         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

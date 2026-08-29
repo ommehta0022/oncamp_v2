@@ -86,8 +86,12 @@ expect(updateGate.includes('prefetchLatestOta(true)'), 'OTA must use resilient s
 expect(updateGate.includes('downloadProgress') && updateGate.includes('isDownloading'), 'real Expo OTA download progress must be rendered');
 expect(updateGate.includes('phase: "ready"'), 'downloaded OTA ready state missing');
 expect(updateGate.includes('Restart to apply'), 'explicit OTA apply action missing');
-expect(updateGate.includes('await Updates.reloadAsync()'), 'OTA apply must prefer in-process Expo reload');
-expect(updateGate.includes('nativeInstaller?.restartForOta'), 'OTA apply must retain cold-restart fallback');
+expect(!updateGate.includes('Updates.reloadAsync()'), 'OTA apply must not depend on rejected in-process Expo reload');
+expect(updateGate.includes('nativeInstaller?.restartForOta') && updateGate.includes('await nativeInstaller.restartForOta()'), 'OTA apply must use native cold restart after download');
+expect(updateGate.includes('Automatic checks never hide or replace an active update UI'), 'automatic update failures must never dismiss active progress UI');
+expect(updateGate.includes('lastOtaProgress') && updateGate.includes('[\"available\", \"downloading\", \"error\"]'), 'OTA retries must preserve and resume real visible progress');
+expect(updateGate.includes('Live download progress') && updateGate.includes('Math.round(fraction * 100)'), 'professional live OTA percentage UI missing');
+expect(updateGate.includes('[\"Check\", \"Download\", \"Verify\", \"Apply\"]'), 'OTA stage stepper missing');
 expect(!updateGate.includes('resumePendingOtaApply()'), 'download completion must never auto-restart the app');
 expect(updateGate.includes('DEFER_MS = 6 * 60 * 60 * 1000'), 'Later quiet period missing');
 expect(nativeGuard.includes('Updates.addListener') || nativeGuard.includes('useUpdates'), 'native OTA state observer missing');
@@ -111,6 +115,8 @@ expect(!backgroundOta.includes('Updates.reloadAsync()'), 'background worker must
 
 // Android full APK update remains DownloadManager + checksum + system installer handoff.
 expect(apkInstaller.includes('DownloadManager'), 'APK updater must use Android DownloadManager');
+expect(apkInstaller.includes('COLUMN_BYTES_DOWNLOADED_SO_FAR') && apkInstaller.includes('downloadedBytes'), 'APK updater must expose real byte progress');
+expect(apkInstaller.includes('downloaded * 100L') && !apkInstaller.includes('downloaded * 84L'), 'APK download progress must be true transfer percentage');
 expect(apkInstaller.includes('setDestinationInExternalFilesDir'), 'APK must download to durable app-owned external storage');
 expect(apkInstaller.includes('VISIBILITY_VISIBLE_NOTIFY_COMPLETED'), 'background APK completion notification missing');
 expect(apkInstaller.includes('getSharedPreferences'), 'APK download state must survive React process recreation');

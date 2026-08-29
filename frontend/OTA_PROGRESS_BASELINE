@@ -1,0 +1,9 @@
+OnCampus 1.6.8 OTA reliability baseline
+
+- Previous clean 1.6.3 UI remains the visual baseline.
+- OTA discovery stays server-authoritative.
+- Expo Updates useUpdates().downloadProgress drives the visible OTA percentage.
+- Automatic/campaign failures never hide an active update modal.
+- Download errors stay visible until Retry/Close.
+- OTA activation uses native cold restart; no in-process Updates.reloadAsync dependency.
+- Android APK DownloadManager reports real transfer percentage and byte counts.
