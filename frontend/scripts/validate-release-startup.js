@@ -108,7 +108,10 @@ expect(backgroundCoordinator.includes('AppState.addEventListener'), 'background 
 expect(backgroundOta.includes('TaskManager.defineTask'), 'headless OTA task must be module scoped');
 expect(backgroundOta.includes('BackgroundTask.registerTaskAsync'), 'WorkManager OTA registration missing');
 expect(backgroundOta.includes('BACKGROUND_MIN_INTERVAL_MINUTES = 15'), 'Android background OTA interval contract changed');
-expect(backgroundOta.includes('FETCH_ATTEMPTS = 4'), 'OTA retry count contract missing');
+expect(!backgroundOta.includes('FETCH_ATTEMPTS'), 'OTA transfer must not loop native fetch attempts');
+expect(backgroundOta.includes('fetchUpdateOnce'), 'OTA must use one controlled native transfer per request');
+expect((backgroundOta.match(/Updates\.fetchUpdateAsync\(\)/g) || []).length === 1, 'OTA engine must call fetchUpdateAsync exactly once per transfer path');
+expect(backgroundOta.includes('activePrefetch'), 'OTA single-flight guard missing');
 expect(backgroundOta.includes('Updates.fetchUpdateAsync()'), 'OTA download must use signed Expo fetch');
 expect(!backgroundOta.includes('Updates.checkForUpdateAsync()'), 'background discovery must not use rejected Expo check promise');
 expect(!backgroundOta.includes('Updates.reloadAsync()'), 'background worker must never reload hidden app');

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import json
 import logging
 import os
 import re
+import threading
 import time
-from typing import Optional
+from collections import OrderedDict
+from typing import Any, Optional
 
+import requests
 import uvicorn
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -58,6 +63,15 @@ _campus_scheduler_task: Optional[asyncio.Task] = None
 _semantics_task: Optional[asyncio.Task] = None
 _campus_local_rate: dict[str, tuple[int, int]] = {}
 
+# OTA source metadata is small, but the launch bundle can be several MB. Keep a
+# bounded per-worker LRU so repeated/retried downloads do not repeatedly depend
+# on GitHub release delivery. Asset names are content addressed, so immutable
+# caching is safe for the lifetime of a runtime.
+_OTA_ASSET_CACHE_MAX_BYTES = max(8 * 1024 * 1024, int(os.getenv("OTA_ASSET_CACHE_MAX_BYTES", str(32 * 1024 * 1024))))
+_ota_asset_cache_lock = threading.Lock()
+_ota_asset_cache: OrderedDict[str, tuple[bytes, str, str]] = OrderedDict()
+_ota_asset_cache_bytes = 0
+
 
 def _campus_rate_principal(request: Request) -> tuple[str, bool]:
     authorization = (request.headers.get("authorization") or "").strip()
@@ -83,6 +97,139 @@ def _local_rate_allowed(key: str, limit: int) -> bool:
     return count <= limit
 
 
+def _ota_public_origin(request: Request) -> str:
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip()
+    forwarded_host = (request.headers.get("x-forwarded-host") or "").split(",", 1)[0].strip()
+    scheme = forwarded_proto or request.url.scheme or "https"
+    host = forwarded_host or request.headers.get("host") or request.url.netloc
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def _ota_asset_name(asset: Any) -> Optional[str]:
+    if not isinstance(asset, dict):
+        return None
+    url = str(asset.get("url") or "")
+    name = url.rsplit("/", 1)[-1]
+    if not re.fullmatch(r"(?:launch|asset)-[0-9a-f]{64}\.[A-Za-z0-9]{1,12}", name):
+        return None
+    return name
+
+
+def _ota_asset_record(source: dict[str, Any], asset_name: str) -> Optional[dict[str, Any]]:
+    candidates = [source.get("launchAsset"), *(source.get("assets") or [])]
+    for candidate in candidates:
+        if isinstance(candidate, dict) and _ota_asset_name(candidate) == asset_name:
+            return candidate
+    return None
+
+
+def _ota_rewrite_manifest_for_client(source: dict[str, Any], request: Request) -> dict[str, Any]:
+    manifest = json.loads(json.dumps(source))
+    runtime = str(manifest.get("runtimeVersion") or "")
+    origin = _ota_public_origin(request)
+    for asset in [manifest.get("launchAsset"), *(manifest.get("assets") or [])]:
+        name = _ota_asset_name(asset)
+        if name and isinstance(asset, dict):
+            asset["url"] = f"{origin}/v1/updates/assets/{runtime}/{name}"
+    return manifest
+
+
+def _ota_hash_bytes(payload: bytes) -> str:
+    return base64.urlsafe_b64encode(hashlib.sha256(payload).digest()).decode("ascii").rstrip("=")
+
+
+def _ota_cache_get(cache_key: str) -> Optional[tuple[bytes, str, str]]:
+    with _ota_asset_cache_lock:
+        value = _ota_asset_cache.get(cache_key)
+        if value is not None:
+            _ota_asset_cache.move_to_end(cache_key)
+        return value
+
+
+def _ota_cache_put(cache_key: str, payload: bytes, content_type: str, digest: str) -> None:
+    global _ota_asset_cache_bytes
+    if len(payload) > _OTA_ASSET_CACHE_MAX_BYTES:
+        return
+    with _ota_asset_cache_lock:
+        previous = _ota_asset_cache.pop(cache_key, None)
+        if previous is not None:
+            _ota_asset_cache_bytes -= len(previous[0])
+        _ota_asset_cache[cache_key] = (payload, content_type, digest)
+        _ota_asset_cache_bytes += len(payload)
+        while _ota_asset_cache and _ota_asset_cache_bytes > _OTA_ASSET_CACHE_MAX_BYTES:
+            _, evicted = _ota_asset_cache.popitem(last=False)
+            _ota_asset_cache_bytes -= len(evicted[0])
+
+
+def _ota_fetch_verified_asset(runtime_version: str, asset_name: str) -> tuple[bytes, str, str]:
+    source = ota_updates.fetch_latest_source(runtime_version)
+    if not source:
+        raise HTTPException(status_code=404, detail="OTA release is unavailable")
+    asset = _ota_asset_record(source, asset_name)
+    if not asset:
+        raise HTTPException(status_code=404, detail="OTA asset is not part of the promoted release")
+
+    expected_hash = str(asset.get("hash") or "")
+    content_type = str(asset.get("contentType") or "application/octet-stream")
+    cache_key = f"{runtime_version}:{asset_name}:{expected_hash}"
+    cached = _ota_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    upstream_url = str(asset.get("url") or "")
+    try:
+        upstream = requests.get(
+            upstream_url,
+            headers={
+                "Accept": content_type,
+                "User-Agent": "OnCampus-OTA-Asset-Relay/1.0",
+            },
+            timeout=(5, 45),
+            allow_redirects=True,
+        )
+    except requests.RequestException as exc:
+        logger.warning("OTA asset upstream failed runtime=%s asset=%s error=%s", runtime_version, asset_name, type(exc).__name__)
+        raise HTTPException(status_code=503, detail="OTA asset delivery is temporarily unavailable") from exc
+    if not upstream.ok:
+        logger.warning("OTA asset upstream rejected runtime=%s asset=%s status=%s", runtime_version, asset_name, upstream.status_code)
+        raise HTTPException(status_code=503, detail="OTA asset delivery is temporarily unavailable")
+
+    payload = upstream.content
+    actual_hash = _ota_hash_bytes(payload)
+    if not expected_hash or actual_hash != expected_hash:
+        logger.error("OTA asset hash mismatch runtime=%s asset=%s", runtime_version, asset_name)
+        raise HTTPException(status_code=502, detail="OTA asset integrity verification failed")
+
+    _ota_cache_put(cache_key, payload, content_type, actual_hash)
+    return payload, content_type, actual_hash
+
+
+def _ota_range(value: str, total: int) -> Optional[tuple[int, int]]:
+    if not value or not value.startswith("bytes=") or "," in value:
+        return None
+    spec = value[6:].strip()
+    if "-" not in spec:
+        return None
+    start_text, end_text = spec.split("-", 1)
+    try:
+        if start_text:
+            start = int(start_text)
+            end = int(end_text) if end_text else total - 1
+        elif end_text:
+            suffix = int(end_text)
+            if suffix <= 0:
+                return None
+            start = max(0, total - suffix)
+            end = total - 1
+        else:
+            return None
+    except ValueError:
+        return None
+    if start < 0 or start >= total or end < start:
+        return None
+    return start, min(end, total - 1)
+
+
 @app.post("/v1/updates/promote", include_in_schema=False)
 def production_ota_promote(payload: ota_updates.PromoteSourceDto, request: Request) -> dict:
     return ota_updates.promote_ota_source(payload, request)
@@ -90,7 +237,75 @@ def production_ota_promote(payload: ota_updates.PromoteSourceDto, request: Reque
 
 @app.get("/v1/updates/manifest", include_in_schema=False)
 def production_ota_manifest(request: Request) -> Response:
-    return ota_updates.expo_updates_manifest(request)
+    protocol_version = request.headers.get("expo-protocol-version", "1")
+    platform = request.headers.get("expo-platform")
+    runtime_version = request.headers.get("expo-runtime-version")
+    current_update_id = request.headers.get("expo-current-update-id")
+    if protocol_version not in {"1", "0"}:
+        return JSONResponse(status_code=406, content={"error": "Unsupported Expo Updates protocol"})
+    if platform != "android" or not runtime_version or runtime_version not in ota_updates.supported_runtime_versions():
+        return Response(status_code=204, headers={"x-oncampus-update-reason": "incompatible-request"})
+    source = ota_updates.fetch_latest_source(runtime_version)
+    if not source:
+        return Response(status_code=204, headers={"x-oncampus-update-reason": "source-unavailable"})
+    if current_update_id and current_update_id == source.get("id"):
+        return Response(status_code=204, headers={"x-oncampus-update-reason": "already-current"})
+
+    # Never make mobile clients depend directly on GitHub release delivery.
+    # Railway remains the stable origin and relays only content-addressed assets
+    # that belong to the exact promoted, signed release.
+    manifest = _ota_rewrite_manifest_for_client(source, request)
+    body = json.dumps(manifest, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    signature = ota_updates._sign_manifest(body)
+    if not signature:
+        return JSONResponse(status_code=503, content={"error": "Signed OTA updates are temporarily unavailable"})
+    return Response(
+        content=body,
+        media_type="application/expo+json",
+        headers=ota_updates._manifest_headers(signature),
+    )
+
+
+@app.api_route("/v1/updates/assets/{runtime_version}/{asset_name}", methods=["GET", "HEAD"], include_in_schema=False)
+def production_ota_asset(runtime_version: str, asset_name: str, request: Request) -> Response:
+    if runtime_version not in ota_updates.supported_runtime_versions():
+        raise HTTPException(status_code=404, detail="Unsupported OTA runtime")
+    if not re.fullmatch(r"(?:launch|asset)-[0-9a-f]{64}\.[A-Za-z0-9]{1,12}", asset_name):
+        raise HTTPException(status_code=404, detail="Invalid OTA asset")
+
+    payload, content_type, digest = _ota_fetch_verified_asset(runtime_version, asset_name)
+    total = len(payload)
+    common_headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "ETag": f'"sha256-{digest}"',
+        "X-Content-Type-Options": "nosniff",
+    }
+    requested_range = request.headers.get("range", "")
+    if requested_range:
+        byte_range = _ota_range(requested_range, total)
+        if byte_range is None:
+            return Response(status_code=416, headers={**common_headers, "Content-Range": f"bytes */{total}"})
+        start, end = byte_range
+        segment = payload[start : end + 1]
+        headers = {
+            **common_headers,
+            "Content-Range": f"bytes {start}-{end}/{total}",
+            "Content-Length": str(len(segment)),
+        }
+        return Response(
+            content=b"" if request.method == "HEAD" else segment,
+            status_code=206,
+            media_type=content_type,
+            headers=headers,
+        )
+
+    headers = {**common_headers, "Content-Length": str(total)}
+    return Response(
+        content=b"" if request.method == "HEAD" else payload,
+        media_type=content_type,
+        headers=headers,
+    )
 
 
 @app.get("/v1/updates/status", include_in_schema=False)
@@ -106,6 +321,7 @@ async def verify_production_routes() -> None:
         "/v1/updates/promote",
         "/v1/updates/manifest",
         "/v1/updates/status",
+        "/v1/updates/assets/{runtime_version}/{asset_name}",
         "/v1/updates/installations",
         "/v1/updates/campaign",
         "/v1/updates/native/latest",

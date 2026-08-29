@@ -9,7 +9,6 @@ const BACKGROUND_TASK_NAME = "oncampus-background-ota-v1";
 const BACKGROUND_MIN_INTERVAL_MINUTES = 15;
 const STATUS_TIMEOUT_MS = 7_000;
 const FOREGROUND_PREFETCH_COOLDOWN_MS = 90_000;
-const FETCH_ATTEMPTS = 4;
 
 export const OTA_BACKGROUND_READY_KEY = "oncampus.ota.background.ready.v1";
 const OTA_BACKGROUND_SERVER_KEY = "oncampus.ota.background.server.v1";
@@ -28,11 +27,15 @@ type ServerStatus = {
 
 let activePrefetch: Promise<boolean> | null = null;
 let lastForegroundPrefetchAt = 0;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+let lastPrefetchError: string | null = null;
 
 function runtimeVersion() {
   return String(Updates.runtimeVersion || "");
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) return error.message.trim().slice(0, 320);
+  return "OTA download could not be completed";
 }
 
 async function readServerStatus(): Promise<ServerStatus | null> {
@@ -66,37 +69,35 @@ async function persistReady(updateId: string) {
     [OTA_BACKGROUND_SERVER_KEY, updateId],
   ]).catch(() => undefined);
   await AsyncStorage.removeItem(OTA_BACKGROUND_ERROR_KEY).catch(() => undefined);
+  lastPrefetchError = null;
 }
 
 async function persistFailure(error: unknown) {
-  const message = error instanceof Error ? error.message.slice(0, 240) : "Background OTA download failed";
+  const message = errorMessage(error);
+  lastPrefetchError = message;
   await AsyncStorage.setItem(
     OTA_BACKGROUND_ERROR_KEY,
     JSON.stringify({ at: Date.now(), message }),
   ).catch(() => undefined);
 }
 
-async function fetchUpdateWithRetry(expectedUpdateId: string) {
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt += 1) {
-    try {
-      const fetched = await Updates.fetchUpdateAsync();
-      const manifestId = String((fetched as any)?.manifest?.id || expectedUpdateId || "pending");
-      if (expectedUpdateId && manifestId && manifestId !== expectedUpdateId) {
-        throw new Error(`OTA changed during download (${manifestId} != ${expectedUpdateId})`);
-      }
-      if (fetched.isNew || expectedUpdateId !== String(Updates.updateId || "")) {
-        await persistReady(expectedUpdateId || manifestId);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      lastError = error;
-      if (attempt < FETCH_ATTEMPTS - 1) await sleep(800 * 2 ** attempt);
+async function fetchUpdateOnce(expectedUpdateId: string) {
+  try {
+    lastPrefetchError = null;
+    const fetched = await Updates.fetchUpdateAsync();
+    const manifestId = String((fetched as any)?.manifest?.id || expectedUpdateId || "pending");
+    if (expectedUpdateId && manifestId && manifestId !== expectedUpdateId) {
+      throw new Error(`OTA changed during download (${manifestId} != ${expectedUpdateId})`);
     }
+    if (fetched.isNew || expectedUpdateId !== String(Updates.updateId || "")) {
+      await persistReady(expectedUpdateId || manifestId);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    await persistFailure(error);
+    return false;
   }
-  await persistFailure(lastError);
-  return false;
 }
 
 async function runPrefetch(force = false): Promise<boolean> {
@@ -114,7 +115,14 @@ async function runPrefetch(force = false): Promise<boolean> {
   // device, there is nothing to fetch.
   if (serverUpdateId === String(Updates.updateId || "")) return false;
 
-  return fetchUpdateWithRetry(serverUpdateId);
+  // Do one controlled native transfer. expo-updates already reuses cached
+  // content-addressed assets. Repeating fetchUpdateAsync several times in one
+  // tap restarts manifest/asset work and can create a retry storm on weak links.
+  return fetchUpdateOnce(serverUpdateId);
+}
+
+export function getLastOtaPrefetchError() {
+  return lastPrefetchError;
 }
 
 export function prefetchLatestOta(force = false): Promise<boolean> {
