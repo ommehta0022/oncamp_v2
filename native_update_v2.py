@@ -10,11 +10,14 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+import ota_updates
 import update_campaign
 
 router = APIRouter(tags=["native-update-v2"])
 LOGGER = logging.getLogger("oncampus")
 APK_MEDIA_TYPE = "application/vnd.android.package-archive"
+AUTH_ALGORITHM = "rsa-v1_5-sha256"
+AUTH_PACKAGE = "com.oncampus.app"
 
 
 class NativeUpdateTelemetryDto(BaseModel):
@@ -57,6 +60,40 @@ def _release(*, force: bool = False) -> dict[str, Any]:
     return release
 
 
+def _authorization_payload(*, version: str, version_code: int, sha256: str, size: int) -> bytes:
+    digest = sha256.lower().strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise HTTPException(status_code=503, detail="Native release checksum is invalid")
+    if size < 1024 * 1024:
+        raise HTTPException(status_code=503, detail="Native release size is invalid")
+    return (
+        "oncampus-update-v2\n"
+        f"version={version}\n"
+        f"versionCode={version_code}\n"
+        f"sha256={digest}\n"
+        f"size={size}\n"
+        f"package={AUTH_PACKAGE}\n"
+    ).encode("utf-8")
+
+
+def _release_authorization(release: dict[str, Any], *, version: str, version_code: int) -> dict[str, str]:
+    try:
+        size = int(release["size"])
+        digest = str(release["sha256"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="Native release integrity metadata is invalid") from exc
+    payload = _authorization_payload(version=version, version_code=version_code, sha256=digest, size=size)
+    signature = ota_updates._sign_manifest(payload)
+    if not signature:
+        LOGGER.error("Native OTA v2 authorization signing unavailable version=%s", version)
+        raise HTTPException(status_code=503, detail="Native update authorization is temporarily unavailable")
+    return {
+        "keyId": ota_updates.SIGNING_KEY_ID,
+        "algorithm": AUTH_ALGORITHM,
+        "signature": signature,
+    }
+
+
 def _is_no_cache(request: Request) -> bool:
     cache_control = (request.headers.get("cache-control") or "").lower()
     pragma = (request.headers.get("pragma") or "").lower()
@@ -71,6 +108,7 @@ def native_update_v2_latest(
     release = _release(force=_is_no_cache(request))
     version = str(release["version"])
     version_code = _version_code(version)
+    authorization = _release_authorization(release, version=version, version_code=version_code)
     current = update_campaign._version_tuple(currentVersion)
     available = not currentVersion or update_campaign._version_tuple(version) > current
     base = update_campaign.PUBLIC_API_BASE
@@ -84,21 +122,24 @@ def native_update_v2_latest(
         "notes": release["notes"],
         "minVersion": release["minVersion"],
         "forceUpdate": release["forceUpdate"],
-        "sha256": release["sha256"],
+        "sha256": str(release["sha256"]).lower(),
         "size": release["size"],
         "apkUrl": f"{base}/v1/updates/v2/apk/{version}",
         "telemetryUrl": f"{base}/v1/updates/v2/telemetry",
+        "authorization": authorization,
         "integrity": {
             "algorithm": "sha256",
-            "package": "com.oncampus.app",
+            "package": AUTH_PACKAGE,
             "requireSameSigningCertificate": True,
             "requireHigherVersionCode": True,
+            "releaseAuthorization": AUTH_ALGORITHM,
         },
         "capabilities": {
             "resume": True,
             "backgroundDownload": True,
             "androidPackageVerification": True,
             "signingCertificatePinning": True,
+            "releaseAuthorizationSignature": True,
             "processRecovery": True,
         },
     }
