@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { font, radius, spacing } from "@/src/theme/colors";
 import Avatar from "@/src/components/Avatar";
+import SkeletonLoader from "@/src/components/SkeletonLoader";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
 import { useRole } from "@/src/context/RoleProvider";
@@ -13,6 +14,7 @@ import { normalizeGroup } from "@/src/lib/mappers";
 
 type Group = any;
 const FILTERS = ["All", "Unread", "Announcements", "Muted"];
+const VERIFIED_BLUE = "#1D73E8";
 
 type RowItem =
   | { type: "section"; id: string; label: string }
@@ -26,20 +28,27 @@ export default function Groups() {
   const [filter, setFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<Group[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchGroups = useCallback(async () => {
+  const fetchGroups = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const cached = await cache.get("my_groups");
-      if (cached) setGroups((cached as any[]).map(normalizeGroup));
+      if (cached) {
+        setGroups((cached as any[]).map(normalizeGroup));
+        setLoading(false);
+      }
       const response = await api.groups.listMine();
       const next = ((response as any).groups || response || []).map(normalizeGroup);
       setGroups(next);
       await cache.set("my_groups", next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load your groups.");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -47,7 +56,7 @@ export default function Groups() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchGroups();
+    await fetchGroups(false);
     setRefreshing(false);
   }, [fetchGroups]);
 
@@ -141,30 +150,36 @@ export default function Groups() {
         />
       </View>
 
-      <FlatList
-        data={data}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 140 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
-        showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => item.type === "section"
-          ? <SectionHeader label={item.label} />
-          : <GroupRow group={item.group} onPress={() => router.push(`/group/${item.group.id}`)} />
-        }
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={34} color={colors.muted} />
-            <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.md, textAlign: "center" }}>
-              {error || "No groups match this filter"}
-            </Text>
-            {error ? (
-              <Pressable onPress={() => void fetchGroups()} style={[styles.retry, { borderColor: colors.borderStrong }]}>
-                <Text style={{ color: colors.onSurface, fontWeight: "600" }}>Try again</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        }
-      />
+      {loading && groups.length === 0 ? (
+        <View style={styles.loadingWrap} testID="groups-loading-skeleton">
+          <SkeletonLoader type="groupRow" count={6} label="Loading your groups…" />
+        </View>
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 140 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item }) => item.type === "section"
+            ? <SectionHeader label={item.label} />
+            : <GroupRow group={item.group} onPress={() => router.push(`/group/${item.group.id}`)} />
+          }
+          ListEmptyComponent={(
+            <View style={styles.empty}>
+              <Ionicons name={error ? "cloud-offline-outline" : "people-outline"} size={34} color={colors.muted} />
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.base, marginTop: spacing.md, textAlign: "center" }}>
+                {error || "No groups match this filter"}
+              </Text>
+              {error ? (
+                <Pressable onPress={() => void fetchGroups()} style={[styles.retry, { borderColor: colors.borderStrong }]}>
+                  <Text style={{ color: colors.onSurface, fontWeight: "600" }}>Try again</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          )}
+        />
+      )}
 
       {canCreateGroups ? (
         <Pressable
@@ -197,6 +212,7 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
   const senderMatch = lastMessage.match(/^([^:]+):\s(.*)$/);
   const sender = senderMatch?.[1];
   const messageBody = senderMatch?.[2] || lastMessage;
+  const isOfficial = Boolean(group.verified || group.official || group.category === "Official");
 
   return (
     <Pressable
@@ -214,11 +230,12 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
           <View style={styles.nameWrap}>
             {group.pinned ? <Ionicons name="pin" size={12} color={colors.onSurfaceTertiary} /> : null}
             <Text
-              style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: hasUnread ? "700" : "600", flex: 1 }}
+              style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: hasUnread ? "700" : "600", flexShrink: 1 }}
               numberOfLines={1}
             >
               {group.name}
             </Text>
+            {isOfficial ? <Ionicons name="checkmark-circle" size={15} color={VERIFIED_BLUE} accessibilityLabel="Verified official group" /> : null}
           </View>
           <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm }}>{group.lastMessageAt || ""}</Text>
         </View>
@@ -238,7 +255,7 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
         </View>
 
         <View style={styles.metaRow}>
-          {group.category ? (
+          {group.category && group.category !== "Official" ? (
             <View style={[styles.categoryPill, { backgroundColor: colors.brandTertiary }]}>
               <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "700" }}>{String(group.category).toUpperCase()}</Text>
             </View>
@@ -300,6 +317,7 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   categoryPill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   unreadBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  loadingWrap: { flex: 1, paddingHorizontal: spacing.lg },
   empty: { paddingHorizontal: spacing.xl, paddingVertical: spacing["3xl"], alignItems: "center" },
   retry: { marginTop: spacing.lg, paddingHorizontal: spacing.lg, paddingVertical: 10, borderRadius: radius.md, borderWidth: 1 },
   fab: {
