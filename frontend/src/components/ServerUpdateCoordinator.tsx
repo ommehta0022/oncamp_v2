@@ -151,8 +151,8 @@ async function checkServerCampaign(force = false): Promise<number> {
     };
     nextPollSeconds = pollDelaySeconds(campaign.pollAfterSeconds);
 
-    // Update Engine v2 is independent of Expo Updates. Native release polling
-    // remains active even when expo-updates is intentionally disabled.
+    // Update Engine v2 is independent of the legacy remote-update module.
+    // Native release polling remains active even when that module is disabled.
     if (campaign.nativeUpdateAvailable) {
       await checkForAppUpdate("campaign", true, true);
     }
