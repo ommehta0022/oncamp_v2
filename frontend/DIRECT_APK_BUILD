@@ -1,8 +1,8 @@
-version=1.6.7
-runtime=1.6.7
-versionCode=10607
+version=1.6.8
+runtime=1.6.8
+versionCode=10608
 mode=direct-signed-apk
-requested=2026-08-27T17:29:00+05:30
-source=a2d07aa1593597b24962d6313bebedd03cf041b9
-reason=final-professional-ui-ota-verified
+requested=2026-08-29T11:52:00+05:30
+source=062ca76708e5d55a3fb05be515d0f37fd06540d9
+reason=reliable-ota-progress-apply-final-apk
 skipColdLaunch=true
