@@ -389,7 +389,7 @@ function UpdateModal({ state, onClose, onLater, onPrimary }: {
   const { colors } = useTheme();
   const visible = state.phase !== "hidden";
   const busy = ["checking", "downloading", "verifying", "installing"].includes(state.phase);
-  const actionable = ["available", "ready", "error"].includes(state.phase);
+  const actionable = ["available", "ready", "permission", "error"].includes(state.phase);
   const terminal = ["current", "applied"].includes(state.phase);
   const stages = ["Check", "Download", "Verify", "Install"];
   const stageIndex = useMemo(() => {
@@ -401,7 +401,7 @@ function UpdateModal({ state, onClose, onLater, onPrimary }: {
     return 0;
   }, [state.phase, state.progress]);
   const label = state.phase === "error" ? "ATTENTION" : state.phase === "applied" ? "UPDATED" : state.phase === "current" ? "CURRENT" : "UPDATE ENGINE V2";
-  const primaryLabel = state.phase === "ready" ? "Install update" : state.phase === "error" ? "Try again" : "Download update";
+  const primaryLabel = state.phase === "ready" ? "Install update" : state.phase === "permission" ? "Open settings" : state.phase === "error" ? "Try again" : "Download update";
   const transferred = state.bytesDownloaded != null && state.bytesTotal
     ? `${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.bytesTotal)}`
     : "";
@@ -449,12 +449,12 @@ function UpdateModal({ state, onClose, onLater, onPrimary }: {
           <View style={styles.actions}>
             {terminal ? (
               <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onClose} accessibilityRole="button">
-                <Text style={[styles.primaryText, { color: colors.onPrimary }]}>Done</Text>
+                <Text style={[styles.primaryText, { color: colors.onBrandPrimary }]}>Done</Text>
               </Pressable>
             ) : null}
             {actionable ? (
               <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onPrimary} accessibilityRole="button">
-                <Text style={[styles.primaryText, { color: colors.onPrimary }]}>{primaryLabel}</Text>
+                <Text style={[styles.primaryText, { color: colors.onBrandPrimary }]}>{primaryLabel}</Text>
               </Pressable>
             ) : null}
             {!state.force && (state.phase === "available" || state.phase === "error") ? (
@@ -553,7 +553,7 @@ export default function AppUpdateGate() {
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: "center", padding: spacing.lg },
-  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.xl, padding: spacing.lg, overflow: "hidden", shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 12 },
+  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, padding: spacing.lg, overflow: "hidden", shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 12 },
   topGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 4 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.lg },
   logo: { width: 46, height: 46, borderRadius: 12 },
