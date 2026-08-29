@@ -89,6 +89,7 @@ expect(updateGate.includes('Restart to apply'), 'explicit OTA apply action missi
 expect(!updateGate.includes('Updates.reloadAsync()'), 'OTA apply must not depend on rejected in-process Expo reload');
 expect(updateGate.includes('nativeInstaller?.restartForOta') && updateGate.includes('await nativeInstaller.restartForOta()'), 'OTA apply must use native cold restart after download');
 expect(updateGate.includes('Automatic checks never hide or replace an active update UI'), 'automatic update failures must never dismiss active progress UI');
+expect(updateGate.includes('lastOtaProgress') && updateGate.includes('[\"available\", \"downloading\", \"error\"]'), 'OTA retries must preserve and resume real visible progress');
 expect(updateGate.includes('Live download progress') && updateGate.includes('Math.round(fraction * 100)'), 'professional live OTA percentage UI missing');
 expect(updateGate.includes('[\"Check\", \"Download\", \"Verify\", \"Apply\"]'), 'OTA stage stepper missing');
 expect(!updateGate.includes('resumePendingOtaApply()'), 'download completion must never auto-restart the app');

@@ -40,6 +40,7 @@ let updateUiListener: ((state: UpdateUiState) => void) | null = null;
 let pendingOtaReleaseKey: string | null = null;
 let downloadedPendingKey: string | null = null;
 let pendingNativeRelease: NativeRelease | null = null;
+let lastOtaProgress = 0;
 
 type NativeRelease = {
   available?: boolean;
@@ -277,13 +278,14 @@ async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
   if (await isDeferred(releaseKey, mode)) return true;
 
   pendingOtaReleaseKey = releaseKey;
+  lastOtaProgress = 0;
   emitUpdateUi({
     kind: "ota",
     phase: "available",
     progress: 0,
     releaseKey,
     message: "A new OnCampus update is ready",
-    detail: "Download starts automatically in the background. You can keep using OnCampus and choose when to restart after it reaches 100%.",
+    detail: "Tap Download update to start the signed transfer. You can keep using OnCampus while it downloads, then choose when to restart.",
   });
   return true;
 }
@@ -369,6 +371,7 @@ async function applyReadyOta(releaseKey: string) {
 async function downloadOtaUpdate(releaseKey: string) {
   await clearDeferral(releaseKey);
   pendingOtaReleaseKey = releaseKey;
+  lastOtaProgress = 0;
 
   emitUpdateUi({
     kind: "ota",
@@ -398,7 +401,7 @@ async function downloadOtaUpdate(releaseKey: string) {
       emitUpdateUi({
         kind: "ota",
         phase: "error",
-        progress: 0,
+        progress: lastOtaProgress,
         releaseKey,
         message: "Download paused",
         detail: "The update is still available. Check your connection and tap Try again; background retry remains scheduled.",
@@ -408,6 +411,7 @@ async function downloadOtaUpdate(releaseKey: string) {
 
     downloadedPendingKey = releaseKey;
     pendingOtaReleaseKey = releaseKey;
+    lastOtaProgress = 100;
     emitUpdateUi({
       kind: "ota",
       phase: "ready",
@@ -420,7 +424,7 @@ async function downloadOtaUpdate(releaseKey: string) {
     emitUpdateUi({
       kind: "ota",
       phase: "error",
-      progress: 0,
+      progress: lastOtaProgress,
       releaseKey,
       message: "Update download paused",
       detail: error instanceof Error ? error.message.slice(0, 180) : "Check your connection and try again.",
@@ -560,11 +564,11 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
   const permission = state.phase === "permission";
   const stages = ["Check", "Download", "Verify", "Apply"];
   const stageIndex = useMemo(() => {
-    if (["checking", "available", "current"].includes(state.phase)) return 0;
-    if (state.phase === "downloading") return 1;
-    if (["ready", "verifying", "permission"].includes(state.phase)) return 2;
-    if (["installing", "applied"].includes(state.phase)) return 3;
-    if (state.phase === "error") return state.progress >= 100 ? 2 : state.progress > 0 ? 1 : 0;
+    if (["checking", "current"].includes(state.phase)) return 0;
+    if (["available", "downloading"].includes(state.phase)) return 1;
+    if (state.phase === "verifying") return 2;
+    if (["ready", "permission", "installing", "applied"].includes(state.phase)) return 3;
+    if (state.phase === "error") return state.progress >= 100 ? 3 : state.progress > 0 ? 1 : 0;
     return 0;
   }, [state.phase, state.progress]);
   const nextStep = useMemo(() => {
@@ -628,7 +632,7 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
           {((busy && state.phase !== "checking") || ready) && (
             <>
               <View style={[styles.progressTrack, { backgroundColor: colors.surfaceTertiary }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: state.progress }}>
-                <View style={[styles.progressFill, { width: (String(Math.max(2, Math.min(100, state.progress || 2))) + "%") as `${number}%`, backgroundColor: state.kind === "apk" ? colors.actionPrimary : colors.brandPrimary }]} />
+                <View style={[styles.progressFill, { width: (String(state.progress <= 0 ? 0 : Math.max(2, Math.min(100, state.progress))) + "%") as `${number}%`, backgroundColor: state.kind === "apk" ? colors.actionPrimary : colors.brandPrimary }]} />
               </View>
               <View style={styles.progressMeta}>
                 <Text style={[styles.progressValue, { color: colors.onSurface }]}>{Math.round(state.progress)}%</Text>
@@ -705,8 +709,9 @@ export default function AppUpdateGate() {
     const fraction = Number.isFinite(downloadProgress) ? Number(downloadProgress) : 0;
     const percent = Math.max(0, Math.min(99, Math.round(fraction * 100)));
     setUpdateUi((previous) => {
-      if (previous.kind !== "ota" || !["available", "downloading"].includes(previous.phase)) return previous;
-      const nextPercent = Math.max(previous.progress || 0, percent);
+      if (previous.kind !== "ota" || !["available", "downloading", "error"].includes(previous.phase)) return previous;
+      const nextPercent = Math.max(lastOtaProgress, previous.progress || 0, percent);
+      lastOtaProgress = nextPercent;
       return {
         ...previous,
         phase: "downloading",

@@ -271,7 +271,7 @@ class OnCampusApkInstallerModule(
           throw IllegalStateException("Downloaded APK is incomplete")
         }
 
-        emit("verifying", 90, "Verifying update", "Checking the completed APK before Android can install it…")
+        emit("verifying", 100, "Verifying update", "Download complete • checking the APK before Android can install it…")
         val actualSha256 = sha256(apkFile)
         if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
           runCatching { downloadManager.remove(downloadId) }
