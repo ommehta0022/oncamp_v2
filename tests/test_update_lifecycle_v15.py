@@ -41,6 +41,21 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
         self.assertIn('mode === "manual" || force', UPDATE_GATE)
         self.assertIn("deferUpdate", UPDATE_GATE)
 
+    def test_ota_uses_real_progress_and_never_auto_restarts_after_download(self):
+        self.assertIn("downloadProgress", UPDATE_GATE)
+        self.assertIn("isDownloading", UPDATE_GATE)
+        self.assertIn('phase: "ready"', UPDATE_GATE)
+        self.assertIn("Restart to apply", UPDATE_GATE)
+        self.assertIn("await Updates.reloadAsync()", UPDATE_GATE)
+        self.assertIn("nativeInstaller?.restartForOta", UPDATE_GATE)
+        self.assertNotIn("resumePendingOtaApply()", UPDATE_GATE)
+        self.assertNotIn("downloadAndApplyOta(", UPDATE_GATE)
+
+    def test_native_apk_update_still_uses_android_install_flow(self):
+        self.assertIn('kind: "apk"', UPDATE_GATE)
+        self.assertIn("startNativeInstall", UPDATE_GATE)
+        self.assertIn("Download & install", UPDATE_GATE)
+
     def test_current_native_runtime_and_microphone_permission(self):
         expo = APP_JSON["expo"]
         version = expo["version"]

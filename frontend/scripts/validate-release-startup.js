@@ -37,7 +37,6 @@ const expectedCode = parts[0] * 10000 + parts[1] * 100 + parts[2];
 expect(app.android?.versionCode === expectedCode, `versionCode must be ${expectedCode}`);
 expect(app.android?.package === 'com.oncampus.app', 'Android package changed unexpectedly');
 
-// Native identity and startup stay on the repaired 1.6.7 baseline.
 expect(app.icon === './assets/images/icon.png', 'Expo app icon must use OnCampus icon');
 expect(app.android?.icon === './assets/images/icon.png', 'Android icon must use OnCampus icon');
 expect(app.android?.adaptiveIcon?.foregroundImage === './assets/images/adaptive-icon.png', 'adaptive icon foreground missing');
@@ -59,18 +58,18 @@ expect(!index.includes('CampusLoader') && !index.includes('setTimeout('), 'start
 expect(!index.includes('name="school"'), 'startup must not use generic school/Expo glyph');
 expect(index.includes('APP_ICON') && index.includes('router.replace(target)'), 'startup must render OnCampus icon and route deterministically');
 
-// Professional historical UI foundation: July/1.5 warm neutral + moss/terracotta semantics.
+// Professional previous-UI foundation: crisp neutral surfaces with restrained semantic accents.
 const light = palette.split('export const lightColors = {')[1]?.split('};')[0] || '';
 const dark = palette.split('export const darkColors = {')[1]?.split('};')[0] || '';
 for (const token of [
-  'surface: "#F9F8F6"', 'onSurface: "#181A19"', 'brandPrimary: "#2E5C4E"',
-  'actionPrimary: "#2E5C4E"', 'actionSecondary: "#E87A5D"', 'brandSecondary: "#E87A5D"',
-  'success: "#347D5B"', 'warning: "#D9983A"', 'error: "#D14D4D"', 'info: "#4A788C"'
+  'surface: "#F7F8FA"', 'onSurface: "#111318"', 'brandPrimary: "#2A574B"',
+  'actionPrimary: "#2A574B"', 'actionSecondary: "#40464F"', 'brandSecondary: "#7A5D50"',
+  'success: "#2F7A56"', 'warning: "#B7791F"', 'error: "#C94343"', 'info: "#59636F"'
 ]) expect(light.includes(token), `professional light palette token missing: ${token}`);
 for (const token of [
-  'surface: "#121413"', 'surfaceSecondary: "#1A1D1C"', 'brandPrimary: "#3B7564"',
-  'actionPrimary: "#3B7564"', 'actionSecondary: "#E87A5D"', 'success: "#44A377"',
-  'warning: "#E8B058"', 'error: "#E36666"', 'info: "#5B96AE"'
+  'surface: "#0A0B0B"', 'surfaceSecondary: "#121414"', 'brandPrimary: "#6F9E90"',
+  'actionPrimary: "#6F9E90"', 'actionSecondary: "#C1C6CB"', 'success: "#58A17C"',
+  'warning: "#D5A557"', 'error: "#E36B6B"', 'info: "#A8B0B7"'
 ]) expect(dark.includes(token), `professional dark palette token missing: ${token}`);
 for (const rejected of ['#1267F4', '#0B4BC2', '#7B3FF2', '#0D4FC4', '#EAF2FF', '#0B1947']) {
   expect(!palette.toUpperCase().includes(rejected.toUpperCase()), `rejected blue palette token returned: ${rejected}`);
@@ -80,15 +79,17 @@ expect(theme.includes('useAccessibilityPreferences()'), 'theme accessibility sup
 expect(theme.includes('.catch(() =>') && theme.includes('.finally(() =>'), 'theme hydration must remain fail-safe');
 expect(settings.includes('checkForAppUpdate("manual")'), 'manual Settings update action must remain wired');
 
-// Repaired 1.6.7 OTA discovery: server is authority; rejected Expo check promise cannot hide updates.
+// OTA discovery remains server-authoritative; user controls activation after real download progress.
 expect(!updateGate.includes('Updates.checkForUpdateAsync()'), 'update UI must not depend on rejected Expo check promise');
 expect(updateGate.includes('serverOtaId()'), 'server/native OTA acceptance cross-check missing');
-expect(updateGate.includes('prefetchLatestOta(true)'), 'Update now must use resilient OTA download engine');
-expect(updateGate.includes('phase: "available"') && updateGate.includes('phase: "current"'), 'available/current update states missing');
-expect(updateGate.includes('Update now'), 'Update now action missing');
+expect(updateGate.includes('prefetchLatestOta(true)'), 'OTA must use resilient signed download engine');
+expect(updateGate.includes('downloadProgress') && updateGate.includes('isDownloading'), 'real Expo OTA download progress must be rendered');
+expect(updateGate.includes('phase: "ready"'), 'downloaded OTA ready state missing');
+expect(updateGate.includes('Restart to apply'), 'explicit OTA apply action missing');
+expect(updateGate.includes('await Updates.reloadAsync()'), 'OTA apply must prefer in-process Expo reload');
+expect(updateGate.includes('nativeInstaller?.restartForOta'), 'OTA apply must retain cold-restart fallback');
+expect(!updateGate.includes('resumePendingOtaApply()'), 'download completion must never auto-restart the app');
 expect(updateGate.includes('DEFER_MS = 6 * 60 * 60 * 1000'), 'Later quiet period missing');
-expect(updateGate.includes('APPLY_OTA_ON_RESUME_KEY') && updateGate.includes('resumePendingOtaApply()'), 'minimize-safe OTA apply intent missing');
-expect(updateGate.includes('restartForOta'), 'OTA activation must use isolated cold restart');
 expect(nativeGuard.includes('Updates.addListener') || nativeGuard.includes('useUpdates'), 'native OTA state observer missing');
 expect(!nativeGuard.includes('Alert.alert'), 'native observer must not create duplicate prompts');
 
@@ -115,7 +116,7 @@ expect(apkInstaller.includes('VISIBILITY_VISIBLE_NOTIFY_COMPLETED'), 'background
 expect(apkInstaller.includes('getSharedPreferences'), 'APK download state must survive React process recreation');
 expect(apkInstaller.includes('override fun onHostResume()'), 'APK verification/installer must resume when app returns');
 expect(apkInstaller.includes('APK checksum verification failed'), 'APK SHA-256 verification missing');
-expect(apkInstaller.includes('restartForOta') && apkInstaller.includes('OnCampusOtaRestartActivity'), 'isolated OTA restart native bridge missing');
+expect(apkInstaller.includes('restartForOta') && apkInstaller.includes('OnCampusOtaRestartActivity'), 'isolated OTA restart fallback missing');
 expect(!apkInstaller.includes('HttpURLConnection'), 'APK download must not be process-owned HTTP');
 expect(apkFilePaths.includes('external-files-path'), 'FileProvider durable APK location missing');
 expect(manifest.includes('android:name=".OnCampusOtaRestartActivity"') && manifest.includes('android:process=":ota_restart"'), 'isolated OTA restart activity missing');
@@ -134,4 +135,4 @@ for (const feature of ['background-ota-coordinator','native-ota-startup-guard','
   expect(layout.includes(`<OptionalFeatureBoundary name="${feature}">`), `${feature} must remain isolated in RootLayout`);
 }
 
-console.log(`OnCampus ${version} verified: professional historical UI on repaired server-driven OTA and Android installer baseline.`);
+console.log(`OnCampus ${version} verified: professional previous-UI foundation with explicit-progress OTA and Android installer pipeline.`);
