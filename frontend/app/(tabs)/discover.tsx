@@ -112,14 +112,19 @@ export default function DiscoverScreen() {
             placeholder="Search universities, colleges, schools..."
             placeholderTextColor={colors.muted}
             style={[styles.searchInput, { color: colors.onSurface }]}
+            testID="discover-search-input"
           />
-          {query ? <Pressable onPress={() => { setQuery(""); setTimeout(() => void load(), 0); }}><Ionicons name="close-circle" size={20} color={colors.muted} /></Pressable> : <Ionicons name="options-outline" size={21} color={colors.onSurfaceTertiary} />}
+          {query ? (
+            <Pressable onPress={() => { setQuery(""); setTimeout(() => void load(), 0); }} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear institution search">
+              <Ionicons name="close-circle" size={20} color={colors.muted} />
+            </Pressable>
+          ) : null}
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
           {TYPES.map((item) => <Chip key={item} label={item} active={type === item} onPress={() => setType(item)} />)}
-          <Chip label="Verified" icon="checkmark-circle" active={verified} onPress={() => setVerified((v) => !v)} />
-          <Chip label="Near You" icon="location" active={nearOnly} onPress={() => setNearOnly((v) => !v)} />
+          <Chip label="Verified" icon="checkmark-circle" active={verified} onPress={() => setVerified((value) => !value)} />
+          <Chip label="Near You" icon="location" active={nearOnly} onPress={() => setNearOnly((value) => !value)} />
         </ScrollView>
 
         {loading ? <CampusLoader label="Finding campuses for you…" /> : null}
@@ -158,7 +163,7 @@ export default function DiscoverScreen() {
 
 function Chip({ label, active, onPress, icon }: { label: string; active: boolean; onPress: () => void; icon?: any }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.chip, { borderColor: active ? colors.brandPrimary : colors.border, backgroundColor: active ? colors.brandPrimary : colors.surfaceSecondary }]}>
+  return <Pressable onPress={onPress} style={[styles.chip, { borderColor: active ? colors.brandPrimary : colors.border, backgroundColor: active ? colors.brandPrimary : colors.surfaceSecondary }]} accessibilityRole="button" accessibilityState={{ selected: active }}>
     {icon ? <Ionicons name={icon} size={15} color={active ? "#FFFFFF" : colors.brandPrimary} /> : null}
     <Text style={{ color: active ? "#FFFFFF" : colors.onSurface, fontSize: 12, fontWeight: "700" }}>{label}</Text>
   </Pressable>;
@@ -166,7 +171,7 @@ function Chip({ label, active, onPress, icon }: { label: string; active: boolean
 
 function SectionHeader({ title }: { title: string }) {
   const { colors } = useTheme();
-  return <View style={styles.sectionHeader}><Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{title}</Text><Text style={{ color: colors.brandPrimary, fontSize: 12, fontWeight: "800" }}>See All</Text></View>;
+  return <View style={styles.sectionHeader}><Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{title}</Text></View>;
 }
 
 function Cover({ item, style }: { item: Campus; style: any }) {
@@ -254,7 +259,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14 },
   filters: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 4, gap: 8 },
   chip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, flexDirection: "row", gap: 5, alignItems: "center", justifyContent: "center" },
-  sectionHeader: { paddingHorizontal: 18, marginTop: 26, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sectionHeader: { paddingHorizontal: 18, marginTop: 26, marginBottom: 12 },
   sectionTitle: { fontSize: 18, fontWeight: "900", letterSpacing: -0.25 },
   featuredRow: { paddingHorizontal: 18, gap: 10 },
   featuredCard: { width: 202, borderRadius: 15, borderWidth: 1, overflow: "hidden", shadowColor: "#181A19", shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },

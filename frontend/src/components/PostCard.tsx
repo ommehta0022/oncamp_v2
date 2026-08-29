@@ -9,6 +9,7 @@ import { api, FeedPostDto, getUserErrorMessage } from "@/src/lib/api";
 import { campusApi } from "@/src/lib/campusApi";
 import { normalizePost } from "@/src/lib/mappers";
 import { useRole } from "@/src/context/RoleProvider";
+import { usePinnedContent } from "@/src/context/PinnedContentProvider";
 import Avatar from "@/src/components/Avatar";
 import OptionsMenu from "@/src/components/OptionsMenu";
 import ReactionMenu, { REACTION_EMOJIS } from "@/src/components/ReactionMenu";
@@ -28,6 +29,7 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
   const router = useRouter();
   const { user } = useRole();
   const { showToast } = useToast();
+  const { isPostPinned, togglePostPin } = usePinnedContent();
   const [item, setItem] = useState<any>(() => normalizePost(post));
   const [menuVisible, setMenuVisible] = useState(false);
   const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
@@ -38,6 +40,7 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
 
   const isMine = Boolean(user?.id && item.author?.id === user.id);
   const isModerator = Boolean(user?.roles?.some((role: string) => ["group_admin", "group_owner", "institution_admin", "platform_admin"].includes(role)));
+  const personalPinned = isPostPinned(item.id);
   const applyPost = (next: any) => { setItem(next); onChange?.(next); };
   const updatePost = (patch: Record<string, unknown>) => {
     setItem((current: any) => {
@@ -68,6 +71,12 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     } finally { setBusyAction(null); }
   };
 
+  const handlePrimaryReaction = () => {
+    if (busyAction === "reaction") return;
+    const reaction = item.userReaction || "like";
+    void chooseReaction(reaction);
+  };
+
   const toggleBookmark = async () => {
     if (busyAction === "bookmark") return;
     const previous = item;
@@ -81,6 +90,11 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
       applyPost(previous);
       showToast({ message: getUserErrorMessage(error, "Could not update saved posts."), variant: "error" });
     } finally { setBusyAction(null); }
+  };
+
+  const togglePersonalPin = async () => {
+    const nextPinned = await togglePostPin(item.id);
+    showToast({ message: nextPinned ? "Pinned to the top of your feed" : "Removed from your pinned feed", variant: "success" });
   };
 
   const shareExternally = async () => {
@@ -110,48 +124,64 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     ]);
   };
 
-  const pinPost = async () => {
-    try { await api.posts.pin(item.id); updatePost({ pinned: true }); showToast({ message: "Post pinned", variant: "success" }); }
+  const pinPostGlobally = async () => {
+    try { await api.posts.pin(item.id); updatePost({ pinned: true }); showToast({ message: "Post pinned for everyone", variant: "success" }); }
     catch (error) { showToast({ message: getUserErrorMessage(error, "Could not pin this post."), variant: "error" }); }
   };
-  const unpinPost = async () => {
-    try { await api.posts.unpin(item.id); updatePost({ pinned: false }); showToast({ message: "Post unpinned", variant: "success" }); }
+  const unpinPostGlobally = async () => {
+    try { await api.posts.unpin(item.id); updatePost({ pinned: false }); showToast({ message: "Global pin removed", variant: "success" }); }
     catch (error) { showToast({ message: getUserErrorMessage(error, "Could not unpin this post."), variant: "error" }); }
   };
 
   const options = [
+    { label: personalPinned ? "Unpin from my feed" : "Pin to my feed", icon: personalPinned ? "pin" : "pin-outline", onPress: () => { void togglePersonalPin(); } },
     ...(isMine ? [{ label: "Edit", icon: "create-outline", onPress: () => router.push(`/post/edit/${item.id}`) }] : []),
+    ...((isMine || isModerator) && !item.pinned ? [{ label: "Pin for everyone", icon: "megaphone-outline", onPress: pinPostGlobally }] : []),
+    ...((isMine || isModerator) && item.pinned ? [{ label: "Remove global pin", icon: "megaphone-outline", onPress: unpinPostGlobally }] : []),
     ...(isMine || isModerator ? [{ label: "Delete", icon: "trash-outline", color: colors.error, onPress: deletePost }] : []),
-    ...((isMine || isModerator) && !item.pinned ? [{ label: "Pin to top", icon: "pin-outline", onPress: pinPost }] : []),
-    ...((isMine || isModerator) && item.pinned ? [{ label: "Unpin post", icon: "pin-outline", onPress: unpinPost }] : []),
     ...(!isMine ? [{ label: "Report", icon: "flag-outline", color: colors.warning, onPress: () => setReportVisible(true) }] : []),
   ];
 
-  const reactionEmoji = item.userReaction ? REACTION_EMOJIS[item.userReaction] : null;
+  const reactionEmoji = item.userReaction && item.userReaction !== "like" ? REACTION_EMOJIS[item.userReaction] : null;
+  const reactionIcon = item.userReaction === "like" ? "thumbs-up" : reactionEmoji ? undefined : "thumbs-up-outline";
 
   return (
     <>
       <Pressable onPress={() => router.push(`/post/${item.id}`)} style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }, style]} testID={`post-card-${item.id}`}>
-        {item.pinned && <View style={[styles.pinned, { backgroundColor: colors.brandTertiary }]}><Ionicons name="pin" size={12} color={colors.onBrandTertiary} /><Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "500" }}>Pinned</Text></View>}
+        {(personalPinned || item.pinned) ? (
+          <View style={styles.pinRow}>
+            {personalPinned ? <View style={[styles.pinned, { backgroundColor: colors.surfaceTertiary }]}><Ionicons name="pin" size={12} color={colors.onSurfaceTertiary} /><Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, fontWeight: "600" }}>Pinned for you</Text></View> : null}
+            {item.pinned ? <View style={[styles.pinned, { backgroundColor: colors.brandTertiary }]}><Ionicons name="megaphone" size={12} color={colors.onBrandTertiary} /><Text style={{ color: colors.onBrandTertiary, fontSize: font.sm, fontWeight: "600" }}>Campus pinned</Text></View> : null}
+          </View>
+        ) : null}
         <View style={styles.postHeader}>
           <Avatar uri={item.author?.avatar || item.author?.avatarUrl} name={item.author?.name || "User"} size={44} verified={item.author?.verified} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.authorLine}>
-              <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "500", flexShrink: 1 }} numberOfLines={1}>{item.author?.name || "User"}</Text>
-              {item.author?.badge === "official" && <View style={[styles.badgeChip, { backgroundColor: colors.info }]}><Text style={{ color: colors.onInfo, fontSize: 9, fontWeight: "500" }}>OFFICIAL</Text></View>}
-              {item.author?.badge === "faculty" && <View style={[styles.badgeChip, { backgroundColor: colors.warning }]}><Text style={{ color: colors.onWarning, fontSize: 9, fontWeight: "500" }}>FACULTY</Text></View>}
+              <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "600", flexShrink: 1 }} numberOfLines={1}>{item.author?.name || "User"}</Text>
+              {item.author?.badge === "official" && <View style={[styles.badgeChip, { backgroundColor: colors.info }]}><Text style={{ color: colors.onInfo, fontSize: 9, fontWeight: "600" }}>OFFICIAL</Text></View>}
+              {item.author?.badge === "faculty" && <View style={[styles.badgeChip, { backgroundColor: colors.warning }]}><Text style={{ color: colors.onWarning, fontSize: 9, fontWeight: "600" }}>FACULTY</Text></View>}
             </View>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>{[item.author?.institution, item.createdAt, item.group?.name ? `in ${item.group.name}` : ""].filter(Boolean).join(" · ")}</Text>
           </View>
-          {options.length > 0 && <Pressable onPress={() => setMenuVisible(true)} hitSlop={8} style={styles.menuBtn}><Ionicons name="ellipsis-horizontal" size={20} color={colors.onSurfaceTertiary} /></Pressable>}
+          <Pressable onPress={() => setMenuVisible(true)} hitSlop={8} style={styles.menuBtn} accessibilityRole="button" accessibilityLabel="Post options"><Ionicons name="ellipsis-horizontal" size={20} color={colors.onSurfaceTertiary} /></Pressable>
         </View>
-        {item.announcement && <View style={[styles.announcement, { backgroundColor: colors.brandSecondary + "22" }]}><Ionicons name="megaphone" size={14} color={colors.brandSecondary} /><Text style={{ color: colors.brandSecondary, fontSize: font.sm, fontWeight: "500" }}>Announcement</Text></View>}
+        {item.announcement && <View style={[styles.announcement, { backgroundColor: colors.brandSecondary + "22" }]}><Ionicons name="megaphone" size={14} color={colors.brandSecondary} /><Text style={{ color: colors.brandSecondary, fontSize: font.sm, fontWeight: "600" }}>Announcement</Text></View>}
         {!!item.title && <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "700", lineHeight: 24, marginTop: spacing.md }}>{item.title}</Text>}
         {!!item.content && <View style={{ marginTop: spacing.md }}><RichPostText content={item.content} /></View>}
         {!!item.mediaUrl && item.mediaType !== "document" && <Image source={{ uri: item.mediaUrl }} style={styles.postImage} contentFit="cover" transition={180} cachePolicy="memory-disk" />}
         {!!item.mediaUrl && item.mediaType === "document" && <View style={[styles.document, { borderColor: colors.border, backgroundColor: colors.surfaceTertiary }]}><Ionicons name="document-text-outline" size={22} color={colors.brandPrimary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.sm }} numberOfLines={1}>Attached document</Text></View>}
         <View style={[styles.actions, { borderTopColor: colors.border }]}>
-          <ActionBtn emoji={reactionEmoji || undefined} icon={reactionEmoji ? undefined : "happy-outline"} label={String(item.counts?.reactions || 0)} color={item.userReaction ? colors.brandPrimary : colors.onSurfaceTertiary} onPress={() => setReactionMenuVisible(true)} accessibilityLabel="React to post" />
+          <ActionBtn
+            emoji={reactionEmoji || undefined}
+            icon={reactionIcon as keyof typeof Ionicons.glyphMap | undefined}
+            label={String(item.counts?.reactions || 0)}
+            color={item.userReaction ? colors.brandPrimary : colors.onSurfaceTertiary}
+            onPress={handlePrimaryReaction}
+            onLongPress={() => setReactionMenuVisible(true)}
+            accessibilityLabel={item.userReaction ? "Remove reaction" : "Like post"}
+            accessibilityHint="Long press to choose another reaction"
+          />
           <ActionBtn icon="reader-outline" label={String(item.counts?.comments || item.comments || 0)} color={colors.onSurfaceTertiary} onPress={() => router.push(`/post/${item.id}`)} accessibilityLabel="Open comments" />
           <ActionBtn icon={item.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={item.bookmarked ? colors.brandSecondary : colors.onSurfaceTertiary} onPress={toggleBookmark} accessibilityLabel={item.bookmarked ? "Remove bookmark" : "Save post"} />
           <ActionBtn icon="share-social-outline" label="" color={colors.onSurfaceTertiary} onPress={() => void shareExternally()} accessibilityLabel="Share to another app" />
@@ -164,12 +194,27 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
   );
 }
 
-function ActionBtn({ icon, emoji, label, color, onPress, accessibilityLabel }: { icon?: keyof typeof Ionicons.glyphMap; emoji?: string; label: string; color: string; onPress: () => void; accessibilityLabel: string }) {
-  return <Pressable onPress={onPress} style={styles.actionBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel={accessibilityLabel}>{emoji ? <Text style={{ fontSize: 19 }}>{emoji}</Text> : icon ? <Ionicons name={icon} size={20} color={color} /> : null}{!!label && <Text style={{ color, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>}</Pressable>;
+function ActionBtn({ icon, emoji, label, color, onPress, onLongPress, accessibilityLabel, accessibilityHint }: { icon?: keyof typeof Ionicons.glyphMap; emoji?: string; label: string; color: string; onPress: () => void; onLongPress?: () => void; accessibilityLabel: string; accessibilityHint?: string }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={320}
+      style={styles.actionBtn}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+    >
+      {emoji ? <Text style={{ fontSize: 19 }}>{emoji}</Text> : icon ? <Ionicons name={icon} size={20} color={color} /> : null}
+      {!!label && <Text style={{ color, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>}
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
   card: { borderRadius: radius.md, borderWidth: 1, padding: spacing.lg },
+  pinRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: spacing.sm },
   postHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   authorLine: { flexDirection: "row", alignItems: "center", gap: 4 },
   badgeChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 4 },
@@ -179,5 +224,5 @@ const styles = StyleSheet.create({
   document: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md },
   actions: { flexDirection: "row", justifyContent: "space-around", borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.md, paddingTop: spacing.md },
   actionBtn: { minWidth: 44, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 4, paddingHorizontal: 10 },
-  pinned: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginBottom: spacing.sm },
+  pinned: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill },
 });

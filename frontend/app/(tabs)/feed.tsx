@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { spacing } from "@/src/theme/colors";
+import { radius, spacing } from "@/src/theme/colors";
+import { usePinnedContent } from "@/src/context/PinnedContentProvider";
 import PostCard from "@/src/components/PostCard";
 import { api } from "@/src/lib/api";
 import { cache } from "@/src/lib/cache";
@@ -15,11 +17,13 @@ import { NetworkError } from "@/src/components/NetworkError";
 import { useToast } from "@/src/components/Toast";
 
 const PAGE_SIZE = 20;
+const APP_ICON = require("../../assets/images/icon.png");
 
 export default function Feed() {
   const { colors } = useTheme();
   const router = useRouter();
   const { showToast } = useToast();
+  const { isPostPinned } = usePinnedContent();
   const [refreshing, setRefreshing] = useState(false);
   const [posts, setPosts] = useState<any[]>([]);
   const [page, setPage] = useState(1);
@@ -60,6 +64,12 @@ export default function Feed() {
   }, [showToast]);
 
   useEffect(() => { void loadPosts(); }, [loadPosts]);
+
+  const displayPosts = useMemo(() => posts
+    .map((post, index) => ({ post, index, personalPinned: isPostPinned(post.id) }))
+    .sort((left, right) => Number(right.personalPinned) - Number(left.personalPinned) || left.index - right.index)
+    .map(({ post }) => post), [isPostPinned, posts]);
+
   const loadMore = () => {
     if (!hasMore || loading || loadingMore || refreshing || posts.length === 0) return;
     void loadPosts(page + 1);
@@ -67,14 +77,29 @@ export default function Feed() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="feed-screen">
-      <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
-        <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
+      <View style={[styles.header, { borderBottomColor: colors.divider, backgroundColor: colors.surface }]}>
+        <View style={styles.brandWrap} accessibilityRole="header">
+          <Image source={APP_ICON} style={styles.brandIcon} contentFit="cover" />
+          <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
+        </View>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.surfaceTertiary }]} testID="feed-search-btn">
+          <Pressable
+            onPress={() => router.push("/search")}
+            style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.surfaceTertiary }]}
+            testID="feed-search-btn"
+            accessibilityRole="button"
+            accessibilityLabel="Search OnCampus"
+          >
             <Ionicons name="search-outline" size={22} color={colors.onSurface} />
           </Pressable>
-          <Pressable onPress={() => router.push("/saved")} style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.surfaceTertiary }]} testID="feed-saved-btn">
-            <Ionicons name="bookmark-outline" size={22} color={colors.onSurface} />
+          <Pressable
+            onPress={() => router.push("/saved")}
+            style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.surfaceTertiary }]}
+            testID="feed-saved-btn"
+            accessibilityRole="button"
+            accessibilityLabel="Saved posts"
+          >
+            <Ionicons name="bookmark-outline" size={21} color={colors.onSurface} />
           </Pressable>
         </View>
       </View>
@@ -84,9 +109,9 @@ export default function Feed() {
       ) : (
         <FlatList
           showsVerticalScrollIndicator={false}
-          data={posts}
-          keyExtractor={(p) => p.id}
-          contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: 120, flexGrow: 1 }}
+          data={displayPosts}
+          keyExtractor={(p) => String(p.id)}
+          contentContainerStyle={{ paddingTop: spacing.sm, paddingBottom: 120, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts(1, true)} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
           ListEmptyComponent={<EmptyState icon="newspaper-outline" title="No posts available" message="Institution posts and official campus announcements will appear here automatically." />}
           ListFooterComponent={loadingMore ? <CampusLoader compact label="Loading more…" /> : null}
@@ -106,11 +131,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    minHeight: 56,
+    minHeight: 60,
   },
-  brand: { fontSize: 22, fontWeight: "700", letterSpacing: -0.2 },
-  headerActions: { flexDirection: "row", gap: spacing.xs },
-  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 },
+  brandWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  brandIcon: { width: 32, height: 32, borderRadius: 9 },
+  brand: { fontSize: 23, fontWeight: "800", letterSpacing: -0.5 },
+  headerActions: { flexDirection: "row", gap: 2 },
+  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill },
 });
