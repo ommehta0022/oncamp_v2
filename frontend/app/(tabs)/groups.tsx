@@ -53,18 +53,18 @@ export default function Groups() {
 
   const filtered = useMemo(() => {
     let list = groups;
-    if (filter === "Unread") list = list.filter((g) => (g.unread || 0) > 0);
-    else if (filter === "Announcements") list = list.filter((g) => g.category === "Official");
-    else if (filter === "Muted") list = list.filter((g) => g.muted);
+    if (filter === "Unread") list = list.filter((group) => Number(group.unread || 0) > 0);
+    else if (filter === "Announcements") list = list.filter((group) => group.category === "Official");
+    else if (filter === "Muted") list = list.filter((group) => group.muted);
     if (query) {
       const value = query.toLowerCase();
-      list = list.filter((g) => String(g.name || "").toLowerCase().includes(value) || String(g.institution || "").toLowerCase().includes(value));
+      list = list.filter((group) => String(group.name || "").toLowerCase().includes(value) || String(group.institution || "").toLowerCase().includes(value));
     }
     return list;
   }, [filter, groups, query]);
 
-  const pinned = filtered.filter((g) => g.pinned);
-  const others = filtered.filter((g) => !g.pinned);
+  const pinned = filtered.filter((group) => group.pinned);
+  const others = filtered.filter((group) => !group.pinned);
   const totalUnread = groups.reduce((sum, group) => sum + Number(group.unread || 0), 0);
 
   const data: RowItem[] = [];
@@ -79,19 +79,12 @@ export default function Groups() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]} testID="groups-screen">
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.divider }]}>
         <Text style={[styles.title, { color: colors.onSurface }]}>Groups</Text>
-        <Pressable
-          style={({ pressed }) => [styles.iconBtn, pressed && { backgroundColor: colors.surfaceTertiary }]}
-          testID="groups-search-btn"
-          onPress={() => router.push("/search")}
-        >
-          <Ionicons name="search-outline" size={22} color={colors.onSurface} />
-        </Pressable>
       </View>
 
-      <View style={{ paddingHorizontal: spacing.lg }}>
-        <View style={[styles.searchBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+      <View style={styles.searchWrap}>
+        <View style={[styles.searchBox, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
           <Ionicons name="search-outline" size={18} color={colors.onSurfaceTertiary} />
           <TextInput
             value={query}
@@ -99,9 +92,11 @@ export default function Groups() {
             placeholder="Search your groups"
             placeholderTextColor={colors.muted}
             style={{ flex: 1, color: colors.onSurface, fontSize: font.base, marginLeft: spacing.sm }}
+            returnKeyType="search"
+            testID="groups-search-input"
           />
           {query.length > 0 ? (
-            <Pressable onPress={() => setQuery("")} hitSlop={8}>
+            <Pressable onPress={() => setQuery("")} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear group search">
               <Ionicons name="close-circle" size={18} color={colors.muted} />
             </Pressable>
           ) : null}
@@ -129,6 +124,8 @@ export default function Groups() {
                   },
                 ]}
                 testID={`groups-filter-${item.toLowerCase()}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
               >
                 <Text style={{ color: active ? colors.onSurfaceInverse : colors.onSurface, fontSize: font.base, fontWeight: "600" }}>{item}</Text>
                 {unreadCount > 0 ? (
@@ -174,6 +171,8 @@ export default function Groups() {
           onPress={() => router.push("/create-group")}
           style={[styles.fab, { backgroundColor: colors.actionPrimary, bottom: insets.bottom + 88 }]}
           testID="new-group-fab"
+          accessibilityRole="button"
+          accessibilityLabel="Create group"
         >
           <Ionicons name="add" size={26} color={colors.onBrandPrimary} />
         </Pressable>
@@ -199,19 +198,6 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
   const sender = senderMatch?.[1];
   const messageBody = senderMatch?.[2] || lastMessage;
 
-  const categoryColors: Record<string, string> = {
-    Batch: colors.info,
-    Clubs: colors.brandPrimary,
-    Official: colors.brandSecondary,
-    Events: colors.warning,
-    Study: "#8B668E",
-    Sports: colors.success,
-    Tech: colors.info,
-    Arts: colors.brandSecondary,
-    Career: colors.brandPrimary,
-  };
-  const categoryColor = categoryColors[group.category] || colors.muted;
-
   return (
     <Pressable
       onPress={onPress}
@@ -221,7 +207,7 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
         { backgroundColor: pressed ? colors.surfaceTertiary : "transparent", borderBottomColor: colors.divider },
       ]}
     >
-      <Avatar uri={group.image} name={group.name} size={50} verified={group.verified} />
+      <Avatar uri={group.image} name={group.name} size={50} />
 
       <View style={styles.rowBody}>
         <View style={styles.rowTop}>
@@ -253,8 +239,8 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
 
         <View style={styles.metaRow}>
           {group.category ? (
-            <View style={[styles.categoryPill, { backgroundColor: `${categoryColor}14` }]}>
-              <Text style={{ color: categoryColor, fontSize: 10, fontWeight: "700" }}>{String(group.category).toUpperCase()}</Text>
+            <View style={[styles.categoryPill, { backgroundColor: colors.brandTertiary }]}>
+              <Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "700" }}>{String(group.category).toUpperCase()}</Text>
             </View>
           ) : null}
           <Text style={{ color: colors.muted, fontSize: 11 }}>{Number(group.members || 0).toLocaleString()} members</Text>
@@ -268,15 +254,15 @@ function GroupRow({ group, onPress }: { group: Group; onPress: () => void }) {
 
 const styles = StyleSheet.create({
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 58,
+    justifyContent: "center",
   },
-  title: { fontSize: 28, fontWeight: "700", letterSpacing: -0.4 },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  title: { fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
+  searchWrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -285,7 +271,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderWidth: 1,
   },
-  filtersWrap: { height: 54, marginTop: spacing.sm },
+  filtersWrap: { height: 54, marginTop: spacing.xs },
   filters: { paddingHorizontal: spacing.lg, gap: spacing.sm, alignItems: "center" },
   chip: {
     height: 36,
@@ -326,7 +312,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.16,
     shadowRadius: 7,
     elevation: 5,
   },
