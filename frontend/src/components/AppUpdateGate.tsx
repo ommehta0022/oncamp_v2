@@ -23,6 +23,8 @@ const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
 const UPDATE_V2_API = `${API_BASE}/updates/v2/latest`;
 const TRUSTED_APK_PREFIX = `${API_BASE}/updates/v2/apk/`;
 const TELEMETRY_API = `${API_BASE}/updates/v2/telemetry`;
+const AUTH_KEY_ID = "oncampus-main";
+const AUTH_ALGORITHM = "rsa-v1_5-sha256";
 const AUTOMATIC_CHECK_INTERVAL_MS = 60 * 1000;
 const DEFER_MS = 6 * 60 * 60 * 1000;
 const DEFER_KEY = "oncampus.update.v2.defer";
@@ -33,6 +35,12 @@ let activeCheck: Promise<void> | null = null;
 let updateUiListener: ((state: UpdateUiState) => void) | null = null;
 let pendingRelease: NativeRelease | null = null;
 let pendingTraceId: string | null = null;
+
+type ReleaseAuthorization = {
+  keyId?: string;
+  algorithm?: string;
+  signature?: string;
+};
 
 type NativeRelease = {
   schemaVersion?: number;
@@ -48,6 +56,7 @@ type NativeRelease = {
   size?: number;
   apkUrl?: string;
   telemetryUrl?: string;
+  authorization?: ReleaseAuthorization;
 };
 
 type NativeStatus = {
@@ -69,6 +78,10 @@ type NativeInstaller = {
     sha256: string,
     targetVersionCode: number,
     targetVersion: string,
+    expectedSize: number,
+    authorizationKeyId: string,
+    authorizationAlgorithm: string,
+    authorizationSignature: string,
     traceId: string,
   ) => Promise<NativeStatus>;
   getStatus: () => Promise<NativeStatus>;
@@ -132,15 +145,21 @@ function traceId() {
 
 function trustedRelease(release: NativeRelease) {
   const version = normalizeVersion(release.version);
+  const signature = String(release.authorization?.signature || "");
   return Boolean(
     release.schemaVersion === 2 &&
     release.transport === "native-apk" &&
     release.available &&
     /^\d+\.\d+\.\d+$/.test(version) &&
     Number.isInteger(release.versionCode) && Number(release.versionCode) > 0 &&
+    Number.isInteger(release.size) && Number(release.size) >= 1024 * 1024 &&
     /^[a-fA-F0-9]{64}$/.test(String(release.sha256 || "")) &&
     release.apkUrl === `${TRUSTED_APK_PREFIX}${version}` &&
-    (!release.telemetryUrl || release.telemetryUrl === TELEMETRY_API)
+    (!release.telemetryUrl || release.telemetryUrl === TELEMETRY_API) &&
+    release.authorization?.keyId === AUTH_KEY_ID &&
+    release.authorization?.algorithm === AUTH_ALGORITHM &&
+    signature.length >= 64 && signature.length <= 2048 &&
+    /^[A-Za-z0-9+/=]+$/.test(signature)
   );
 }
 
@@ -227,7 +246,7 @@ function releaseUi(release: NativeRelease, mode: UpdateCheckMode) {
   void postTelemetry("available", {
     traceId: pendingTraceId,
     targetVersion: version,
-    detail: `Update Engine v2 offered OnCampus ${version} during ${mode} check`,
+    detail: `Update Engine v2 offered RSA-authorized OnCampus ${version} during ${mode} check`,
   });
   const size = release.size && release.size > 0 ? ` ${(release.size / 1024 / 1024).toFixed(1)} MB.` : "";
   emitUpdateUi({
@@ -254,7 +273,7 @@ async function recoverNativeStatus() {
       return true;
     }
     if (status.phase === "ready") {
-      emitUpdateUi({ phase: "ready", progress: 100, releaseKey, traceId: status.traceId, message: "Update verified", detail: "The APK passed hash, package, version and signing-certificate checks. Tap Install update to open Android's installer." });
+      emitUpdateUi({ phase: "ready", progress: 100, releaseKey, traceId: status.traceId, message: "Update verified", detail: "The APK passed release authorization, hash, package, version and signing-certificate checks. Tap Install update to open Android's installer." });
       return true;
     }
     if (status.phase === "verifying") {
@@ -284,7 +303,7 @@ async function recoverNativeStatus() {
 async function startNativeUpdate(release?: NativeRelease | null, existingTraceId?: string | null) {
   const latest = release && trustedRelease(release) ? release : await fetchRelease(true);
   if (!latest || !trustedRelease(latest) || !nativeInstaller?.startInstall) {
-    emitUpdateUi({ phase: "error", progress: 0, message: "Secure updater unavailable", detail: "Update Engine v2 could not validate release metadata. The installed app is unchanged." });
+    emitUpdateUi({ phase: "error", progress: 0, message: "Secure updater unavailable", detail: "Update Engine v2 could not validate RSA-authorized release metadata. The installed app is unchanged." });
     return;
   }
 
@@ -300,7 +319,7 @@ async function startNativeUpdate(release?: NativeRelease | null, existingTraceId
     traceId: id,
     force: Boolean(latest.forceUpdate),
     message: "Preparing secure update",
-    detail: "Android will download through OnCampus, then verify SHA-256, package identity, versionCode and the app signing certificate.",
+    detail: "Android first verifies the production RSA release authorization, then downloads through OnCampus and checks SHA-256, package identity, versionCode and the app signing certificate.",
   });
   void postTelemetry("download_start", { traceId: id, targetVersion: version, progress: 1 });
 
@@ -310,6 +329,10 @@ async function startNativeUpdate(release?: NativeRelease | null, existingTraceId
       String(latest.sha256),
       Number(latest.versionCode),
       version,
+      Number(latest.size),
+      String(latest.authorization?.keyId),
+      String(latest.authorization?.algorithm),
+      String(latest.authorization?.signature),
       id,
     );
   } catch (error) {
@@ -348,8 +371,8 @@ export async function checkForAppUpdate(
         return;
       }
       if (!trustedRelease(release)) {
-        if (mode === "manual") emitUpdateUi({ phase: "error", progress: 0, traceId: id, errorCode: "METADATA_INVALID", message: "Update metadata rejected", detail: "The release did not satisfy Update Engine v2 integrity requirements. Nothing was downloaded." });
-        void postTelemetry("error", { traceId: id, errorCode: "METADATA_INVALID", detail: "Release metadata failed client trust checks" });
+        if (mode === "manual") emitUpdateUi({ phase: "error", progress: 0, traceId: id, errorCode: "METADATA_INVALID", message: "Update metadata rejected", detail: "The release did not satisfy Update Engine v2 authorization and integrity requirements. Nothing was downloaded." });
+        void postTelemetry("error", { traceId: id, errorCode: "METADATA_INVALID", detail: "Release metadata failed client authorization/integrity checks" });
         return;
       }
       const force = Boolean(release.forceUpdate) || compareVersions(currentVersion(), normalizeVersion(release.minVersion)) < 0;
