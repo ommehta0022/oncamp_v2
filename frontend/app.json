@@ -2,8 +2,8 @@
   "expo": {
     "name": "OnCampus",
     "slug": "oncampus",
-    "version": "1.6.8",
-    "runtimeVersion": "1.6.8",
+    "version": "1.7.0",
+    "runtimeVersion": "1.7.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "oncampus",
@@ -11,15 +11,9 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "updates": {
-      "enabled": true,
-      "url": "https://oncampus-backend-production.up.railway.app/v1/updates/manifest",
+      "enabled": false,
       "checkAutomatically": "NEVER",
-      "fallbackToCacheTimeout": 0,
-      "codeSigningCertificate": "./certs/ota-certificate.pem",
-      "codeSigningMetadata": {
-        "keyid": "oncampus-main",
-        "alg": "rsa-v1_5-sha256"
-      }
+      "fallbackToCacheTimeout": 0
     },
     "ios": {
       "supportsTablet": true,
@@ -31,7 +25,7 @@
       }
     },
     "android": {
-      "versionCode": 10608,
+      "versionCode": 10700,
       "icon": "./assets/images/icon.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -93,11 +87,12 @@
     },
     "extra": {
       "apiBaseUrl": "https://oncampus-backend-production.up.railway.app/v1",
-      "otaRuntimeVersion": "1.6.8",
+      "otaRuntimeVersion": "1.7.0",
       "otaChannel": "production",
+      "updateEngine": "native-apk-v2",
       "serverTriggeredUpdates": true,
       "nativeDirectInstaller": true,
-      "nativeStartupOta": true
+      "nativeStartupOta": false
     }
   }
 }

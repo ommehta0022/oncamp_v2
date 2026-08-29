@@ -24,6 +24,7 @@ import campus_platform
 import campus_platform_hardening
 import campus_semantics
 import campus_voice
+import native_update_v2
 import ota_updates
 import server
 import update_campaign
@@ -39,11 +40,13 @@ from institution_engagement import router as institution_engagement_router
 from institution_studio import router as institution_studio_router
 from institution_studio_analytics import router as institution_studio_analytics_router
 from institution_studio_operations import router as institution_studio_operations_router
+from native_update_v2 import router as native_update_v2_router
 from update_campaign import router as update_campaign_router
 
 app = server.app
 app.include_router(institution_content_router)
 app.include_router(update_campaign_router)
+app.include_router(native_update_v2_router)
 # Exact security-hardened routes are registered first so Starlette resolves them
 # before their backward-compatible implementations in campus_platform.
 app.include_router(campus_platform_hardening_router)
@@ -326,6 +329,9 @@ async def verify_production_routes() -> None:
         "/v1/updates/campaign",
         "/v1/updates/native/latest",
         "/v1/updates/native/apk",
+        "/v1/updates/v2/latest",
+        "/v1/updates/v2/apk/{version}",
+        "/v1/updates/v2/telemetry",
         "/v1/admin/updates/trigger",
         "/v1/institutions/me/content/overview",
         "/v1/campus/hub",
@@ -370,7 +376,7 @@ async def verify_production_routes() -> None:
         _campus_scheduler_task = asyncio.create_task(campus_platform.scheduler_loop())
     if _semantics_task is None or _semantics_task.done():
         _semantics_task = asyncio.create_task(campus_semantics.semantics_loop())
-    logger.info("Production OTA/native/content/campus/security/governance/AI/semantic/media/voice/institution-studio routes verified; background workers started")
+    logger.info("Production OTA/native-v2/content/campus/security/governance/AI/semantic/media/voice/institution-studio routes verified; background workers started")
 
 
 @app.on_event("shutdown")

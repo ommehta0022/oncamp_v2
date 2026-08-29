@@ -13,38 +13,41 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import * as Updates from "expo-updates";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing } from "@/src/theme/colors";
-import { prefetchLatestOta } from "@/src/updates/backgroundOta";
 
 const API_BASE = "https://oncampus-backend-production.up.railway.app/v1";
-const NATIVE_RELEASE_API = `${API_BASE}/updates/native/latest`;
-const TRUSTED_NATIVE_APK_PREFIX = `${API_BASE}/updates/native/apk?version=`;
+const UPDATE_V2_API = `${API_BASE}/updates/v2/latest`;
+const TRUSTED_APK_PREFIX = `${API_BASE}/updates/v2/apk/`;
+const TELEMETRY_API = `${API_BASE}/updates/v2/telemetry`;
+const AUTH_KEY_ID = "oncampus-main";
+const AUTH_ALGORITHM = "rsa-v1_5-sha256";
 const AUTOMATIC_CHECK_INTERVAL_MS = 60 * 1000;
 const DEFER_MS = 6 * 60 * 60 * 1000;
-const PENDING_OTA_KEY = "oncampus.update.pending_ota.v4";
-const APPLY_OTA_ON_RESUME_KEY = "oncampus.update.apply_ota_on_resume.v1";
-const PENDING_NATIVE_KEY = "oncampus.update.pending_native.v3";
-const DEFER_KEY = "oncampus.update.defer.v1";
-const SUCCESS_SHOWN_KEY = "oncampus.update.success_shown.v3";
+const DEFER_KEY = "oncampus.update.v2.defer";
 const APP_ICON = require("../../assets/images/icon.png");
 
 let lastAutomaticCheckAt = 0;
 let activeCheck: Promise<void> | null = null;
-let activeOtaApply: Promise<void> | null = null;
 let updateUiListener: ((state: UpdateUiState) => void) | null = null;
-let pendingOtaReleaseKey: string | null = null;
-let downloadedPendingKey: string | null = null;
-let pendingNativeRelease: NativeRelease | null = null;
-let lastOtaProgress = 0;
+let pendingRelease: NativeRelease | null = null;
+let pendingTraceId: string | null = null;
+
+type ReleaseAuthorization = {
+  keyId?: string;
+  algorithm?: string;
+  signature?: string;
+};
 
 type NativeRelease = {
+  schemaVersion?: number;
+  transport?: string;
   available?: boolean;
   version?: string;
+  versionCode?: number;
   name?: string;
   notes?: string;
   minVersion?: string;
@@ -52,22 +55,44 @@ type NativeRelease = {
   sha256?: string;
   size?: number;
   apkUrl?: string;
+  telemetryUrl?: string;
+  authorization?: ReleaseAuthorization;
 };
 
-type NativeInstallerResult = { status?: "permission_required" | "downloading" | string };
+type NativeStatus = {
+  phase?: string;
+  progress?: number;
+  traceId?: string;
+  targetVersion?: string;
+  targetVersionCode?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
+  errorCode?: string;
+  message?: string;
+  detail?: string;
+};
+
 type NativeInstaller = {
-  startInstall: (url: string, sha256: string) => Promise<NativeInstallerResult>;
-  restartForOta: () => Promise<NativeInstallerResult>;
+  startInstall: (
+    url: string,
+    sha256: string,
+    targetVersionCode: number,
+    targetVersion: string,
+    expectedSize: number,
+    authorizationKeyId: string,
+    authorizationAlgorithm: string,
+    authorizationSignature: string,
+    traceId: string,
+  ) => Promise<NativeStatus>;
+  getStatus: () => Promise<NativeStatus>;
   addListener: (eventName: string) => void;
   removeListeners: (count: number) => void;
 };
 
-type UpdateKind = "ota" | "apk";
 export type UpdateCheckMode = "automatic" | "manual" | "campaign";
-type UpdatePhase = "hidden" | "checking" | "available" | "downloading" | "ready" | "verifying" | "installing" | "permission" | "current" | "applied" | "error";
+type UpdatePhase = "hidden" | "checking" | "available" | "downloading" | "verifying" | "ready" | "installing" | "permission" | "current" | "applied" | "error";
 
 type UpdateUiState = {
-  kind: UpdateKind;
   phase: UpdatePhase;
   progress: number;
   message: string;
@@ -76,13 +101,13 @@ type UpdateUiState = {
   force?: boolean;
   bytesDownloaded?: number;
   bytesTotal?: number;
-  nextStep?: string;
+  traceId?: string;
+  errorCode?: string;
 };
 
 type DeferredUpdate = { key: string; until: number };
-type PendingOtaMarker = { beforeUpdateId: string; releaseKey: string; startedAt: number };
 
-const INITIAL_UI: UpdateUiState = { kind: "ota", phase: "hidden", progress: 0, message: "" };
+const INITIAL_UI: UpdateUiState = { phase: "hidden", progress: 0, message: "" };
 const nativeInstaller = NativeModules.OnCampusApkInstaller as NativeInstaller | undefined;
 
 function emitUpdateUi(state: UpdateUiState) {
@@ -94,7 +119,7 @@ function normalizeVersion(value?: string | null) {
 }
 
 function versionParts(value: string) {
-  return normalizeVersion(value).split(".").slice(0, 4).map((part) => {
+  return normalizeVersion(value).split(".").slice(0, 3).map((part) => {
     const parsed = Number.parseInt(part.replace(/\D/g, ""), 10);
     return Number.isFinite(parsed) ? parsed : 0;
   });
@@ -103,12 +128,9 @@ function versionParts(value: string) {
 function compareVersions(left: string, right: string) {
   const a = versionParts(left);
   const b = versionParts(right);
-  const length = Math.max(a.length, b.length, 3);
-  for (let index = 0; index < length; index += 1) {
-    const av = a[index] || 0;
-    const bv = b[index] || 0;
-    if (av > bv) return 1;
-    if (av < bv) return -1;
+  for (let index = 0; index < 3; index += 1) {
+    if ((a[index] || 0) > (b[index] || 0)) return 1;
+    if ((a[index] || 0) < (b[index] || 0)) return -1;
   }
   return 0;
 }
@@ -117,24 +139,56 @@ function currentVersion() {
   return normalizeVersion(Constants.expoConfig?.version);
 }
 
-function currentRuntime() {
-  return String(Updates.runtimeVersion || Constants.expoConfig?.runtimeVersion || "");
+function traceId() {
+  return `ota2-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function currentUpdateId() {
-  return String(Updates.updateId || "embedded");
-}
-
-function currentInstallIdentity() {
-  return `${currentVersion()}|${currentRuntime()}|${currentUpdateId()}`;
-}
-
-function isTrustedNativeRelease(release: NativeRelease) {
+function trustedRelease(release: NativeRelease) {
+  const version = normalizeVersion(release.version);
+  const signature = String(release.authorization?.signature || "");
   return Boolean(
-    release.apkUrl?.startsWith(TRUSTED_NATIVE_APK_PREFIX) &&
-    release.sha256?.match(/^[a-fA-F0-9]{64}$/) &&
-    release.version?.match(/^\d+\.\d+\.\d+$/)
+    release.schemaVersion === 2 &&
+    release.transport === "native-apk" &&
+    release.available &&
+    /^\d+\.\d+\.\d+$/.test(version) &&
+    Number.isInteger(release.versionCode) && Number(release.versionCode) > 0 &&
+    Number.isInteger(release.size) && Number(release.size) >= 1024 * 1024 &&
+    /^[a-fA-F0-9]{64}$/.test(String(release.sha256 || "")) &&
+    release.apkUrl === `${TRUSTED_APK_PREFIX}${version}` &&
+    (!release.telemetryUrl || release.telemetryUrl === TELEMETRY_API) &&
+    release.authorization?.keyId === AUTH_KEY_ID &&
+    release.authorization?.algorithm === AUTH_ALGORITHM &&
+    signature.length >= 64 && signature.length <= 2048 &&
+    /^[A-Za-z0-9+/=]+$/.test(signature)
   );
+}
+
+async function postTelemetry(stage: string, values: Partial<NativeStatus> = {}) {
+  const id = values.traceId || pendingTraceId;
+  if (!id) return;
+  const acceptedStages = new Set([
+    "check", "available", "download_start", "downloading", "download_complete",
+    "verify_hash", "verify_package", "verify_signature", "ready",
+    "installer_opened", "installed", "error",
+  ]);
+  if (!acceptedStages.has(stage)) return;
+  try {
+    await fetch(TELEMETRY_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        traceId: id,
+        stage,
+        nativeVersion: currentVersion(),
+        targetVersion: values.targetVersion || pendingRelease?.version || undefined,
+        progress: Number.isFinite(values.progress) ? Math.max(0, Math.min(100, Number(values.progress))) : undefined,
+        errorCode: values.errorCode || undefined,
+        detail: values.detail?.slice(0, 500),
+      }),
+    });
+  } catch {
+    // Telemetry must never block or weaken update delivery.
+  }
 }
 
 async function readDeferred(): Promise<DeferredUpdate | null> {
@@ -153,7 +207,7 @@ async function readDeferred(): Promise<DeferredUpdate | null> {
   }
 }
 
-async function isDeferred(key: string, mode: UpdateCheckMode, force = false) {
+async function isDeferred(key: string, mode: UpdateCheckMode, force: boolean) {
   if (mode === "manual" || force) return false;
   const deferred = await readDeferred();
   return deferred?.key === key;
@@ -164,370 +218,172 @@ async function deferUpdate(key?: string) {
   await AsyncStorage.setItem(DEFER_KEY, JSON.stringify({ key, until: Date.now() + DEFER_MS } satisfies DeferredUpdate)).catch(() => undefined);
 }
 
-async function clearDeferral(key?: string) {
-  if (!key) return;
-  try {
-    const deferred = await readDeferred();
-    if (!deferred || deferred.key === key) await AsyncStorage.removeItem(DEFER_KEY);
-  } catch {
-    // Deferral cleanup is best effort only.
-  }
+async function clearDeferral() {
+  await AsyncStorage.removeItem(DEFER_KEY).catch(() => undefined);
 }
 
-async function serverOtaId(strict = false) {
-  const runtime = currentRuntime();
-  if (!runtime) {
-    if (strict) throw new Error("This installation has no OTA runtime identity.");
-    return null;
-  }
+async function fetchRelease(strict = false): Promise<NativeRelease | null> {
   try {
-    const response = await fetch(`${API_BASE}/updates/status?runtimeVersion=${encodeURIComponent(runtime)}`, {
+    const url = new URL(UPDATE_V2_API);
+    url.searchParams.set("currentVersion", currentVersion());
+    const response = await fetch(url.toString(), {
       headers: { Accept: "application/json", "Cache-Control": "no-cache" },
     });
     if (!response.ok) throw new Error(`Update service returned ${response.status}`);
-    const payload = await response.json() as { releaseAvailable?: boolean; updateId?: string | null };
-    return payload.releaseAvailable && payload.updateId ? String(payload.updateId) : null;
-  } catch {
-    if (strict) throw new Error("Couldn’t reach the OnCampus update service. Check your connection and try again.");
-    return null;
-  }
-}
-
-async function reconcileAppliedUpdate(): Promise<boolean> {
-  try {
-    const identity = currentInstallIdentity();
-    const installedVersion = currentVersion();
-    const [pendingOtaRaw, pendingNative, successShown] = await Promise.all([
-      AsyncStorage.getItem(PENDING_OTA_KEY),
-      AsyncStorage.getItem(PENDING_NATIVE_KEY),
-      AsyncStorage.getItem(SUCCESS_SHOWN_KEY),
-    ]);
-
-    let applied = false;
-    if (pendingOtaRaw) {
-      try {
-        const marker = JSON.parse(pendingOtaRaw) as PendingOtaMarker;
-        if (marker?.beforeUpdateId && marker.beforeUpdateId !== currentUpdateId()) {
-          applied = true;
-          await Promise.all([
-            AsyncStorage.removeItem(PENDING_OTA_KEY),
-            AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-            AsyncStorage.removeItem(DEFER_KEY),
-          ]);
-        } else if (Date.now() - Number(marker?.startedAt || 0) > 24 * 60 * 60 * 1000) {
-          await Promise.all([
-            AsyncStorage.removeItem(PENDING_OTA_KEY),
-            AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-          ]);
-        }
-      } catch {
-        await Promise.all([
-          AsyncStorage.removeItem(PENDING_OTA_KEY),
-          AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-        ]);
-      }
-    }
-
-    if (pendingNative && compareVersions(installedVersion, pendingNative) >= 0) {
-      applied = true;
-      await Promise.all([AsyncStorage.removeItem(PENDING_NATIVE_KEY), AsyncStorage.removeItem(DEFER_KEY)]);
-    }
-
-    if (applied && successShown !== identity) {
-      await AsyncStorage.setItem(SUCCESS_SHOWN_KEY, identity);
-      emitUpdateUi({
-        kind: "ota",
-        phase: "applied",
-        progress: 100,
-        message: "Update complete",
-        detail: "OnCampus is running the new version successfully. You’ll only see this confirmation once.",
-      });
-      return true;
-    }
-  } catch {
-    // Never block app startup because update bookkeeping failed.
-  }
-  return false;
-}
-
-async function showDownloadedPending(mode: UpdateCheckMode) {
-  if (!downloadedPendingKey) return false;
-  if (await isDeferred(downloadedPendingKey, mode)) return true;
-  pendingOtaReleaseKey = downloadedPendingKey;
-  emitUpdateUi({
-    kind: "ota",
-    phase: "ready",
-    progress: 100,
-    releaseKey: downloadedPendingKey,
-    message: "Update downloaded",
-    detail: "100% downloaded and verified. Keep using OnCampus, or restart now when you are ready to apply it.",
-  });
-  return true;
-}
-
-async function checkForOtaUpdate(mode: UpdateCheckMode): Promise<boolean> {
-  if (Platform.OS !== "android" || !Updates.isEnabled) return false;
-  if (await showDownloadedPending(mode)) return true;
-
-  const serverId = await serverOtaId(mode === "manual");
-  if (!serverId || serverId === currentUpdateId()) return false;
-  const releaseKey = `ota:${serverId}`;
-
-  // Discovery only announces the release. The explicit Download action owns
-  // the foreground transfer so progress belongs to the user-visible operation.
-  if (await isDeferred(releaseKey, mode)) return true;
-
-  pendingOtaReleaseKey = releaseKey;
-  lastOtaProgress = 0;
-  emitUpdateUi({
-    kind: "ota",
-    phase: "available",
-    progress: 0,
-    releaseKey,
-    message: "A new OnCampus update is ready",
-    detail: "Tap Download update to start the signed transfer. You can keep using OnCampus while it downloads, then choose when to restart.",
-  });
-  return true;
-}
-
-async function markOtaApply(releaseKey: string) {
-  const marker: PendingOtaMarker = {
-    beforeUpdateId: currentUpdateId(),
-    releaseKey,
-    startedAt: Date.now(),
-  };
-  await AsyncStorage.setItem(PENDING_OTA_KEY, JSON.stringify(marker));
-}
-
-async function queueOtaApply(releaseKey: string) {
-  await Promise.all([
-    markOtaApply(releaseKey),
-    AsyncStorage.setItem(APPLY_OTA_ON_RESUME_KEY, releaseKey),
-  ]);
-}
-
-async function applyReadyOta(releaseKey: string) {
-  if (Platform.OS !== "android" || !Updates.isEnabled) return false;
-  if (AppState.currentState !== "active") {
-    emitUpdateUi({
-      kind: "ota",
-      phase: "ready",
-      progress: 100,
-      releaseKey,
-      message: "Update downloaded",
-      detail: "100% downloaded and verified. Return to OnCampus and restart when the app is active.",
-      nextStep: "Restart OnCampus once to load the verified update.",
-    });
-    return false;
-  }
-
-  await clearDeferral(releaseKey);
-  await queueOtaApply(releaseKey);
-  emitUpdateUi({
-    kind: "ota",
-    phase: "installing",
-    progress: 100,
-    releaseKey,
-    message: "Applying update",
-    detail: "The signed update is fully downloaded and verified. OnCampus is starting a clean Android restart now.",
-    nextStep: "The app will reopen automatically on the new update.",
-  });
-  await new Promise((resolve) => setTimeout(resolve, 250));
-
-  if (!nativeInstaller?.restartForOta) {
-    emitUpdateUi({
-      kind: "ota",
-      phase: "error",
-      progress: 100,
-      releaseKey,
-      message: "Update is ready — restart required",
-      detail: "The update is safely stored, but this build cannot trigger the Android restart. Close OnCampus completely and reopen it; the downloaded update will load on cold start.",
-      nextStep: "Close OnCampus completely, then open it again.",
-    });
-    return false;
-  }
-
-  try {
-    await nativeInstaller.restartForOta();
-    return true;
-  } catch (error) {
-    // Keep PENDING_OTA_KEY/APPLY_OTA_ON_RESUME_KEY intact. A manual cold start
-    // must still be able to activate the already downloaded update.
-    emitUpdateUi({
-      kind: "ota",
-      phase: "error",
-      progress: 100,
-      releaseKey,
-      message: "Update is downloaded — restart again",
-      detail: error instanceof Error
-        ? `Android restart did not start: ${error.message.slice(0, 140)}. The update is still safe on this device.`
-        : "Android restart did not start. The update is still safe on this device.",
-      nextStep: "Close OnCampus completely and reopen it to finish applying the update.",
-    });
-    return false;
-  }
-}
-
-async function downloadOtaUpdate(releaseKey: string) {
-  await clearDeferral(releaseKey);
-  pendingOtaReleaseKey = releaseKey;
-  lastOtaProgress = 0;
-
-  emitUpdateUi({
-    kind: "ota",
-    phase: "downloading",
-    progress: 0,
-    releaseKey,
-    message: "Downloading update",
-    detail: "Connecting to the signed production update…",
-    nextStep: "Download progress will appear live, then verification runs automatically.",
-  });
-
-  try {
-    const ready = Boolean(downloadedPendingKey) || await prefetchLatestOta(true);
-    if (!ready) {
-      const serverId = await serverOtaId();
-      if (!serverId || serverId === currentUpdateId()) {
-        emitUpdateUi({
-          kind: "ota",
-          phase: "current",
-          progress: 100,
-          message: "Already up to date",
-          detail: "There is no newer signed update for this installation.",
-        });
-        return;
-      }
-
-      emitUpdateUi({
-        kind: "ota",
-        phase: "error",
-        progress: lastOtaProgress,
-        releaseKey,
-        message: "Download paused",
-        detail: "The update is still available. Check your connection and tap Try again; background retry remains scheduled.",
-      });
-      return;
-    }
-
-    downloadedPendingKey = releaseKey;
-    pendingOtaReleaseKey = releaseKey;
-    lastOtaProgress = 100;
-    emitUpdateUi({
-      kind: "ota",
-      phase: "ready",
-      progress: 100,
-      releaseKey,
-      message: "Update downloaded",
-      detail: "100% downloaded and verified. Tap Restart to apply when you are ready—OnCampus will not close itself automatically.",
-    });
-  } catch (error) {
-    emitUpdateUi({
-      kind: "ota",
-      phase: "error",
-      progress: lastOtaProgress,
-      releaseKey,
-      message: "Update download paused",
-      detail: error instanceof Error ? error.message.slice(0, 180) : "Check your connection and try again.",
-    });
-  }
-}
-
-async function fetchNativeRelease(): Promise<NativeRelease | null> {
-  try {
-    const response = await fetch(NATIVE_RELEASE_API, { headers: { Accept: "application/json", "Cache-Control": "no-cache" } });
-    if (!response.ok) return null;
     return await response.json() as NativeRelease;
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return null;
   }
 }
 
-async function checkForNativeUpdate(mode: UpdateCheckMode) {
-  const release = await fetchNativeRelease();
-  const installed = currentVersion();
-  const latest = normalizeVersion(release?.version);
-
-  if (!release?.available || !latest || compareVersions(latest, installed) <= 0) {
-    if (mode === "manual") {
-      emitUpdateUi({ kind: "ota", phase: "current", progress: 100, message: "You’re up to date", detail: `OnCampus ${installed} has no newer compatible OTA or Android release right now.` });
-    }
-    return;
-  }
-
-  if (!isTrustedNativeRelease(release)) {
-    if (mode === "manual") emitUpdateUi({ kind: "apk", phase: "error", progress: 0, message: "Update metadata could not be verified", detail: "The current app remains unchanged. Try again later." });
-    return;
-  }
-
-  const force = Boolean(release.forceUpdate) || compareVersions(installed, normalizeVersion(release.minVersion)) < 0;
-  const releaseKey = `apk:${latest}`;
-  if (await isDeferred(releaseKey, mode, force)) return;
-
-  pendingNativeRelease = release;
-  const notes = String(release.notes || "").trim().slice(0, 420);
-  const size = release.size && release.size > 0 ? ` ${(release.size / 1024 / 1024).toFixed(1)} MB download.` : "";
+function releaseUi(release: NativeRelease, mode: UpdateCheckMode) {
+  const version = normalizeVersion(release.version);
+  const force = Boolean(release.forceUpdate) || compareVersions(currentVersion(), normalizeVersion(release.minVersion)) < 0;
+  const releaseKey = `apk-v2:${version}`;
+  pendingRelease = release;
+  pendingTraceId = traceId();
+  void postTelemetry("available", {
+    traceId: pendingTraceId,
+    targetVersion: version,
+    detail: `Update Engine v2 offered RSA-authorized OnCampus ${version} during ${mode} check`,
+  });
+  const size = release.size && release.size > 0 ? ` ${(release.size / 1024 / 1024).toFixed(1)} MB.` : "";
   emitUpdateUi({
-    kind: "apk",
     phase: "available",
     progress: 0,
     releaseKey,
     force,
-    message: force ? "Android update required" : `OnCampus ${latest} is available`,
-    detail: `${notes || "This release includes native improvements that require an APK update."}${size}`,
+    traceId: pendingTraceId,
+    message: force ? "OnCampus update required" : `OnCampus ${version} is ready`,
+    detail: `${String(release.notes || "Secure Android update available.").trim().slice(0, 420)}${size}`,
   });
 }
 
-async function startNativeInstall(release: NativeRelease) {
-  const version = normalizeVersion(release.version);
-  const releaseKey = `apk:${version}`;
-  await clearDeferral(releaseKey);
-  if (!nativeInstaller || !release.apkUrl || !release.sha256 || !version) {
-    emitUpdateUi({ kind: "apk", phase: "error", progress: 0, releaseKey, message: "Secure installer unavailable", detail: "This build cannot start the Android installer. Your current app is unchanged." });
+async function recoverNativeStatus() {
+  if (Platform.OS !== "android" || !nativeInstaller?.getStatus) return false;
+  try {
+    const status = await nativeInstaller.getStatus();
+    if (!status?.phase || status.phase === "idle") return false;
+    pendingTraceId = status.traceId || pendingTraceId;
+    const releaseKey = status.targetVersion ? `apk-v2:${status.targetVersion}` : undefined;
+    if (status.phase === "installed") {
+      emitUpdateUi({ phase: "applied", progress: 100, releaseKey, traceId: status.traceId, message: "Update complete", detail: `OnCampus ${status.targetVersion || ""} is installed and verified.` });
+      void postTelemetry("installed", status);
+      return true;
+    }
+    if (status.phase === "ready") {
+      emitUpdateUi({ phase: "ready", progress: 100, releaseKey, traceId: status.traceId, message: "Update verified", detail: "The APK passed release authorization, hash, package, version and signing-certificate checks. Tap Install update to open Android's installer." });
+      return true;
+    }
+    if (status.phase === "verifying") {
+      emitUpdateUi({ phase: "verifying", progress: 100, releaseKey, traceId: status.traceId, message: "Verifying update", detail: "OnCampus is validating the downloaded APK before Android can install it." });
+      return true;
+    }
+    if (status.phase === "error") {
+      emitUpdateUi({ phase: "error", progress: 0, releaseKey, traceId: status.traceId, errorCode: status.errorCode, message: "Update needs attention", detail: `Android reported ${status.errorCode || "a download error"}. The installed app is unchanged.` });
+      return true;
+    }
+    emitUpdateUi({
+      phase: "downloading",
+      progress: Math.max(1, Number(status.progress || 1)),
+      releaseKey,
+      traceId: status.traceId,
+      message: "Downloading OnCampus update",
+      detail: "Android is continuing the update in the background. It can resume after network or app interruptions.",
+      bytesDownloaded: status.downloadedBytes,
+      bytesTotal: status.totalBytes,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function startNativeUpdate(release?: NativeRelease | null, existingTraceId?: string | null) {
+  const latest = release && trustedRelease(release) ? release : await fetchRelease(true);
+  if (!latest || !trustedRelease(latest) || !nativeInstaller?.startInstall) {
+    emitUpdateUi({ phase: "error", progress: 0, message: "Secure updater unavailable", detail: "Update Engine v2 could not validate RSA-authorized release metadata. The installed app is unchanged." });
     return;
   }
 
-  await AsyncStorage.setItem(PENDING_NATIVE_KEY, version);
-  emitUpdateUi({ kind: "apk", phase: "downloading", progress: 1, releaseKey, message: "Preparing Android update", detail: "Downloading through the trusted OnCampus update endpoint and verifying SHA-256 before install." });
+  pendingRelease = latest;
+  const version = normalizeVersion(latest.version);
+  const id = existingTraceId || pendingTraceId || traceId();
+  pendingTraceId = id;
+  await clearDeferral();
+  emitUpdateUi({
+    phase: "downloading",
+    progress: 1,
+    releaseKey: `apk-v2:${version}`,
+    traceId: id,
+    force: Boolean(latest.forceUpdate),
+    message: "Preparing secure update",
+    detail: "Android first verifies the production RSA release authorization, then downloads through OnCampus and checks SHA-256, package identity, versionCode and the app signing certificate.",
+  });
+  void postTelemetry("download_start", { traceId: id, targetVersion: version, progress: 1 });
+
   try {
-    const result = await nativeInstaller.startInstall(release.apkUrl, release.sha256);
-    if (result?.status === "permission_required") {
-      emitUpdateUi({ kind: "apk", phase: "permission", progress: 0, releaseKey, message: "Allow OnCampus to install updates", detail: "Enable “Allow from this source”, then return. The verified installation will continue safely." });
-    }
+    await nativeInstaller.startInstall(
+      String(latest.apkUrl),
+      String(latest.sha256),
+      Number(latest.versionCode),
+      version,
+      Number(latest.size),
+      String(latest.authorization?.keyId),
+      String(latest.authorization?.algorithm),
+      String(latest.authorization?.signature),
+      id,
+    );
   } catch (error) {
-    emitUpdateUi({ kind: "apk", phase: "error", progress: 0, releaseKey, message: "Android update could not start", detail: error instanceof Error ? error.message.slice(0, 180) : "Your current app is unchanged. Please try again." });
+    const detail = error instanceof Error ? error.message.slice(0, 300) : "Android could not start the update transfer.";
+    emitUpdateUi({ phase: "error", progress: 0, releaseKey: `apk-v2:${version}`, traceId: id, errorCode: "START_FAILED", message: "Update could not start", detail: `${detail} Your installed app is unchanged.` });
+    void postTelemetry("error", { traceId: id, targetVersion: version, errorCode: "START_FAILED", detail });
   }
 }
 
 export async function checkForAppUpdate(
   modeOrManual: UpdateCheckMode | boolean = "automatic",
-  bypassNativeThrottle = false,
-  bypassOtaThrottle = false,
+  _bypassNativeThrottle = false,
+  _bypassOtaThrottle = false,
 ) {
   const mode: UpdateCheckMode = typeof modeOrManual === "boolean" ? (modeOrManual ? "manual" : "automatic") : modeOrManual;
-
   if (Platform.OS !== "android") {
-    if (mode === "manual") emitUpdateUi({ kind: "ota", phase: "current", progress: 100, message: "Updates are managed automatically", detail: "No action is required on this platform." });
+    if (mode === "manual") emitUpdateUi({ phase: "current", progress: 100, message: "Updates are managed automatically", detail: "No Android update action is required on this platform." });
     return;
   }
 
   const now = Date.now();
-  const bypassThrottle = mode === "manual" || mode === "campaign" || bypassNativeThrottle || bypassOtaThrottle;
-  if (mode === "automatic" && !bypassThrottle && now - lastAutomaticCheckAt < AUTOMATIC_CHECK_INTERVAL_MS) return;
+  if (mode === "automatic" && now - lastAutomaticCheckAt < AUTOMATIC_CHECK_INTERVAL_MS) return;
   if (activeCheck) return activeCheck;
-  if (mode === "automatic" && !bypassThrottle) lastAutomaticCheckAt = now;
+  if (mode === "automatic") lastAutomaticCheckAt = now;
 
   activeCheck = (async () => {
-    if (mode === "manual") emitUpdateUi({ kind: "ota", phase: "checking", progress: 10, message: "Checking for updates", detail: "Looking for a signed OTA first, then a verified Android release." });
+    if (mode === "manual") emitUpdateUi({ phase: "checking", progress: 10, message: "Checking for updates", detail: "Contacting OnCampus Update Engine v2…" });
+    const id = traceId();
+    pendingTraceId = id;
+    void postTelemetry("check", { traceId: id, detail: `${mode} update check` });
     try {
-      const otaAvailable = await checkForOtaUpdate(mode);
-      if (otaAvailable) return;
-      await checkForNativeUpdate(mode);
+      if (await recoverNativeStatus()) return;
+      const release = await fetchRelease(mode === "manual");
+      if (!release?.available || compareVersions(normalizeVersion(release.version), currentVersion()) <= 0) {
+        if (mode === "manual") emitUpdateUi({ phase: "current", progress: 100, message: "You’re up to date", detail: `OnCampus ${currentVersion()} is the latest verified Android release.` });
+        return;
+      }
+      if (!trustedRelease(release)) {
+        if (mode === "manual") emitUpdateUi({ phase: "error", progress: 0, traceId: id, errorCode: "METADATA_INVALID", message: "Update metadata rejected", detail: "The release did not satisfy Update Engine v2 authorization and integrity requirements. Nothing was downloaded." });
+        void postTelemetry("error", { traceId: id, errorCode: "METADATA_INVALID", detail: "Release metadata failed client authorization/integrity checks" });
+        return;
+      }
+      const force = Boolean(release.forceUpdate) || compareVersions(currentVersion(), normalizeVersion(release.minVersion)) < 0;
+      const key = `apk-v2:${normalizeVersion(release.version)}`;
+      if (await isDeferred(key, mode, force)) return;
+      releaseUi(release, mode);
     } catch (error) {
       if (mode === "manual") {
-        emitUpdateUi({ kind: "ota", phase: "error", progress: 0, message: "Couldn’t complete the update check", detail: error instanceof Error ? error.message.slice(0, 180) : "Check your connection and try again." });
-      } else {
-        // Automatic checks never hide or replace an active update UI. A
-        // transient campaign/network failure is retried on the next poll/resume.
+        const detail = error instanceof Error ? error.message.slice(0, 260) : "Could not reach the update service.";
+        emitUpdateUi({ phase: "error", progress: 0, traceId: id, errorCode: "CHECK_FAILED", message: "Update check failed", detail: `${detail} The installed app is unchanged.` });
+        void postTelemetry("error", { traceId: id, errorCode: "CHECK_FAILED", detail });
       }
     }
   })();
@@ -547,22 +403,18 @@ function formatBytes(value?: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
+function UpdateModal({ state, onClose, onLater, onPrimary }: {
   state: UpdateUiState;
   onClose: () => void;
   onLater: () => void;
-  onUpdateNow: () => void;
-  onRetry: () => void;
+  onPrimary: () => void;
 }) {
   const { colors } = useTheme();
   const visible = state.phase !== "hidden";
   const busy = ["checking", "downloading", "verifying", "installing"].includes(state.phase);
-  const available = state.phase === "available";
-  const ready = state.phase === "ready";
-  const error = state.phase === "error";
-  const terminal = state.phase === "current" || state.phase === "applied";
-  const permission = state.phase === "permission";
-  const stages = ["Check", "Download", "Verify", "Apply"];
+  const actionable = ["available", "ready", "permission", "error"].includes(state.phase);
+  const terminal = ["current", "applied"].includes(state.phase);
+  const stages = ["Check", "Download", "Verify", "Install"];
   const stageIndex = useMemo(() => {
     if (["checking", "current"].includes(state.phase)) return 0;
     if (["available", "downloading"].includes(state.phase)) return 1;
@@ -571,34 +423,14 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
     if (state.phase === "error") return state.progress >= 100 ? 3 : state.progress > 0 ? 1 : 0;
     return 0;
   }, [state.phase, state.progress]);
-  const nextStep = useMemo(() => {
-    if (state.nextStep) return state.nextStep;
-    if (state.phase === "checking") return "If a compatible update exists, OnCampus will show it before downloading.";
-    if (state.phase === "available") return "Tap Download update to start the signed transfer.";
-    if (state.phase === "downloading") return "Verification starts automatically when the transfer reaches 100%.";
-    if (state.phase === "verifying") return "After verification, Android will prepare the safe apply step.";
-    if (state.phase === "ready") return "Restart once to switch to the downloaded update.";
-    if (state.phase === "installing") return state.kind === "ota" ? "OnCampus will reopen on the new update." : "Confirm Install on Android's system screen.";
-    if (state.phase === "permission") return "Allow installation from OnCampus, then return to continue.";
-    if (state.phase === "error") return state.progress >= 100 ? "Close and reopen OnCampus to finish applying the stored update." : "Tap Try again; the current app remains unchanged.";
-    return "No action is required.";
-  }, [state.kind, state.nextStep, state.phase, state.progress]);
-
-  const label = useMemo(() => {
-    if (state.phase === "checking") return "SECURE CHECK";
-    if (state.phase === "available") return state.kind === "ota" ? "OTA AVAILABLE" : "ANDROID RELEASE";
-    if (state.phase === "downloading") return "DOWNLOADING";
-    if (state.phase === "ready") return "READY TO APPLY";
-    if (state.phase === "verifying") return "VERIFYING";
-    if (state.phase === "installing") return state.kind === "ota" ? "APPLYING UPDATE" : "ANDROID INSTALLER";
-    if (state.phase === "permission") return "PERMISSION NEEDED";
-    if (state.phase === "applied") return "UPDATED";
-    if (state.phase === "current") return "CURRENT";
-    return "ATTENTION";
-  }, [state.kind, state.phase]);
+  const label = state.phase === "error" ? "ATTENTION" : state.phase === "applied" ? "UPDATED" : state.phase === "current" ? "CURRENT" : "UPDATE ENGINE V2";
+  const primaryLabel = state.phase === "ready" ? "Install update" : state.phase === "permission" ? "Open settings" : state.phase === "error" ? "Try again" : "Download update";
+  const transferred = state.bytesDownloaded != null && state.bytesTotal
+    ? `${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.bytesTotal)}`
+    : "";
 
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!busy && !state.force) onClose(); }}>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!state.force) onClose(); }}>
       <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
         <View style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, shadowColor: colors.shadow }]} accessible accessibilityViewIsModal>
           <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.topGlow} />
@@ -608,85 +440,57 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
               <Text style={[styles.brand, { color: colors.onSurface }]}>OnCampus</Text>
               <Text style={[styles.phase, { color: state.phase === "error" ? colors.error : terminal ? colors.success : colors.info }]}>{label}</Text>
             </View>
-            {busy ? <ActivityIndicator color={colors.brandPrimary} accessibilityLabel="Update in progress" /> : null}
+            {busy ? <ActivityIndicator color={colors.brandPrimary} /> : null}
           </View>
 
           <Text style={[styles.title, { color: colors.onSurface }]} accessibilityRole="header">{state.message}</Text>
-          {!!state.detail && <Text style={[styles.detail, { color: colors.onSurfaceTertiary }]}>{state.detail}</Text>}
+          {state.detail ? <Text style={[styles.detail, { color: colors.muted }]}>{state.detail}</Text> : null}
 
-          <View style={styles.stageRow} accessibilityLabel={`Update stage ${stages[Math.min(stageIndex, stages.length - 1)]}`}>
-            {stages.map((stage, index) => {
-              const done = index < stageIndex || state.phase === "applied";
-              const active = index === stageIndex && state.phase !== "current";
-              return (
-                <View key={stage} style={styles.stageItem}>
-                  <View style={[styles.stageDot, { backgroundColor: done || active ? colors.brandPrimary : colors.surfaceTertiary, borderColor: done || active ? colors.brandPrimary : colors.borderStrong }]}>
-                    <Text style={[styles.stageNumber, { color: done || active ? colors.onBrandPrimary : colors.onSurfaceTertiary }]}>{done ? "✓" : String(index + 1)}</Text>
-                  </View>
-                  <Text style={[styles.stageName, { color: active ? colors.onSurface : colors.onSurfaceTertiary }]}>{stage}</Text>
-                </View>
-              );
-            })}
+          <View style={styles.steps}>
+            {stages.map((stage, index) => (
+              <View key={stage} style={styles.stepItem}>
+                <View style={[styles.stepDot, { backgroundColor: index <= stageIndex ? colors.brandPrimary : colors.border }]} />
+                <Text style={[styles.stepText, { color: index <= stageIndex ? colors.onSurface : colors.muted }]}>{stage}</Text>
+              </View>
+            ))}
           </View>
 
-          {((busy && state.phase !== "checking") || ready) && (
-            <>
-              <View style={[styles.progressTrack, { backgroundColor: colors.surfaceTertiary }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: state.progress }}>
-                <View style={[styles.progressFill, { width: (String(state.progress <= 0 ? 0 : Math.max(2, Math.min(100, state.progress))) + "%") as `${number}%`, backgroundColor: state.kind === "apk" ? colors.actionPrimary : colors.brandPrimary }]} />
+          {state.phase === "downloading" ? (
+            <View style={styles.progressWrap}>
+              <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
+                <View style={[styles.progressFill, { backgroundColor: colors.brandPrimary, width: `${Math.max(1, Math.min(100, state.progress))}%` }]} />
               </View>
               <View style={styles.progressMeta}>
-                <Text style={[styles.progressValue, { color: colors.onSurface }]}>{Math.round(state.progress)}%</Text>
-                <Text style={[styles.progressLabel, { color: colors.onSurfaceTertiary }]}>{state.bytesTotal && state.bytesDownloaded !== undefined ? `${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.bytesTotal)}` : state.phase === "downloading" ? "Live download progress" : state.phase === "ready" ? "Downloaded & verified" : state.phase === "verifying" ? "Verifying" : "Applying"}</Text>
+                <Text style={[styles.progressText, { color: colors.onSurface }]}>{Math.round(state.progress)}%</Text>
+                <Text style={[styles.progressBytes, { color: colors.muted }]}>{transferred || "Android background download"}</Text>
               </View>
-            </>
-          )}
-
-          {!terminal && (
-            <View style={[styles.nextCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-              <Text style={[styles.nextLabel, { color: colors.onSurfaceTertiary }]}>NEXT</Text>
-              <Text style={[styles.nextText, { color: colors.onSurface }]}>{nextStep}</Text>
             </View>
-          )}
+          ) : null}
 
-          <View style={[styles.securityRow, { backgroundColor: colors.highlight }]}>
-            <View style={[styles.securityIcon, { backgroundColor: colors.surfaceSecondary }]}><Text style={{ color: colors.success, fontWeight: "900" }}>✓</Text></View>
-            <Text style={[styles.securityText, { color: colors.onSurfaceTertiary }]}>{state.kind === "apk" ? "Trusted endpoint • SHA-256 verified • signing continuity" : "Signed manifest • runtime verified • safe rollback"}</Text>
+          {state.errorCode ? <Text style={[styles.errorCode, { color: colors.muted }]}>Code: {state.errorCode}</Text> : null}
+
+          <View style={styles.actions}>
+            {terminal ? (
+              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onClose} accessibilityRole="button">
+                <Text style={[styles.primaryText, { color: colors.onBrandPrimary }]}>Done</Text>
+              </Pressable>
+            ) : null}
+            {actionable ? (
+              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onPrimary} accessibilityRole="button">
+                <Text style={[styles.primaryText, { color: colors.onBrandPrimary }]}>{primaryLabel}</Text>
+              </Pressable>
+            ) : null}
+            {!state.force && (state.phase === "available" || state.phase === "error") ? (
+              <Pressable style={[styles.secondaryButton, { borderColor: colors.border }]} onPress={onLater} accessibilityRole="button">
+                <Text style={[styles.secondaryText, { color: colors.onSurface }]}>Later</Text>
+              </Pressable>
+            ) : null}
+            {!state.force && state.phase === "downloading" ? (
+              <Pressable style={[styles.secondaryButton, { borderColor: colors.border }]} onPress={onClose} accessibilityRole="button">
+                <Text style={[styles.secondaryText, { color: colors.onSurface }]}>Continue in background</Text>
+              </Pressable>
+            ) : null}
           </View>
-
-          {available && (
-            <View style={styles.actions}>
-              {!state.force && <Pressable style={[styles.secondaryButton, { borderColor: colors.borderStrong }]} onPress={onLater} accessibilityRole="button"><Text style={[styles.secondaryText, { color: colors.onSurface }]}>Later</Text></Pressable>}
-              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onUpdateNow} accessibilityRole="button"><Text style={{ color: colors.onBrandPrimary, fontWeight: "800", fontSize: 14 }}>{state.kind === "ota" ? "Download update" : "Download & install"}</Text></Pressable>
-            </View>
-          )}
-
-          {ready && (
-            <View style={styles.actions}>
-              {!state.force && <Pressable style={[styles.secondaryButton, { borderColor: colors.borderStrong }]} onPress={onLater} accessibilityRole="button"><Text style={[styles.secondaryText, { color: colors.onSurface }]}>Later</Text></Pressable>}
-              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onUpdateNow} accessibilityRole="button"><Text style={{ color: colors.onBrandPrimary, fontWeight: "800", fontSize: 14 }}>Restart to apply</Text></Pressable>
-            </View>
-          )}
-
-          {(terminal || permission) && (
-            <View style={styles.actions}>
-              <Pressable style={[styles.primaryButton, { backgroundColor: terminal ? colors.onSurface : colors.brandPrimary }]} onPress={onClose} accessibilityRole="button"><Text style={{ color: terminal ? colors.surface : colors.onBrandPrimary, fontWeight: "900", fontSize: 14 }}>{permission ? "I’ll return after allowing" : "Done"}</Text></Pressable>
-            </View>
-          )}
-
-          {error && (
-            <View style={styles.actions}>
-              <Pressable style={[styles.secondaryButton, { borderColor: colors.borderStrong }]} onPress={onClose} accessibilityRole="button"><Text style={[styles.secondaryText, { color: colors.onSurface }]}>Close</Text></Pressable>
-              <Pressable style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]} onPress={onRetry} accessibilityRole="button"><Text style={{ color: colors.onBrandPrimary, fontWeight: "900", fontSize: 14 }}>Try again</Text></Pressable>
-            </View>
-          )}
-
-          {busy && (
-            <Text style={[styles.keepOpen, { color: colors.muted }]}>
-              {state.kind === "ota"
-                ? "You can minimize OnCampus while the signed update downloads. It will never restart the app until you choose Restart to apply."
-                : "You can minimize OnCampus while Android downloads the APK. After SHA-256 verification, Android's system installer will open when the app is active."}
-            </Text>
-          )}
         </View>
       </View>
     </Modal>
@@ -694,173 +498,106 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
 }
 
 export default function AppUpdateGate() {
-  const [updateUi, setUpdateUi] = useState<UpdateUiState>(INITIAL_UI);
-  const { isUpdatePending, downloadedUpdate, isDownloading, downloadProgress, downloadError } = Updates.useUpdates();
+  const [state, setState] = useState<UpdateUiState>(INITIAL_UI);
 
   useEffect(() => {
-    updateUiListener = setUpdateUi;
-    return () => {
-      if (updateUiListener === setUpdateUi) updateUiListener = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isDownloading) return;
-    const fraction = Number.isFinite(downloadProgress) ? Number(downloadProgress) : 0;
-    const percent = Math.max(0, Math.min(99, Math.round(fraction * 100)));
-    setUpdateUi((previous) => {
-      if (previous.kind !== "ota" || !["available", "downloading", "error"].includes(previous.phase)) return previous;
-      const nextPercent = Math.max(lastOtaProgress, previous.progress || 0, percent);
-      lastOtaProgress = nextPercent;
-      return {
-        ...previous,
-        phase: "downloading",
-        progress: nextPercent,
-        message: "Downloading update",
-        detail: `${nextPercent}% downloaded • this is live Expo Updates transfer progress.`,
-        nextStep: "Verification starts automatically at 100%, then you choose when to restart.",
-      };
-    });
-  }, [downloadProgress, isDownloading]);
-
-  useEffect(() => {
-    if (!downloadError) return;
-    setUpdateUi((previous) => {
-      if (previous.kind !== "ota" || previous.phase !== "downloading") return previous;
-      const at = Math.max(0, Math.min(99, previous.progress || 0));
-      return {
-        ...previous,
-        phase: "error",
-        progress: at,
-        message: "Update download paused",
-        detail: `Download paused at ${at}% before completion. The current app is unchanged and this message will stay open until you choose what to do.`,
-        nextStep: "Tap Try again to resume/retry the signed update.",
-      };
-    });
-  }, [downloadError]);
-
-  useEffect(() => {
-    if (Platform.OS !== "android" || !Updates.isEnabled || !isUpdatePending) {
-      downloadedPendingKey = null;
-      return;
-    }
-    downloadedPendingKey = "ota:" + String(downloadedUpdate?.updateId || currentRuntime() || "pending");
-    pendingOtaReleaseKey = downloadedPendingKey;
-    void showDownloadedPending("automatic");
-  }, [downloadedUpdate?.updateId, isUpdatePending]);
-
-  useEffect(() => {
-    if (!nativeInstaller) return;
-    const emitter = new NativeEventEmitter(nativeInstaller as never);
-    const subscription = emitter.addListener("OnCampusApkInstall", (event: { phase?: UpdatePhase; progress?: number; message?: string; detail?: string; downloadedBytes?: number; totalBytes?: number }) => {
-      const phase = event.phase || "error";
-      setUpdateUi({
-        kind: "apk",
-        phase,
-        progress: Number.isFinite(event.progress) ? Number(event.progress) : 0,
-        message: event.message || "Android update",
-        detail: event.detail,
-        bytesDownloaded: Number.isFinite(event.downloadedBytes) ? Number(event.downloadedBytes) : undefined,
-        bytesTotal: Number.isFinite(event.totalBytes) ? Number(event.totalBytes) : undefined,
-        nextStep: phase === "downloading" ? "Android verifies the APK at 100%, then opens the system installer." : undefined,
-        releaseKey: pendingNativeRelease?.version ? `apk:${normalizeVersion(pendingNativeRelease.version)}` : undefined,
-      });
-    });
-    return () => subscription.remove();
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const initialize = async () => {
-      const showedApplied = await reconcileAppliedUpdate();
-      if (cancelled || showedApplied) return;
-      timer = setTimeout(() => { void checkForAppUpdate("automatic"); }, 900);
-    };
-    void initialize();
-
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        void checkForAppUpdate("automatic");
+    if (Platform.OS !== "android") return;
+    updateUiListener = setState;
+    const emitter = nativeInstaller ? new NativeEventEmitter(NativeModules.OnCampusApkInstaller) : null;
+    const subscription = emitter?.addListener("OnCampusApkInstall", (event: NativeStatus) => {
+      pendingTraceId = event.traceId || pendingTraceId;
+      const phase = String(event.phase || "");
+      void postTelemetry(phase, event);
+      if (phase === "downloading" || phase === "download_complete") {
+        setState({
+          phase: phase === "downloading" ? "downloading" : "verifying",
+          progress: Math.max(1, Number(event.progress || 1)),
+          releaseKey: event.targetVersion ? `apk-v2:${event.targetVersion}` : undefined,
+          traceId: event.traceId,
+          message: event.message || (phase === "downloading" ? "Downloading OnCampus update" : "Download complete"),
+          detail: event.detail,
+          bytesDownloaded: event.downloadedBytes,
+          bytesTotal: event.totalBytes,
+        });
+        return;
+      }
+      if (["verify_hash", "verify_package", "verify_signature"].includes(phase)) {
+        setState({ phase: "verifying", progress: 100, releaseKey: event.targetVersion ? `apk-v2:${event.targetVersion}` : undefined, traceId: event.traceId, message: event.message || "Verifying update", detail: event.detail });
+        return;
+      }
+      if (phase === "ready") {
+        setState({ phase: "ready", progress: 100, releaseKey: event.targetVersion ? `apk-v2:${event.targetVersion}` : undefined, traceId: event.traceId, message: event.message || "Update verified", detail: event.detail });
+        return;
+      }
+      if (phase === "permission") {
+        setState({ phase: "permission", progress: 100, releaseKey: event.targetVersion ? `apk-v2:${event.targetVersion}` : undefined, traceId: event.traceId, message: event.message || "Permission needed", detail: event.detail });
+        return;
+      }
+      if (phase === "installer_opened") {
+        setState({ phase: "installing", progress: 100, releaseKey: event.targetVersion ? `apk-v2:${event.targetVersion}` : undefined, traceId: event.traceId, message: event.message || "Android installer opened", detail: event.detail });
+        return;
+      }
+      if (phase === "installed") {
+        setState({ phase: "applied", progress: 100, releaseKey: event.targetVersion ? `apk-v2:${event.targetVersion}` : undefined, traceId: event.traceId, message: event.message || "Update complete", detail: event.detail });
+        return;
+      }
+      if (phase === "error") {
+        setState({ phase: "error", progress: Number(event.progress || 0), releaseKey: event.targetVersion ? `apk-v2:${event.targetVersion}` : undefined, traceId: event.traceId, errorCode: event.errorCode, message: event.message || "Update needs attention", detail: event.detail || "The installed app is unchanged." });
       }
     });
+
+    void recoverNativeStatus().then((recovered) => { if (!recovered) void checkForAppUpdate("automatic"); });
+    const appState = AppState.addEventListener("change", (next) => {
+      if (next === "active") void recoverNativeStatus().then((recovered) => { if (!recovered) void checkForAppUpdate("automatic"); });
+    });
+
     return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      subscription.remove();
+      subscription?.remove();
+      appState.remove();
+      if (updateUiListener === setState) updateUiListener = null;
     };
   }, []);
 
-  const close = () => setUpdateUi(INITIAL_UI);
-  const later = () => {
-    const key = updateUi.releaseKey;
-    if (key?.startsWith("ota:")) {
-      void Promise.all([
-        AsyncStorage.removeItem(APPLY_OTA_ON_RESUME_KEY),
-        AsyncStorage.removeItem(PENDING_OTA_KEY),
-      ]).catch(() => undefined);
-    }
-    void deferUpdate(key).finally(close);
+  const close = () => setState(INITIAL_UI);
+  const later = async () => {
+    await deferUpdate(state.releaseKey);
+    close();
   };
-  const updateNow = () => {
-    if (updateUi.kind === "ota") {
-      const key = updateUi.releaseKey || pendingOtaReleaseKey || downloadedPendingKey || ("ota:" + currentRuntime());
-      if (updateUi.phase === "ready" || isUpdatePending) {
-        void applyReadyOta(key);
-      } else {
-        void downloadOtaUpdate(key);
-      }
+  const primary = async () => {
+    if (state.phase === "error") {
+      await checkForAppUpdate("manual");
       return;
     }
-    if (pendingNativeRelease) void startNativeInstall(pendingNativeRelease);
+    await startNativeUpdate(pendingRelease, state.traceId || pendingTraceId);
   };
 
-  const retry = () => {
-    const key = updateUi.releaseKey || pendingOtaReleaseKey || downloadedPendingKey;
-    if (updateUi.kind === "ota" && key?.startsWith("ota:")) {
-      if (isUpdatePending || updateUi.progress >= 100) void applyReadyOta(key);
-      else void downloadOtaUpdate(key);
-      return;
-    }
-    if (updateUi.kind === "apk" && pendingNativeRelease) {
-      void startNativeInstall(pendingNativeRelease);
-      return;
-    }
-    void checkForAppUpdate("manual", true, true);
-  };
-
-  return <UpdateModal state={updateUi} onClose={close} onLater={later} onUpdateNow={updateNow} onRetry={retry} />;
+  return <UpdateModal state={state} onClose={close} onLater={() => { void later(); }} onPrimary={() => { void primary(); }} />;
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 20 },
-  card: { borderRadius: 28, padding: 22, borderWidth: 1, overflow: "hidden", shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 16 },
-  topGlow: { position: "absolute", left: 0, right: 0, top: 0, height: 5 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  logo: { width: 44, height: 44, borderRadius: 14 },
-  brand: { fontSize: 17, fontWeight: "900" },
-  phase: { marginTop: 2, fontSize: 9, fontWeight: "900", letterSpacing: 1.25 },
-  title: { marginTop: 22, fontSize: 23, lineHeight: 29, fontWeight: "900", letterSpacing: -0.4 },
-  detail: { marginTop: 8, fontSize: 14, lineHeight: 21 },
-  progressTrack: { height: 9, borderRadius: 7, marginTop: 22, overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 7 },
-  progressMeta: { marginTop: 8, flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
-  progressValue: { fontSize: 14, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  progressLabel: { fontSize: 11, fontWeight: "600" },
-  stageRow: { marginTop: 18, flexDirection: "row", justifyContent: "space-between", gap: 6 },
-  stageItem: { flex: 1, alignItems: "center", gap: 6 },
-  stageDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  stageNumber: { fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  stageName: { fontSize: 9, lineHeight: 12, fontWeight: "700" },
-  nextCard: { marginTop: 14, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 10 },
-  nextLabel: { fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
-  nextText: { marginTop: 3, fontSize: 12, lineHeight: 17, fontWeight: "600" },
-  securityRow: { marginTop: 14, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: radius.md, padding: spacing.md },
-  securityIcon: { width: 24, height: 24, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  securityText: { flex: 1, fontSize: 11, lineHeight: 16, fontWeight: "600" },
-  actions: { marginTop: 24, flexDirection: "row", gap: 10 },
-  secondaryButton: { flex: 1, height: 50, borderRadius: radius.md, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  secondaryText: { fontWeight: "800", fontSize: 14 },
-  primaryButton: { flex: 1.35, height: 50, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
-  keepOpen: { marginTop: 16, textAlign: "center", fontSize: 11, fontWeight: "600" },
+  backdrop: { flex: 1, justifyContent: "center", padding: spacing.lg },
+  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, padding: spacing.lg, overflow: "hidden", shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 12 },
+  topGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 4 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.lg },
+  logo: { width: 46, height: 46, borderRadius: 12 },
+  brand: { fontSize: 17, fontWeight: "800" },
+  phase: { fontSize: 11, fontWeight: "800", letterSpacing: 1.1, marginTop: 2 },
+  title: { fontSize: 22, lineHeight: 28, fontWeight: "800" },
+  detail: { fontSize: 14, lineHeight: 21, marginTop: spacing.sm },
+  steps: { flexDirection: "row", justifyContent: "space-between", marginTop: spacing.lg, marginBottom: spacing.lg },
+  stepItem: { alignItems: "center", flex: 1, gap: 6 },
+  stepDot: { width: 8, height: 8, borderRadius: 4 },
+  stepText: { fontSize: 11, fontWeight: "700" },
+  progressWrap: { marginBottom: spacing.md },
+  progressTrack: { height: 8, borderRadius: 999, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 999 },
+  progressMeta: { flexDirection: "row", justifyContent: "space-between", marginTop: 7 },
+  progressText: { fontSize: 13, fontWeight: "800" },
+  progressBytes: { fontSize: 12 },
+  errorCode: { fontSize: 11, marginBottom: spacing.sm },
+  actions: { gap: spacing.sm, marginTop: spacing.sm },
+  primaryButton: { minHeight: 48, borderRadius: radius.lg, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.lg },
+  primaryText: { fontSize: 15, fontWeight: "800" },
+  secondaryButton: { minHeight: 46, borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.lg },
+  secondaryText: { fontSize: 14, fontWeight: "700" },
 });

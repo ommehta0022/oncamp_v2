@@ -16,25 +16,27 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
         self.assertIn('checkForAppUpdate("campaign", true, true)', COORDINATOR)
         self.assertNotIn("checkForAppUpdate(true)", COORDINATOR)
 
-    def test_stale_retry_state_is_reconciled_without_hiding_active_progress(self):
-        self.assertIn("PENDING_OTA_KEY", UPDATE_GATE)
-        self.assertIn("reconcileAppliedUpdate", UPDATE_GATE)
-        self.assertIn("24 * 60 * 60 * 1000", UPDATE_GATE)
-        self.assertIn("Automatic checks never hide or replace an active update UI", UPDATE_GATE)
-        self.assertIn('if (mode === "manual")', UPDATE_GATE)
+    def test_stale_transfer_state_is_recovered_without_duplicate_downloads(self):
+        self.assertIn("recoverNativeStatus", UPDATE_GATE)
+        self.assertIn("nativeInstaller.getStatus()", UPDATE_GATE)
+        self.assertIn("if (activeCheck) return activeCheck", UPDATE_GATE)
+        self.assertIn('checkForAppUpdate("automatic")', UPDATE_GATE)
+        self.assertIn("AppState.addEventListener", UPDATE_GATE)
+        self.assertIn("sameRelease", INSTALLER)
+        self.assertIn("monitorDownload(existingId)", INSTALLER)
         self.assertNotIn('message: "Update could not be installed"', UPDATE_GATE)
 
-    def test_success_is_shown_once_per_applied_identity(self):
-        self.assertIn("SUCCESS_SHOWN_KEY", UPDATE_GATE)
-        self.assertIn("successShown !== identity", UPDATE_GATE)
+    def test_success_is_reconciled_from_installed_target(self):
         self.assertIn('phase: "applied"', UPDATE_GATE)
-        self.assertIn("only see this confirmation once", UPDATE_GATE)
+        self.assertIn('status.phase === "installed"', UPDATE_GATE)
+        self.assertIn('postTelemetry("installed"', UPDATE_GATE)
+        self.assertIn("reconcileInstalledTarget", INSTALLER)
+        self.assertIn('emit("installed"', INSTALLER)
 
     def test_up_to_date_ui_is_manual_only(self):
         self.assertIn('if (mode === "manual")', UPDATE_GATE)
         self.assertIn('phase: "current"', UPDATE_GATE)
-        self.assertIn("has no newer compatible OTA or Android release right now", UPDATE_GATE)
-        self.assertIn("Automatic checks never hide or replace an active update UI", UPDATE_GATE)
+        self.assertIn("latest verified Android release", UPDATE_GATE)
         self.assertNotIn('mode === "automatic" ? { kind: "ota", phase: "current"', UPDATE_GATE)
 
     def test_later_is_persisted_and_manual_checks_bypass_deferral(self):
@@ -43,28 +45,38 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
         self.assertIn('mode === "manual" || force', UPDATE_GATE)
         self.assertIn("deferUpdate", UPDATE_GATE)
 
-    def test_ota_uses_real_progress_and_native_cold_restart(self):
-        self.assertIn("downloadProgress", UPDATE_GATE)
-        self.assertIn("isDownloading", UPDATE_GATE)
+    def test_update_engine_v2_uses_real_progress_and_process_recovery(self):
+        self.assertIn("NativeEventEmitter", UPDATE_GATE)
+        self.assertIn("nativeInstaller.getStatus()", UPDATE_GATE)
         self.assertIn('phase: "ready"', UPDATE_GATE)
-        self.assertIn("Restart to apply", UPDATE_GATE)
+        self.assertIn('phase: "verifying"', UPDATE_GATE)
+        self.assertIn("bytesDownloaded", UPDATE_GATE)
+        self.assertIn("bytesTotal", UPDATE_GATE)
+        self.assertIn('["Check", "Download", "Verify", "Install"]', UPDATE_GATE)
         self.assertNotIn("Updates.reloadAsync()", UPDATE_GATE)
-        self.assertIn("await nativeInstaller.restartForOta()", UPDATE_GATE)
-        self.assertIn('["Check", "Download", "Verify", "Apply"]', UPDATE_GATE)
-        self.assertIn("lastOtaProgress", UPDATE_GATE)
-        self.assertIn("this message will stay open until you choose what to do", UPDATE_GATE)
-        self.assertNotIn("resumePendingOtaApply()", UPDATE_GATE)
+        self.assertNotIn('from "expo-updates"', UPDATE_GATE)
         self.assertNotIn("downloadAndApplyOta(", UPDATE_GATE)
 
-    def test_native_apk_update_uses_real_downloadmanager_progress(self):
-        self.assertIn('kind: "apk"', UPDATE_GATE)
-        self.assertIn("startNativeInstall", UPDATE_GATE)
-        self.assertIn("Download & install", UPDATE_GATE)
+    def test_native_apk_update_uses_real_downloadmanager_progress_and_verification(self):
+        self.assertIn("nativeInstaller.startInstall(", UPDATE_GATE)
         self.assertIn("COLUMN_BYTES_DOWNLOADED_SO_FAR", INSTALLER)
         self.assertIn("COLUMN_TOTAL_SIZE_BYTES", INSTALLER)
         self.assertIn("downloadedBytes", INSTALLER)
         self.assertIn("downloaded * 100L", INSTALLER)
+        self.assertIn("packageSigningCertificateSha256", INSTALLER)
+        self.assertIn("APK signing certificate does not match", INSTALLER)
+        self.assertIn("expectedVersionCode", INSTALLER)
         self.assertNotIn("downloaded * 84L", INSTALLER)
+
+    def test_verified_apk_recovers_permission_and_installer_flow(self):
+        self.assertIn("canInstallPackages", INSTALLER)
+        self.assertIn("ACTION_MANAGE_UNKNOWN_APP_SOURCES", INSTALLER)
+        self.assertIn("finishVerifiedInstall", INSTALLER)
+        self.assertIn("KEY_VERIFIED", INSTALLER)
+        self.assertIn("KEY_INSTALLER_LAUNCHED_AT", INSTALLER)
+        self.assertIn("launchInstaller", INSTALLER)
+        self.assertIn("FileProvider.getUriForFile", INSTALLER)
+        self.assertIn("onHostResume", INSTALLER)
 
     def test_current_native_runtime_and_microphone_permission(self):
         expo = APP_JSON["expo"]
@@ -76,6 +88,7 @@ class UpdateLifecycleV15Tests(unittest.TestCase):
         self.assertIn(f'<string name="expo_runtime_version" translatable="false">{runtime}</string>', STRINGS)
         self.assertIn("RECORD_AUDIO", expo["android"]["permissions"])
         self.assertIn("android.permission.RECORD_AUDIO", MANIFEST)
+        self.assertIn("android.permission.REQUEST_INSTALL_PACKAGES", MANIFEST)
 
 
 if __name__ == "__main__":
