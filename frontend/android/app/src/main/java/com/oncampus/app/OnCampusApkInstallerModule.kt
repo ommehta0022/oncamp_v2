@@ -96,7 +96,7 @@ class OnCampusApkInstallerModule(
     try {
       prefs.edit().putBoolean(KEY_PERMISSION_PROMPTED, false).apply()
       startOrResumeSystemDownload(url, sha256.lowercase(), expectedVersionCode, targetVersion, traceId)
-      promise.resolve(statusMap("downloading"))
+      promise.resolve(statusMap(if (prefs.getBoolean(KEY_VERIFIED, false)) "ready" else "downloading"))
     } catch (error: Exception) {
       promise.reject("DOWNLOAD_START_FAILED", error.message ?: "Unable to start Android background download", error)
     }
@@ -220,15 +220,15 @@ class OnCampusApkInstallerModule(
       prefs.edit().putString(KEY_TRACE_ID, traceId).apply()
       if (prefs.getBoolean(KEY_VERIFIED, false)) {
         finishVerifiedInstall()
+        return
+      }
+      val state = queryDownload(existingId)
+      if (state?.status == DownloadManager.STATUS_FAILED || state == null) {
+        clearPendingDownload(removeFile = true)
       } else {
-        val state = queryDownload(existingId)
-        if (state?.status == DownloadManager.STATUS_FAILED || state == null) {
-          clearPendingDownload(removeFile = true)
-        } else {
-          emit("downloading", progressFor(state), "Downloading OnCampus update", "Android is resuming the verified update transfer.", state.downloaded, state.total)
-          monitorDownload(existingId)
-          return
-        }
+        emit("downloading", progressFor(state), "Downloading OnCampus update", "Android is resuming the verified update transfer.", state.downloaded, state.total)
+        monitorDownload(existingId)
+        return
       }
     }
 
