@@ -30,23 +30,23 @@ const header = read('src/components/Header.tsx');
 const settingsRow = read('src/components/SettingsRow.tsx');
 
 for (const token of [
-  'surface: "#F9F8F6"',
-  'onSurface: "#181A19"',
+  'surface: "#F7F8FA"',
+  'onSurface: "#111318"',
   'surfaceSecondary: "#FFFFFF"',
-  'surfaceTertiary: "#F1EFED"',
-  'brandPrimary: "#2E5C4E"',
-  'actionPrimary: "#2E5C4E"',
-  'actionSecondary: "#E87A5D"',
-  'brandSecondary: "#E87A5D"',
-  'success: "#347D5B"',
-  'warning: "#D9983A"',
-  'error: "#D14D4D"',
-  'info: "#4A788C"',
-  'inputBg: "#F1EFED"',
-  'surface: "#121413"',
-  'surfaceSecondary: "#1A1D1C"',
-  'brandPrimary: "#3B7564"',
-  'actionSecondary: "#E87A5D"'
+  'surfaceTertiary: "#F1F3F5"',
+  'brandPrimary: "#2A574B"',
+  'actionPrimary: "#2A574B"',
+  'actionSecondary: "#40464F"',
+  'brandSecondary: "#7A5D50"',
+  'success: "#2F7A56"',
+  'warning: "#B7791F"',
+  'error: "#C94343"',
+  'info: "#59636F"',
+  'inputBg: "#FFFFFF"',
+  'surface: "#0A0B0B"',
+  'surfaceSecondary: "#121414"',
+  'brandPrimary: "#6F9E90"',
+  'actionSecondary: "#C1C6CB"'
 ]) expect(palette.includes(token), `professional palette token missing: ${token}`);
 
 expect(theme.includes('type ThemeMode = "light" | "dark" | "system"'), 'Light, Dark and System theme support must remain');
@@ -64,14 +64,14 @@ for (const file of sourceFiles) {
 
 expect(!tabs.includes('activeIcon'), 'bottom navigation must not use filled active-icon circles');
 expect(tabs.includes('tabBarActiveTintColor: colors.brandPrimary'), 'bottom navigation must use restrained active tint');
-expect(tabs.includes('backgroundColor: colors.brandSecondary'), 'tab unread badges must use engagement accent');
+expect(tabs.includes('backgroundColor: colors.brandSecondary'), 'tab unread badges must use the dedicated engagement accent');
 expect(tabs.includes('elevation: 0') && tabs.includes('shadowOpacity: 0'), 'bottom navigation must stay flat and visually quiet');
 expect(tabs.includes('fontWeight: "500"'), 'bottom navigation labels must use restrained weight');
 
 expect(button.includes('primary: colors.actionPrimary'), 'primary buttons must use semantic primary action token');
-expect(button.includes('secondary: colors.actionSecondary'), 'secondary buttons must use semantic secondary action token');
+expect(button.includes('secondary: colors.actionSecondary'), 'secondary buttons must use a neutral semantic secondary token');
 expect(button.includes('danger: colors.actionDanger'), 'danger buttons must use semantic danger token');
-expect(button.includes('borderRadius: variant === "link" ? radius.sm : radius.pill'), 'buttons must use the proven soft pill control language');
+expect(button.includes('borderRadius: variant === "link" ? radius.sm : radius.pill'), 'buttons must use the proven soft control language');
 expect(button.includes('fontWeight: variant === "link" ? "600" : "500"'), 'button typography must stay restrained');
 expect(!button.includes('textDecorationLine: variant === "link" ? "underline"'), 'link buttons must not force decorative underlines');
 
@@ -85,7 +85,7 @@ expect(!groups.includes('{groups.length} joined'), 'Groups must not show joined/
 expect(!groups.includes('item.count'), 'Groups section headers must not show decorative total counts');
 expect(!groups.includes('leftBar'), 'Groups rows must not use colored unread side bars');
 expect(groups.includes('borderBottomColor: colors.divider'), 'Groups must use clean list separators');
-expect(groups.includes('backgroundColor: colors.brandSecondary'), 'Groups unread badges must use engagement accent');
+expect(groups.includes('backgroundColor: colors.brandSecondary'), 'Groups unread badges must use the dedicated engagement accent');
 
 expect(feed.includes('backgroundColor: colors.surface') && !feed.includes('fontWeight: "900"'), 'Feed must use restrained professional chrome');
 expect(login.includes('backgroundColor: colors.surfaceTertiary') && login.includes('color={colors.brandPrimary}'), 'Login must keep neutral chrome with restrained brand emphasis');
