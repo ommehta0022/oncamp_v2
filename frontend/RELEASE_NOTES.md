@@ -1,15 +1,23 @@
-<!-- min-version:1.4.0 -->
+<!-- min-version:1.6.0 -->
 <!-- force-update:false -->
 
-## OnCampus 1.6.1
+## OnCampus 1.7.0 — Update Engine v2
 
-- Hardened Android cold startup after reports that the previous APK could install successfully but exit immediately after launch.
-- Removed the artificial animated startup delay and the blocking "Opening OnCampus" backend-settings loader; the app now routes as soon as local session state is available.
-- Changed Expo Updates launch behavior to start from the embedded, signed application bundle first instead of performing a remote OTA check during native startup.
-- Aligned Expo runtime version, Android native runtime resource, semantic app version and Android versionCode at 1.6.1 / 10601.
-- Platform settings and temporary backend/network failures no longer block the initial app shell from rendering.
-- Upgraded release CI from metadata-only validation to a real Android cold-start smoke test: install the exact release APK on an emulator, launch MainActivity, verify the app process remains alive, inspect the foreground activity and fail on fatal startup log signatures.
-- Added Expo project health validation, embedded JavaScript bundle validation, signing verification, zip alignment checks and arm64/x86_64 native-library validation before publication.
-- Keeps the existing recoverable React error boundary and signed OTA/native update protections.
+OnCampus 1.7.0 replaces the previous Expo remote OTA path with a reusable Android-native update engine designed to remain the baseline for future releases.
 
-This is the recommended Android baseline for replacing the 1.6.0 APK.
+- Expo remote updates are disabled in the final Android binary, eliminating the manifest-selection/download state that caused repeated “Try again” failures on 1.6.8.
+- Update discovery uses the first-party OnCampus `/v1/updates/v2/latest` control plane.
+- APK delivery stays on the OnCampus origin and supports Android resumable/background downloads through DownloadManager.
+- Every downloaded APK is verified locally with SHA-256 before installation.
+- Android package identity must be exactly `com.oncampus.app`.
+- The target Android versionCode must match the approved release and be greater than the installed versionCode.
+- The downloaded APK signing certificate must match the certificate of the already installed OnCampus app before the Android installer can open.
+- Download state survives React and app-process recreation; a reopened app recovers real bytes/progress from Android DownloadManager.
+- Installer cancellation is recoverable without deleting a verified APK or creating an automatic reopen loop.
+- Update Engine v2 emits trace IDs and stage/error telemetry so production logs can distinguish check, transfer, hash, package, signing and installer failures.
+- Automatic checks continue through server polling and update notifications even though Expo Updates is disabled.
+- Release CI validates TypeScript, Expo package compatibility, production bundles, signing, zip alignment, package/version metadata, ABI contents and a real emulator cold launch.
+
+Android still requires the user to confirm installation on the system package-installer screen. OnCampus never bypasses that Android security boundary.
+
+Install 1.7.0 once as the new native baseline. Future OnCampus Android releases can reuse Update Engine v2 for both JavaScript and native changes without relying on Expo remote OTA.
