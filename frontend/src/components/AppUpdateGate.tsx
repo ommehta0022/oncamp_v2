@@ -587,7 +587,7 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
           {busy && state.phase !== "checking" && (
             <>
               <View style={[styles.progressTrack, { backgroundColor: colors.surfaceTertiary }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: state.progress }}>
-                <View style={[styles.progressFill, { width: String(Math.max(2, Math.min(100, state.progress || 2))) + "%", backgroundColor: state.kind === "apk" ? colors.actionPrimary : colors.brandPrimary }]} />
+                <View style={[styles.progressFill, { width: (String(Math.max(2, Math.min(100, state.progress || 2))) + "%") as `${number}%`, backgroundColor: state.kind === "apk" ? colors.actionPrimary : colors.brandPrimary }]} />
               </View>
               <View style={styles.progressMeta}>
                 <Text style={[styles.progressValue, { color: colors.onSurface }]}>{Math.round(state.progress)}%</Text>
