@@ -12,7 +12,6 @@ import { useRole } from "@/src/context/RoleProvider";
 import { usePinnedContent } from "@/src/context/PinnedContentProvider";
 import Avatar from "@/src/components/Avatar";
 import OptionsMenu from "@/src/components/OptionsMenu";
-import ReactionMenu, { REACTION_EMOJIS } from "@/src/components/ReactionMenu";
 import ReportModal from "@/src/components/ReportModal";
 import RichPostText from "@/src/components/RichPostText";
 import { useToast } from "@/src/components/Toast";
@@ -24,6 +23,8 @@ type Props = {
   style?: StyleProp<ViewStyle>;
 };
 
+const VERIFIED_BLUE = "#1D73E8";
+
 export default function PostCard({ post, onChange, onDeleted, style }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
@@ -32,7 +33,6 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
   const { isPostPinned, togglePostPin } = usePinnedContent();
   const [item, setItem] = useState<any>(() => normalizePost(post));
   const [menuVisible, setMenuVisible] = useState(false);
-  const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
   const [reportVisible, setReportVisible] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
@@ -50,31 +50,35 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     });
   };
 
-  const chooseReaction = async (reaction: string) => {
+  const toggleLike = async () => {
     if (busyAction === "reaction") return;
     const previous = item;
-    const removing = item.userReaction === reaction;
+    const wasLiked = item.userReaction === "like";
+    const hadReaction = Boolean(item.userReaction);
+    const nextCount = Math.max(0, Number(item.counts?.reactions || 0) + (wasLiked ? -1 : hadReaction ? 0 : 1));
+    const optimistic = {
+      ...item,
+      liked: !wasLiked,
+      userReaction: wasLiked ? null : "like",
+      counts: { ...(item.counts || {}), reactions: nextCount },
+    };
+    applyPost(optimistic);
     setBusyAction("reaction");
-    setReactionMenuVisible(false);
     try {
-      const result = await campusApi.student.reaction(item.id, removing ? undefined : reaction);
+      const result = await campusApi.student.reaction(item.id, wasLiked ? undefined : "like");
       applyPost({
-        ...item,
+        ...optimistic,
         liked: result.reaction === "like",
         userReaction: result.reaction || null,
-        counts: { ...(item.counts || {}), reactions: Number(result.total || 0) },
+        counts: { ...(optimistic.counts || {}), reactions: Number(result.total ?? nextCount) },
         reactionCounts: result.counts || {},
       });
     } catch (error) {
       applyPost(previous);
-      showToast({ message: getUserErrorMessage(error, "Could not update your reaction."), variant: "error" });
-    } finally { setBusyAction(null); }
-  };
-
-  const handlePrimaryReaction = () => {
-    if (busyAction === "reaction") return;
-    const reaction = item.userReaction || "like";
-    void chooseReaction(reaction);
+      showToast({ message: getUserErrorMessage(error, "Could not update your like."), variant: "error" });
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const toggleBookmark = async () => {
@@ -89,7 +93,9 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     } catch (error) {
       applyPost(previous);
       showToast({ message: getUserErrorMessage(error, "Could not update saved posts."), variant: "error" });
-    } finally { setBusyAction(null); }
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const togglePersonalPin = async () => {
@@ -114,23 +120,40 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
   const deletePost = () => {
     Alert.alert("Delete post?", "This post will be removed from OnCampus.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: async () => {
-        try {
-          await api.posts.delete(item.id);
-          onDeleted?.(item.id);
-          showToast({ message: "Post deleted", variant: "success" });
-        } catch (error) { showToast({ message: getUserErrorMessage(error, "Could not delete this post."), variant: "error" }); }
-      } },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await api.posts.delete(item.id);
+            onDeleted?.(item.id);
+            showToast({ message: "Post deleted", variant: "success" });
+          } catch (error) {
+            showToast({ message: getUserErrorMessage(error, "Could not delete this post."), variant: "error" });
+          }
+        },
+      },
     ]);
   };
 
   const pinPostGlobally = async () => {
-    try { await api.posts.pin(item.id); updatePost({ pinned: true }); showToast({ message: "Post pinned for everyone", variant: "success" }); }
-    catch (error) { showToast({ message: getUserErrorMessage(error, "Could not pin this post."), variant: "error" }); }
+    try {
+      await api.posts.pin(item.id);
+      updatePost({ pinned: true });
+      showToast({ message: "Post pinned for everyone", variant: "success" });
+    } catch (error) {
+      showToast({ message: getUserErrorMessage(error, "Could not pin this post."), variant: "error" });
+    }
   };
+
   const unpinPostGlobally = async () => {
-    try { await api.posts.unpin(item.id); updatePost({ pinned: false }); showToast({ message: "Global pin removed", variant: "success" }); }
-    catch (error) { showToast({ message: getUserErrorMessage(error, "Could not unpin this post."), variant: "error" }); }
+    try {
+      await api.posts.unpin(item.id);
+      updatePost({ pinned: false });
+      showToast({ message: "Global pin removed", variant: "success" });
+    } catch (error) {
+      showToast({ message: getUserErrorMessage(error, "Could not unpin this post."), variant: "error" });
+    }
   };
 
   const options = [
@@ -142,8 +165,8 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
     ...(!isMine ? [{ label: "Report", icon: "flag-outline", color: colors.warning, onPress: () => setReportVisible(true) }] : []),
   ];
 
-  const reactionEmoji = item.userReaction && item.userReaction !== "like" ? REACTION_EMOJIS[item.userReaction] : null;
-  const reactionIcon = item.userReaction === "like" ? "thumbs-up" : reactionEmoji ? undefined : "thumbs-up-outline";
+  const isOfficial = item.author?.badge === "official";
+  const likeColor = item.userReaction === "like" ? colors.brandPrimary : colors.onSurfaceTertiary;
 
   return (
     <>
@@ -155,32 +178,36 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
           </View>
         ) : null}
         <View style={styles.postHeader}>
-          <Avatar uri={item.author?.avatar || item.author?.avatarUrl} name={item.author?.name || "User"} size={44} verified={item.author?.verified} />
+          <Avatar
+            uri={item.author?.avatar || item.author?.avatarUrl}
+            name={item.author?.name || "User"}
+            size={44}
+            verified={Boolean(item.author?.verified && !isOfficial)}
+          />
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.authorLine}>
               <Text style={{ color: colors.onSurface, fontSize: font.base, fontWeight: "600", flexShrink: 1 }} numberOfLines={1}>{item.author?.name || "User"}</Text>
-              {item.author?.badge === "official" && <View style={[styles.badgeChip, { backgroundColor: colors.info }]}><Text style={{ color: colors.onInfo, fontSize: 9, fontWeight: "600" }}>OFFICIAL</Text></View>}
-              {item.author?.badge === "faculty" && <View style={[styles.badgeChip, { backgroundColor: colors.warning }]}><Text style={{ color: colors.onWarning, fontSize: 9, fontWeight: "600" }}>FACULTY</Text></View>}
+              {isOfficial ? <Ionicons name="checkmark-circle" size={16} color={VERIFIED_BLUE} accessibilityLabel="Verified official account" /> : null}
+              {item.author?.badge === "faculty" ? <View style={[styles.badgeChip, { backgroundColor: colors.warning }]}><Text style={{ color: colors.onWarning, fontSize: 9, fontWeight: "600" }}>FACULTY</Text></View> : null}
             </View>
             <Text style={{ color: colors.onSurfaceTertiary, fontSize: font.sm, marginTop: 2 }} numberOfLines={1}>{[item.author?.institution, item.createdAt, item.group?.name ? `in ${item.group.name}` : ""].filter(Boolean).join(" · ")}</Text>
           </View>
-          <Pressable onPress={() => setMenuVisible(true)} hitSlop={8} style={styles.menuBtn} accessibilityRole="button" accessibilityLabel="Post options"><Ionicons name="ellipsis-horizontal" size={20} color={colors.onSurfaceTertiary} /></Pressable>
+          <Pressable onPress={() => setMenuVisible(true)} hitSlop={8} style={styles.menuBtn} accessibilityRole="button" accessibilityLabel="Post options">
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.onSurfaceTertiary} />
+          </Pressable>
         </View>
-        {item.announcement && <View style={[styles.announcement, { backgroundColor: colors.brandSecondary + "22" }]}><Ionicons name="megaphone" size={14} color={colors.brandSecondary} /><Text style={{ color: colors.brandSecondary, fontSize: font.sm, fontWeight: "600" }}>Announcement</Text></View>}
+        {item.announcement ? <View style={[styles.announcement, { backgroundColor: colors.brandSecondary + "22" }]}><Ionicons name="megaphone" size={14} color={colors.brandSecondary} /><Text style={{ color: colors.brandSecondary, fontSize: font.sm, fontWeight: "600" }}>Announcement</Text></View> : null}
         {!!item.title && <Text style={{ color: colors.onSurface, fontSize: font.lg, fontWeight: "700", lineHeight: 24, marginTop: spacing.md }}>{item.title}</Text>}
         {!!item.content && <View style={{ marginTop: spacing.md }}><RichPostText content={item.content} /></View>}
-        {!!item.mediaUrl && item.mediaType !== "document" && <Image source={{ uri: item.mediaUrl }} style={styles.postImage} contentFit="cover" transition={180} cachePolicy="memory-disk" />}
-        {!!item.mediaUrl && item.mediaType === "document" && <View style={[styles.document, { borderColor: colors.border, backgroundColor: colors.surfaceTertiary }]}><Ionicons name="document-text-outline" size={22} color={colors.brandPrimary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.sm }} numberOfLines={1}>Attached document</Text></View>}
+        {!!item.mediaUrl && item.mediaType !== "document" ? <Image source={{ uri: item.mediaUrl }} style={styles.postImage} contentFit="cover" transition={180} cachePolicy="memory-disk" /> : null}
+        {!!item.mediaUrl && item.mediaType === "document" ? <View style={[styles.document, { borderColor: colors.border, backgroundColor: colors.surfaceTertiary }]}><Ionicons name="document-text-outline" size={22} color={colors.brandPrimary} /><Text style={{ flex: 1, color: colors.onSurface, fontSize: font.sm }} numberOfLines={1}>Attached document</Text></View> : null}
         <View style={[styles.actions, { borderTopColor: colors.border }]}>
           <ActionBtn
-            emoji={reactionEmoji || undefined}
-            icon={reactionIcon as keyof typeof Ionicons.glyphMap | undefined}
+            icon={item.userReaction === "like" ? "thumbs-up" : "thumbs-up-outline"}
             label={String(item.counts?.reactions || 0)}
-            color={item.userReaction ? colors.brandPrimary : colors.onSurfaceTertiary}
-            onPress={handlePrimaryReaction}
-            onLongPress={() => setReactionMenuVisible(true)}
-            accessibilityLabel={item.userReaction ? "Remove reaction" : "Like post"}
-            accessibilityHint="Long press to choose another reaction"
+            color={likeColor}
+            onPress={() => void toggleLike()}
+            accessibilityLabel={item.userReaction === "like" ? "Unlike post" : "Like post"}
           />
           <ActionBtn icon="reader-outline" label={String(item.counts?.comments || item.comments || 0)} color={colors.onSurfaceTertiary} onPress={() => router.push(`/post/${item.id}`)} accessibilityLabel="Open comments" />
           <ActionBtn icon={item.bookmarked ? "bookmark" : "bookmark-outline"} label="" color={item.bookmarked ? colors.brandSecondary : colors.onSurfaceTertiary} onPress={toggleBookmark} accessibilityLabel={item.bookmarked ? "Remove bookmark" : "Save post"} />
@@ -188,25 +215,21 @@ export default function PostCard({ post, onChange, onDeleted, style }: Props) {
         </View>
       </Pressable>
       <OptionsMenu visible={menuVisible} onClose={() => setMenuVisible(false)} options={options} title="Post options" />
-      <ReactionMenu visible={reactionMenuVisible} onClose={() => setReactionMenuVisible(false)} onSelect={(type) => void chooseReaction(type)} />
       <ReportModal visible={reportVisible} onClose={() => setReportVisible(false)} onSubmit={async (reason, details) => { await api.reports.reportPost(item.id, { reason, details }); }} title="Report Post" />
     </>
   );
 }
 
-function ActionBtn({ icon, emoji, label, color, onPress, onLongPress, accessibilityLabel, accessibilityHint }: { icon?: keyof typeof Ionicons.glyphMap; emoji?: string; label: string; color: string; onPress: () => void; onLongPress?: () => void; accessibilityLabel: string; accessibilityHint?: string }) {
+function ActionBtn({ icon, label, color, onPress, accessibilityLabel }: { icon: keyof typeof Ionicons.glyphMap; label: string; color: string; onPress: () => void; accessibilityLabel: string }) {
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onLongPress}
-      delayLongPress={320}
-      style={styles.actionBtn}
+      style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityHint={accessibilityHint}
     >
-      {emoji ? <Text style={{ fontSize: 19 }}>{emoji}</Text> : icon ? <Ionicons name={icon} size={20} color={color} /> : null}
+      <Ionicons name={icon} size={20} color={color} />
       {!!label && <Text style={{ color, fontSize: font.sm, fontWeight: "500" }}>{label}</Text>}
     </Pressable>
   );
@@ -216,7 +239,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: radius.md, borderWidth: 1, padding: spacing.lg },
   pinRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: spacing.sm },
   postHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  authorLine: { flexDirection: "row", alignItems: "center", gap: 4 },
+  authorLine: { flexDirection: "row", alignItems: "center", gap: 5 },
   badgeChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 4 },
   menuBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   announcement: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, marginTop: spacing.md },
