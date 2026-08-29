@@ -72,6 +72,11 @@ async function persistReady(updateId: string) {
   lastPrefetchError = null;
 }
 
+async function clearFailure() {
+  lastPrefetchError = null;
+  await AsyncStorage.removeItem(OTA_BACKGROUND_ERROR_KEY).catch(() => undefined);
+}
+
 async function persistFailure(error: unknown) {
   const message = errorMessage(error);
   lastPrefetchError = message;
@@ -85,15 +90,20 @@ async function fetchUpdateOnce(expectedUpdateId: string) {
   try {
     lastPrefetchError = null;
     const fetched = await Updates.fetchUpdateAsync();
-    const manifestId = String((fetched as any)?.manifest?.id || expectedUpdateId || "pending");
-    if (expectedUpdateId && manifestId && manifestId !== expectedUpdateId) {
+    if (!fetched.isNew) {
+      return false;
+    }
+
+    const manifestId = String((fetched as any)?.manifest?.id || "");
+    if (!manifestId) {
+      throw new Error("Android downloaded an OTA response without a valid update identity");
+    }
+    if (expectedUpdateId && manifestId !== expectedUpdateId) {
       throw new Error(`OTA changed during download (${manifestId} != ${expectedUpdateId})`);
     }
-    if (fetched.isNew || expectedUpdateId !== String(Updates.updateId || "")) {
-      await persistReady(expectedUpdateId || manifestId);
-      return true;
-    }
-    return false;
+
+    await persistReady(manifestId);
+    return true;
   } catch (error) {
     await persistFailure(error);
     return false;
@@ -108,12 +118,23 @@ async function runPrefetch(force = false): Promise<boolean> {
   lastForegroundPrefetchAt = now;
 
   const status = await readServerStatus();
-  const serverUpdateId = status?.releaseAvailable && status.updateId ? String(status.updateId) : "";
-  if (!serverUpdateId) return false;
+  if (!status) {
+    await persistFailure(new Error("Couldn’t reach the OnCampus update service. Check your connection and try again."));
+    return false;
+  }
+
+  const serverUpdateId = status.releaseAvailable && status.updateId ? String(status.updateId) : "";
+  if (!serverUpdateId) {
+    await clearFailure();
+    return false;
+  }
 
   // If the server is still advertising the update currently running on this
-  // device, there is nothing to fetch.
-  if (serverUpdateId === String(Updates.updateId || "")) return false;
+  // device, there is nothing to fetch and any older transient error is stale.
+  if (serverUpdateId === String(Updates.updateId || "")) {
+    await clearFailure();
+    return false;
+  }
 
   // Do one controlled native transfer. expo-updates already reuses cached
   // content-addressed assets. Repeating fetchUpdateAsync several times in one
@@ -148,7 +169,10 @@ export async function setupBackgroundOta() {
 
 TaskManager.defineTask(BACKGROUND_TASK_NAME, async () => {
   try {
-    await prefetchLatestOta(true);
+    const downloaded = await prefetchLatestOta(true);
+    if (!downloaded && getLastOtaPrefetchError()) {
+      return BackgroundTask.BackgroundTaskResult.Failed;
+    }
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch (error) {
     await persistFailure(error);
