@@ -560,7 +560,7 @@ function UpdateModal({ state, onClose, onLater, onUpdateNow, onRetry }: {
     if (state.phase === "downloading") return "DOWNLOADING";
     if (state.phase === "ready") return "READY TO APPLY";
     if (state.phase === "verifying") return "VERIFYING";
-    if (state.phase === "installing") return "ANDROID INSTALLER";
+    if (state.phase === "installing") return state.kind === "ota" ? "APPLYING UPDATE" : "ANDROID INSTALLER";
     if (state.phase === "permission") return "PERMISSION NEEDED";
     if (state.phase === "applied") return "UPDATED";
     if (state.phase === "current") return "CURRENT";
