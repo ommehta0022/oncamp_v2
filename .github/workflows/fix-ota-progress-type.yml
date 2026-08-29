@@ -1,0 +1,32 @@
+name: Fix OTA Progress Type
+
+on:
+  push:
+    branches:
+      - fix-ota-progress-and-professional-ui
+    paths:
+      - frontend/FIX_OTA_PROGRESS_TYPE
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix-ota-progress-and-professional-ui
+          fetch-depth: 0
+      - name: Fix React Native progress width typing
+        working-directory: frontend
+        run: node scripts/fix-ota-progress-type.mjs
+      - name: Commit type fix
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/AppUpdateGate.tsx
+          git diff --cached --quiet && { echo "No type fix produced"; exit 1; }
+          git commit -m "Fix OTA progress width typing"
+          git push origin HEAD:fix-ota-progress-and-professional-ui
