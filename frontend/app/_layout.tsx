@@ -21,8 +21,6 @@ import { ToastProvider } from "@/src/components/Toast";
 import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import OptionalFeatureBoundary from "@/src/components/OptionalFeatureBoundary";
 import AppUpdateGate from "@/src/components/AppUpdateGate";
-import BackgroundOtaCoordinator from "@/src/components/BackgroundOtaCoordinator";
-import NativeOtaStartupGuard from "@/src/components/NativeOtaStartupGuard";
 import ServerUpdateCoordinator from "@/src/components/ServerUpdateCoordinator";
 import { SessionExpiredModal } from "@/src/components/SessionExpiredModal";
 import { api } from "@/src/lib/api";
@@ -50,7 +48,7 @@ function ThemedStack() {
         if (mounted) setPlatformSettings(settings);
       })
       .catch(() => {
-        // Startup must remain usable offline or when the platform settings API is unavailable.
+        // Startup must remain usable offline or when platform settings are unavailable.
       });
     return () => {
       mounted = false;
@@ -104,12 +102,6 @@ export default function RootLayout() {
                           <PushNotificationProvider>
                             <ToastProvider>
                               <ThemedStack />
-                              <OptionalFeatureBoundary name="background-ota-coordinator">
-                                <BackgroundOtaCoordinator />
-                              </OptionalFeatureBoundary>
-                              <OptionalFeatureBoundary name="native-ota-startup-guard">
-                                <NativeOtaStartupGuard />
-                              </OptionalFeatureBoundary>
                               <OptionalFeatureBoundary name="app-update-gate">
                                 <AppUpdateGate />
                               </OptionalFeatureBoundary>
