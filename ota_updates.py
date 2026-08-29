@@ -346,13 +346,16 @@ def _sign_manifest(body: bytes) -> Optional[str]:
 
 
 def _manifest_headers(signature: str) -> dict[str, str]:
+    # expo-updates Android parses the signature value as an SFV StringItem.
+    # RFC 8941 byte-sequence syntax (sig=:...:) is rejected before assets are
+    # downloaded, so the base64 RSA signature must stay inside a quoted string.
     return {
         "expo-protocol-version": "1",
         "expo-sfv-version": "0",
         "expo-manifest-filters": 'channel="production"',
         "expo-server-defined-headers": 'expo-channel-name="production"',
         "cache-control": "private, max-age=0, no-store",
-        "expo-signature": f'sig=:{signature}:, keyid="{SIGNING_KEY_ID}", alg="rsa-v1_5-sha256"',
+        "expo-signature": f'sig="{signature}", keyid="{SIGNING_KEY_ID}", alg="rsa-v1_5-sha256"',
         "x-content-type-options": "nosniff",
     }
 
