@@ -16,11 +16,12 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { campusApi } from "@/src/lib/campusApi";
 import { useRole } from "@/src/context/RoleProvider";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import CampusLoader from "@/src/components/CampusLoader";
+import { LoadingSkeleton } from "@/src/components/LoadingSkeleton";
 import { radius, spacing } from "@/src/theme/colors";
 
 const TYPES = ["University", "College", "School", "Academy"];
 const RECENTS_KEY = "oncampus.discover.recent.v2";
+const VERIFIED_BLUE = "#1D73E8";
 
 type Campus = Record<string, any>;
 
@@ -43,7 +44,9 @@ export default function DiscoverScreen() {
       const raw = await AsyncStorage.getItem(RECENTS_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
       setRecent(Array.isArray(parsed) ? parsed.slice(0, 8) : []);
-    } catch { setRecent([]); }
+    } catch {
+      setRecent([]);
+    }
   }, []);
 
   const load = useCallback(async (quiet = false) => {
@@ -78,7 +81,10 @@ export default function DiscoverScreen() {
   const nearbyCity = items.find((item) => item.city)?.city;
   const visible = nearOnly && nearbyCity ? items.filter((item) => item.city === nearbyCity) : items;
   const featured = visible.slice(0, 6);
-  const trending = useMemo(() => [...visible].sort((a, b) => Number(b.discoveryScore || b.followersCount || 0) - Number(a.discoveryScore || a.followersCount || 0)).slice(0, 10), [visible]);
+  const trending = useMemo(
+    () => [...visible].sort((a, b) => Number(b.discoveryScore || b.followersCount || 0) - Number(a.discoveryScore || a.followersCount || 0)).slice(0, 10),
+    [visible],
+  );
   const nearby = visible.filter((item) => item.city).slice(0, 10);
 
   const openInstitution = async (item: Campus) => {
@@ -94,12 +100,11 @@ export default function DiscoverScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true); }} tintColor={colors.brandPrimary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true); }} tintColor={colors.brandPrimary} colors={[colors.brandPrimary]} />}
         contentContainerStyle={styles.page}
       >
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.onSurface }]}>Discover</Text>
-          <View style={[styles.magic, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}><Ionicons name="sparkles" size={22} color={colors.brandPrimary} /></View>
         </View>
 
         <View style={[styles.search, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
@@ -127,35 +132,41 @@ export default function DiscoverScreen() {
           <Chip label="Near You" icon="location" active={nearOnly} onPress={() => setNearOnly((value) => !value)} />
         </ScrollView>
 
-        {loading ? <CampusLoader label="Finding campuses for you…" /> : null}
+        {loading ? <DiscoverSkeleton /> : null}
         {!loading && error ? <StateCard icon="cloud-offline-outline" title="Discover is temporarily unavailable" body={error} action="Try again" onPress={() => void load()} /> : null}
         {!loading && !error && visible.length === 0 ? <StateCard icon="school-outline" title="No campuses found" body="Try another name, location, or institution type." action="Reset filters" onPress={() => { setQuery(""); setVerified(false); setNearOnly(false); setType("University"); }} /> : null}
 
-        {!loading && !error && visible.length > 0 ? <>
-          <SectionHeader title="Featured Institutions" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRow}>
-            {featured.map((item) => <FeaturedCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
-          </ScrollView>
-
-          <SectionHeader title="Trending Campuses" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingRow}>
-            {trending.map((item) => <TrendingCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
-          </ScrollView>
-
-          {nearby.length ? <>
-            <SectionHeader title="Popular Near You" />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nearRow}>
-              {nearby.map((item) => <NearCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
+        {!loading && !error && visible.length > 0 ? (
+          <>
+            <SectionHeader title="Featured Institutions" />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRow}>
+              {featured.map((item) => <FeaturedCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
             </ScrollView>
-          </> : null}
-        </> : null}
 
-        {recent.length ? <>
-          <SectionHeader title="Recently Viewed" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
-            {recent.map((item) => <RecentCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
-          </ScrollView>
-        </> : null}
+            <SectionHeader title="Trending Campuses" />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingRow}>
+              {trending.map((item) => <TrendingCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
+            </ScrollView>
+
+            {nearby.length ? (
+              <>
+                <SectionHeader title="Popular Near You" />
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nearRow}>
+                  {nearby.map((item) => <NearCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
+                </ScrollView>
+              </>
+            ) : null}
+          </>
+        ) : null}
+
+        {recent.length ? (
+          <>
+            <SectionHeader title="Recently Viewed" />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
+              {recent.map((item) => <RecentCard key={item.id} item={item} onPress={() => void openInstitution(item)} />)}
+            </ScrollView>
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -163,10 +174,12 @@ export default function DiscoverScreen() {
 
 function Chip({ label, active, onPress, icon }: { label: string; active: boolean; onPress: () => void; icon?: any }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.chip, { borderColor: active ? colors.brandPrimary : colors.border, backgroundColor: active ? colors.brandPrimary : colors.surfaceSecondary }]} accessibilityRole="button" accessibilityState={{ selected: active }}>
-    {icon ? <Ionicons name={icon} size={15} color={active ? "#FFFFFF" : colors.brandPrimary} /> : null}
-    <Text style={{ color: active ? "#FFFFFF" : colors.onSurface, fontSize: 12, fontWeight: "700" }}>{label}</Text>
-  </Pressable>;
+  return (
+    <Pressable onPress={onPress} style={[styles.chip, { borderColor: active ? colors.brandPrimary : colors.border, backgroundColor: active ? colors.brandPrimary : colors.surfaceSecondary }]} accessibilityRole="button" accessibilityState={{ selected: active }}>
+      {icon ? <Ionicons name={icon} size={15} color={active ? "#FFFFFF" : icon === "checkmark-circle" ? VERIFIED_BLUE : colors.brandPrimary} /> : null}
+      <Text style={{ color: active ? "#FFFFFF" : colors.onSurface, fontSize: 12, fontWeight: "700" }}>{label}</Text>
+    </Pressable>
+  );
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -183,51 +196,83 @@ function Cover({ item, style }: { item: Campus; style: any }) {
 function Logo({ item, size = 48 }: { item: Campus; size?: number }) {
   const { colors } = useTheme();
   if (item.logoUrl) return <Image source={{ uri: item.logoUrl }} style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: "#FFFFFF", backgroundColor: "#FFFFFF" }} contentFit="cover" />;
-  return <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: "#FFFFFF", backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center" }}><Ionicons name="school" size={size * .42} color="#FFFFFF" /></View>;
+  return <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 3, borderColor: "#FFFFFF", backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center" }}><Ionicons name="school" size={size * 0.42} color="#FFFFFF" /></View>;
 }
 
 function Name({ item, small = false }: { item: Campus; small?: boolean }) {
   const { colors } = useTheme();
-  return <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: small ? 13 : 15, lineHeight: small ? 16 : 19, fontWeight: "800", flexShrink: 1 }}>{item.name}</Text>{item.verified ? <Ionicons name="checkmark-circle" size={small ? 13 : 15} color={colors.brandPrimary} /> : null}</View>;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+      <Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: small ? 13 : 15, lineHeight: small ? 16 : 19, fontWeight: "800", flexShrink: 1 }}>{item.name}</Text>
+      {item.verified ? <Ionicons name="checkmark-circle" size={small ? 14 : 16} color={VERIFIED_BLUE} accessibilityLabel="Verified campus" /> : null}
+    </View>
+  );
 }
 
 function FeaturedCard({ item, onPress }: { item: Campus; onPress: () => void }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.featuredCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-    <Cover item={item} style={styles.featuredCover} />
-    <View style={styles.featuredLogo}><Logo item={item} size={50} /></View>
-    <View style={styles.featuredBody}>
-      <Name item={item} />
-      <Text style={[styles.meta, { color: colors.onSurfaceTertiary }]}><Ionicons name="location-outline" size={11} /> {[item.city, item.state].filter(Boolean).join(", ") || item.country || "Campus"}</Text>
-      <View style={[styles.typePill, { backgroundColor: colors.brandTertiary }]}><Text style={{ color: colors.brandPrimary, fontSize: 10, fontWeight: "800" }}>{item.type || "Institution"}</Text></View>
-      <Text style={[styles.followers, { color: colors.onSurfaceTertiary }]}>{formatCount(item.followersCount)} followers</Text>
-      <View style={[styles.viewButton, { borderColor: `${colors.brandPrimary}60` }]}><Text style={{ color: colors.brandPrimary, fontSize: 12, fontWeight: "800" }}>View Campus</Text></View>
-    </View>
-  </Pressable>;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.featuredCard, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary }]}>
+      <Cover item={item} style={styles.featuredCover} />
+      <View style={styles.featuredLogo}><Logo item={item} size={50} /></View>
+      <View style={styles.featuredBody}>
+        <Name item={item} />
+        <Text style={[styles.meta, { color: colors.onSurfaceTertiary }]}><Ionicons name="location-outline" size={11} /> {[item.city, item.state].filter(Boolean).join(", ") || item.country || "Campus"}</Text>
+        <View style={[styles.typePill, { backgroundColor: colors.brandTertiary }]}><Text style={{ color: colors.onBrandTertiary, fontSize: 10, fontWeight: "800" }}>{item.type || "Institution"}</Text></View>
+        <Text style={[styles.followers, { color: colors.onSurfaceTertiary }]}>{formatCount(item.followersCount)} followers</Text>
+        <View style={[styles.viewButton, { borderColor: `${colors.brandPrimary}60` }]}><Text style={{ color: colors.brandPrimary, fontSize: 12, fontWeight: "800" }}>View Campus</Text></View>
+      </View>
+    </Pressable>
+  );
 }
 
 function TrendingCard({ item, onPress }: { item: Campus; onPress: () => void }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.trendingCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-    <Cover item={item} style={styles.trendingCover} />
-    <View style={styles.trendingLogo}><Logo item={item} size={38} /></View>
-    <View style={{ padding: 9, paddingTop: 20 }}><Name item={item} small /><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 4 }}>{item.city || item.state || item.type}</Text><View style={[styles.miniType, { backgroundColor: colors.brandTertiary }]}><Text style={{ color: colors.brandPrimary, fontSize: 9, fontWeight: "800" }}>{item.type || "Campus"}</Text></View><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{formatCount(item.followersCount)} followers</Text></View>
-  </Pressable>;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.trendingCard, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary }]}>
+      <Cover item={item} style={styles.trendingCover} />
+      <View style={styles.trendingLogo}><Logo item={item} size={38} /></View>
+      <View style={{ padding: 9, paddingTop: 20 }}>
+        <Name item={item} small />
+        <Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 4 }}>{item.city || item.state || item.type}</Text>
+        <View style={[styles.miniType, { backgroundColor: colors.brandTertiary }]}><Text style={{ color: colors.onBrandTertiary, fontSize: 9, fontWeight: "800" }}>{item.type || "Campus"}</Text></View>
+        <Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{formatCount(item.followersCount)} followers</Text>
+      </View>
+    </Pressable>
+  );
 }
 
 function NearCard({ item, onPress }: { item: Campus; onPress: () => void }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.nearCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><Logo item={item} size={40} /><View style={{ flex: 1 }}><Name item={item} small /><Text numberOfLines={1} style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 3 }}>{item.city || item.state || item.country}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{formatCount(item.followersCount)} followers</Text></View></Pressable>;
+  return <Pressable onPress={onPress} style={({ pressed }) => [styles.nearCard, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary }]}><Logo item={item} size={40} /><View style={{ flex: 1 }}><Name item={item} small /><Text numberOfLines={1} style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 3 }}>{item.city || item.state || item.country}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, marginTop: 5 }}>{formatCount(item.followersCount)} followers</Text></View></Pressable>;
 }
 
 function RecentCard({ item, onPress }: { item: Campus; onPress: () => void }) {
   const { colors } = useTheme();
-  return <Pressable onPress={onPress} style={[styles.recentCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><Logo item={item} size={32} /><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: 11, lineHeight: 14, fontWeight: "800", flex: 1 }}>{item.name}</Text><Ionicons name="chevron-forward" size={14} color={colors.onSurfaceTertiary} /></Pressable>;
+  return <Pressable onPress={onPress} style={({ pressed }) => [styles.recentCard, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary }]}><Logo item={item} size={32} /><Text numberOfLines={2} style={{ color: colors.onSurface, fontSize: 11, lineHeight: 14, fontWeight: "800", flex: 1 }}>{item.name}</Text><Ionicons name="chevron-forward" size={14} color={colors.onSurfaceTertiary} /></Pressable>;
 }
 
 function StateCard({ icon, title, body, action, onPress }: { icon: any; title: string; body: string; action: string; onPress: () => void }) {
   const { colors } = useTheme();
   return <View style={styles.state}><View style={[styles.stateIcon, { backgroundColor: colors.brandTertiary }]}><Ionicons name={icon} size={28} color={colors.brandPrimary} /></View><Text style={{ color: colors.onSurface, fontSize: 16, fontWeight: "800", marginTop: 12 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, lineHeight: 18, textAlign: "center", marginTop: 5 }}>{body}</Text><Pressable onPress={onPress} style={[styles.retry, { backgroundColor: colors.brandPrimary }]}><Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12 }}>{action}</Text></Pressable></View>;
+}
+
+function DiscoverSkeleton() {
+  return (
+    <View accessibilityLabel="Loading discover results">
+      <View style={styles.sectionHeader}><LoadingSkeleton width={170} height={20} borderRadius={7} /></View>
+      <View style={styles.skeletonRow}>
+        <LoadingSkeleton width={202} height={258} borderRadius={15} />
+        <LoadingSkeleton width={202} height={258} borderRadius={15} />
+      </View>
+      <View style={styles.sectionHeader}><LoadingSkeleton width={150} height={20} borderRadius={7} /></View>
+      <View style={styles.skeletonRow}>
+        <LoadingSkeleton width={146} height={160} borderRadius={14} />
+        <LoadingSkeleton width={146} height={160} borderRadius={14} />
+        <LoadingSkeleton width={146} height={160} borderRadius={14} />
+      </View>
+    </View>
+  );
 }
 
 function InstitutionMobileConsole() {
@@ -240,7 +285,23 @@ function InstitutionMobileConsole() {
     ["people-outline", "Students & Groups", "Approvals and campus communities", "/institution/campus-platform"],
     ["calendar-outline", "Events & Opportunities", "Manage campus activity", "/institution/campus-platform"],
   ];
-  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}><ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}><Text style={[styles.title, { color: colors.onSurface }]}>Institution</Text><Text style={{ color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 20 }}>Mobile controls stay synchronized with Institution Studio.</Text><View style={{ gap: 10, marginTop: 22 }}>{actions.map(([icon, title, subtitle, route]) => <Pressable key={title} onPress={() => router.push(route as any)} style={[styles.consoleCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><View style={[styles.consoleIcon, { backgroundColor: colors.brandTertiary }]}><Ionicons name={icon as any} size={22} color={colors.brandPrimary} /></View><View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontWeight: "800", fontSize: 15 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 3 }}>{subtitle}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></Pressable>)}</View></ScrollView></SafeAreaView>;
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top"]}>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}>
+        <Text style={[styles.title, { color: colors.onSurface }]}>Institution</Text>
+        <Text style={{ color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 20 }}>Mobile controls stay synchronized with Institution Studio.</Text>
+        <View style={{ gap: 10, marginTop: 22 }}>
+          {actions.map(([icon, title, subtitle, route]) => (
+            <Pressable key={title} onPress={() => router.push(route as any)} style={({ pressed }) => [styles.consoleCard, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceTertiary : colors.surfaceSecondary }]}>
+              <View style={[styles.consoleIcon, { backgroundColor: colors.brandTertiary }]}><Ionicons name={icon as any} size={22} color={colors.brandPrimary} /></View>
+              <View style={{ flex: 1 }}><Text style={{ color: colors.onSurface, fontWeight: "800", fontSize: 15 }}>{title}</Text><Text style={{ color: colors.onSurfaceTertiary, fontSize: 12, marginTop: 3 }}>{subtitle}</Text></View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
 }
 
 function formatCount(value: any) {
@@ -252,9 +313,8 @@ function formatCount(value: any) {
 
 const styles = StyleSheet.create({
   page: { paddingBottom: 118 },
-  header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14 },
   title: { fontSize: 31, fontWeight: "900", letterSpacing: -0.9 },
-  magic: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center", shadowColor: "#181A19", shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
   search: { marginHorizontal: 18, height: 54, borderRadius: 15, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16 },
   searchInput: { flex: 1, fontSize: 14 },
   filters: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 4, gap: 8 },
@@ -279,6 +339,7 @@ const styles = StyleSheet.create({
   nearCard: { width: 178, minHeight: 88, borderRadius: 14, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 9, padding: 11 },
   recentRow: { paddingHorizontal: 18, gap: 9 },
   recentCard: { width: 164, minHeight: 58, borderRadius: 13, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 8, padding: 9 },
+  skeletonRow: { flexDirection: "row", gap: 10, paddingHorizontal: 18, overflow: "hidden" },
   state: { alignItems: "center", paddingHorizontal: 28, paddingVertical: 46 },
   stateIcon: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12 },
