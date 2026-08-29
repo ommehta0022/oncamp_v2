@@ -155,7 +155,7 @@ jobs:
             The live update pointer is promoted atomically through the production backend.
           files: frontend/ota-release/*
 
-      - name: Wait for resilient production asset relay
+      - name: Wait for resilient production asset relay and APK signature contract
         if: github.event_name != 'pull_request'
         env:
           RUNTIME_VERSION: ${{ needs.classify.outputs.runtime }}
@@ -166,14 +166,16 @@ jobs:
           READY="false"
           for attempt in $(seq 1 60); do
             HTTP_CODE=$(curl -sS --connect-timeout 5 --max-time 20 \
+              -D /tmp/preflight-manifest-headers.txt \
               -o /tmp/preflight-manifest.json \
               -w '%{http_code}' \
               -H 'expo-protocol-version: 1' \
               -H 'expo-platform: android' \
               -H "expo-runtime-version: ${RUNTIME_VERSION}" \
+              -H 'expo-expect-signature: sig, keyid="oncampus-main", alg="rsa-v1_5-sha256"' \
               -H 'Accept: application/expo+json,application/json' \
               "$MANIFEST_URL" || true)
-            if [ "$HTTP_CODE" = "200" ]; then
+            if [ "$HTTP_CODE" = "200" ] && grep -Eqi '^expo-signature: sig="[^"]+", keyid="oncampus-main", alg="rsa-v1_5-sha256"\r?$' /tmp/preflight-manifest-headers.txt; then
               ASSET_URL=$(node -e "const fs=require('fs');try{const j=JSON.parse(fs.readFileSync('/tmp/preflight-manifest.json','utf8'));process.stdout.write(String(j.launchAsset?.url||''))}catch{}")
               case "$ASSET_URL" in
                 "${OTA_API_BASE}/updates/assets/"*)
@@ -193,10 +195,25 @@ jobs:
             sleep 3
           done
           if [ "$READY" != "true" ]; then
-            echo "Production backend did not expose the verified resumable OTA asset relay; refusing to promote a new update." >&2
+            echo "Production backend did not expose the APK-compatible signed resumable OTA contract; refusing to promote a new update." >&2
             exit 1
           fi
-          echo "Production OTA asset relay is ready before promotion."
+
+          node <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const headers = fs.readFileSync('/tmp/preflight-manifest-headers.txt', 'utf8');
+          const match = headers.match(/^expo-signature:\s*sig="([^"]+)",\s*keyid="oncampus-main",\s*alg="rsa-v1_5-sha256"\s*$/im);
+          if (!match) throw new Error('Production Expo-Signature is not an SFV string compatible with Android expo-updates');
+          const body = fs.readFileSync('/tmp/preflight-manifest.json');
+          const certificate = fs.readFileSync('frontend/certs/ota-certificate.pem');
+          const signature = Buffer.from(match[1], 'base64');
+          if (!crypto.verify('RSA-SHA256', body, certificate, signature)) {
+            throw new Error('Production manifest signature does not verify against the certificate embedded in the APK');
+          }
+          console.log('Production manifest signature verifies against the APK certificate.');
+          NODE
+          echo "Production OTA asset relay and APK signature contract are ready before promotion."
 
       - name: Obtain short-lived GitHub deployment identity
         if: github.event_name != 'pull_request'
@@ -289,6 +306,7 @@ jobs:
             -H 'expo-protocol-version: 1' \
             -H 'expo-platform: android' \
             -H "expo-runtime-version: ${RUNTIME_VERSION}" \
+            -H 'expo-expect-signature: sig, keyid="oncampus-main", alg="rsa-v1_5-sha256"' \
             -H 'Accept: application/expo+json,application/json' \
             "$MANIFEST_URL")
 
@@ -301,7 +319,16 @@ jobs:
           node <<'NODE'
           const crypto = require('crypto');
           const fs = require('fs');
-          const manifest = JSON.parse(fs.readFileSync('/tmp/ota-manifest.json', 'utf8'));
+          const headers = fs.readFileSync('/tmp/ota-headers.txt', 'utf8');
+          const signatureMatch = headers.match(/^expo-signature:\s*sig="([^"]+)",\s*keyid="oncampus-main",\s*alg="rsa-v1_5-sha256"\s*$/im);
+          if (!signatureMatch) throw new Error('Live Expo-Signature is not the SFV string format required by the APK');
+          const manifestBytes = fs.readFileSync('/tmp/ota-manifest.json');
+          const certificate = fs.readFileSync('certs/ota-certificate.pem');
+          if (!crypto.verify('RSA-SHA256', manifestBytes, certificate, Buffer.from(signatureMatch[1], 'base64'))) {
+            throw new Error('Live manifest signature does not verify against the APK-embedded certificate');
+          }
+
+          const manifest = JSON.parse(manifestBytes.toString('utf8'));
           const base = process.env.OTA_API_BASE;
           const assets = [manifest.launchAsset, ...(manifest.assets || [])].filter(Boolean);
           if (!assets.length) throw new Error('OTA manifest has no downloadable assets');
@@ -330,7 +357,7 @@ jobs:
             if (range.status !== 206 || !String(range.headers.get('content-range') || '').startsWith('bytes 0-')) {
               throw new Error('OTA launch asset does not support resumable byte ranges');
             }
-            console.log(`Verified ${assets.length} OTA assets through the OnCampus relay.`);
+            console.log(`Verified APK-compatible manifest signature and ${assets.length} OTA assets through the OnCampus relay.`);
           })().catch((error) => {
             console.error(error);
             process.exit(1);
