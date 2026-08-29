@@ -4,7 +4,6 @@ import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
-import * as Updates from "expo-updates";
 
 import { checkForAppUpdate } from "./AppUpdateGate";
 
@@ -13,6 +12,7 @@ const INSTALLATION_KEY = "oncampus.update.installation_id";
 const DEFAULT_POLL_SECONDS = 30;
 const MIN_POLL_SECONDS = 30;
 const MAX_POLL_SECONDS = 5 * 60;
+const UPDATE_ENGINE_ID = "native-apk-v2";
 
 let inFlight = false;
 
@@ -42,13 +42,19 @@ async function installationId() {
   return next;
 }
 
+function nativeVersion() {
+  return String(Constants.expoConfig?.version || "0.0.0");
+}
+
+function runtimeVersion() {
+  return String(Constants.expoConfig?.runtimeVersion || Constants.expoConfig?.version || "");
+}
+
 async function notificationRegistration() {
   if (Platform.OS !== "android" || !Device.isDevice) {
     return { permission: "unknown" as const, pushToken: null as string | null };
   }
 
-  // Android 13+ needs a channel before the notification permission prompt can
-  // be useful. Ask only while the permission is undecided; never nag a denial.
   await Notifications.setNotificationChannelAsync("updates", {
     name: "App updates",
     description: "OnCampus app update alerts",
@@ -62,7 +68,7 @@ async function notificationRegistration() {
     try {
       permissions = await Notifications.requestPermissionsAsync();
     } catch {
-      // Polling remains the delivery guarantee even if permission UI fails.
+      // Polling remains the delivery guarantee if permission UI fails.
     }
   }
 
@@ -96,9 +102,9 @@ async function registerInstallation() {
     platform: "android",
     pushToken: registration.pushToken,
     notificationPermission: registration.permission,
-    nativeVersion: String(Constants.expoConfig?.version || "0.0.0"),
-    runtimeVersion: String(Updates.runtimeVersion || Constants.expoConfig?.runtimeVersion || ""),
-    currentUpdateId: Updates.updateId || "embedded",
+    nativeVersion: nativeVersion(),
+    runtimeVersion: runtimeVersion(),
+    currentUpdateId: UPDATE_ENGINE_ID,
   };
 
   try {
@@ -114,21 +120,20 @@ async function registerInstallation() {
 }
 
 async function checkServerCampaign(force = false): Promise<number> {
-  if (Platform.OS !== "android" || !Updates.isEnabled || inFlight) return DEFAULT_POLL_SECONDS;
+  if (Platform.OS !== "android" || inFlight) return DEFAULT_POLL_SECONDS;
   if (!force && AppState.currentState !== "active") return DEFAULT_POLL_SECONDS;
   inFlight = true;
   let nextPollSeconds = DEFAULT_POLL_SECONDS;
   try {
     const id = await installationId();
-    const runtime = String(Updates.runtimeVersion || Constants.expoConfig?.runtimeVersion || "");
-    const nativeVersion = String(Constants.expoConfig?.version || "0.0.0");
-    const currentUpdateId = String(Updates.updateId || "embedded");
+    const runtime = runtimeVersion();
+    const installedVersion = nativeVersion();
     if (!runtime) return nextPollSeconds;
 
     const url = new URL(`${API_BASE}/updates/campaign`);
     url.searchParams.set("runtimeVersion", runtime);
-    url.searchParams.set("nativeVersion", nativeVersion);
-    url.searchParams.set("currentUpdateId", currentUpdateId);
+    url.searchParams.set("nativeVersion", installedVersion);
+    url.searchParams.set("currentUpdateId", UPDATE_ENGINE_ID);
     url.searchParams.set("installationId", id);
 
     const response = await fetch(url.toString(), {
@@ -146,10 +151,12 @@ async function checkServerCampaign(force = false): Promise<number> {
     };
     nextPollSeconds = pollDelaySeconds(campaign.pollAfterSeconds);
 
-    if (campaign.nativeUpdateAvailable || (campaign.available && campaign.campaignId)) {
-    await checkForAppUpdate("campaign", true, true);
-  }
-  return nextPollSeconds;
+    // Update Engine v2 is independent of Expo Updates. Native release polling
+    // remains active even when expo-updates is intentionally disabled.
+    if (campaign.nativeUpdateAvailable) {
+      await checkForAppUpdate("campaign", true, true);
+    }
+    return nextPollSeconds;
   } catch {
     return nextPollSeconds;
   } finally {
