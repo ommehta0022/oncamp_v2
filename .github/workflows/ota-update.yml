@@ -64,10 +64,13 @@ jobs:
             exit 0
           fi
 
-          if grep -Eq '^frontend/(app/|src/|assets/|components/|constants/|hooks/|lib/|utils/)' /tmp/changed.txt; then
+          # Delivery-layer changes can break or repair whether an existing APK
+          # can consume an OTA, so they must run the same full package + live
+          # verification pipeline as an app JS change.
+          if grep -Eq '^frontend/(app/|src/|assets/|components/|constants/|hooks/|lib/|utils/)|^production_server\.py$|^ota_updates\.py$|^\.github/workflows/ota-update\.yml$' /tmp/changed.txt; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No OTA-deliverable app change detected."
+            echo "No OTA-deliverable app or delivery-contract change detected."
             echo "publish=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -175,7 +178,15 @@ jobs:
               -H 'expo-expect-signature: sig, keyid="oncampus-main", alg="rsa-v1_5-sha256"' \
               -H 'Accept: application/expo+json,application/json' \
               "$MANIFEST_URL" || true)
-            if [ "$HTTP_CODE" = "200" ] && grep -Eqi '^expo-signature: sig="[^"]+", keyid="oncampus-main", alg="rsa-v1_5-sha256"\r?$' /tmp/preflight-manifest-headers.txt; then
+
+            # Do not depend on field order or proxy whitespace. Security still
+            # requires a quoted SFV StringItem and explicitly rejects the old
+            # byte-sequence form that Android expo-updates cannot parse.
+            if [ "$HTTP_CODE" = "200" ] \
+              && grep -Eqi '^expo-signature:.*sig="[^"]+"' /tmp/preflight-manifest-headers.txt \
+              && ! grep -Eqi '^expo-signature:.*sig=:' /tmp/preflight-manifest-headers.txt \
+              && grep -Eqi '^expo-signature:.*keyid="oncampus-main"' /tmp/preflight-manifest-headers.txt \
+              && grep -Eqi '^expo-signature:.*alg="rsa-v1_5-sha256"' /tmp/preflight-manifest-headers.txt; then
               ASSET_URL=$(node -e "const fs=require('fs');try{const j=JSON.parse(fs.readFileSync('/tmp/preflight-manifest.json','utf8'));process.stdout.write(String(j.launchAsset?.url||''))}catch{}")
               case "$ASSET_URL" in
                 "${OTA_API_BASE}/updates/assets/"*)
@@ -203,11 +214,17 @@ jobs:
           const crypto = require('crypto');
           const fs = require('fs');
           const headers = fs.readFileSync('/tmp/preflight-manifest-headers.txt', 'utf8');
-          const match = headers.match(/^expo-signature:\s*sig="([^"]+)",\s*keyid="oncampus-main",\s*alg="rsa-v1_5-sha256"\s*$/im);
-          if (!match) throw new Error('Production Expo-Signature is not an SFV string compatible with Android expo-updates');
+          const line = headers.split(/\r?\n/).find((value) => /^expo-signature:/i.test(value)) || '';
+          if (/sig=:/i.test(line)) throw new Error('Production Expo-Signature still uses rejected SFV byte-sequence syntax');
+          const signatureMatch = line.match(/(?:^|[,\s])sig="([^"]+)"/i);
+          const keyIdMatch = line.match(/(?:^|[,\s])keyid="([^"]+)"/i);
+          const algorithmMatch = line.match(/(?:^|[,\s])alg="([^"]+)"/i);
+          if (!signatureMatch || keyIdMatch?.[1] !== 'oncampus-main' || algorithmMatch?.[1] !== 'rsa-v1_5-sha256') {
+            throw new Error(`Production Expo-Signature fields are not APK-compatible: ${line.slice(0, 220)}`);
+          }
           const body = fs.readFileSync('/tmp/preflight-manifest.json');
           const certificate = fs.readFileSync('frontend/certs/ota-certificate.pem');
-          const signature = Buffer.from(match[1], 'base64');
+          const signature = Buffer.from(signatureMatch[1], 'base64');
           if (!crypto.verify('RSA-SHA256', body, certificate, signature)) {
             throw new Error('Production manifest signature does not verify against the certificate embedded in the APK');
           }
@@ -320,8 +337,14 @@ jobs:
           const crypto = require('crypto');
           const fs = require('fs');
           const headers = fs.readFileSync('/tmp/ota-headers.txt', 'utf8');
-          const signatureMatch = headers.match(/^expo-signature:\s*sig="([^"]+)",\s*keyid="oncampus-main",\s*alg="rsa-v1_5-sha256"\s*$/im);
-          if (!signatureMatch) throw new Error('Live Expo-Signature is not the SFV string format required by the APK');
+          const line = headers.split(/\r?\n/).find((value) => /^expo-signature:/i.test(value)) || '';
+          if (/sig=:/i.test(line)) throw new Error('Live Expo-Signature uses rejected SFV byte-sequence syntax');
+          const signatureMatch = line.match(/(?:^|[,\s])sig="([^"]+)"/i);
+          const keyIdMatch = line.match(/(?:^|[,\s])keyid="([^"]+)"/i);
+          const algorithmMatch = line.match(/(?:^|[,\s])alg="([^"]+)"/i);
+          if (!signatureMatch || keyIdMatch?.[1] !== 'oncampus-main' || algorithmMatch?.[1] !== 'rsa-v1_5-sha256') {
+            throw new Error(`Live Expo-Signature fields are not APK-compatible: ${line.slice(0, 220)}`);
+          }
           const manifestBytes = fs.readFileSync('/tmp/ota-manifest.json');
           const certificate = fs.readFileSync('certs/ota-certificate.pem');
           if (!crypto.verify('RSA-SHA256', manifestBytes, certificate, Buffer.from(signatureMatch[1], 'base64'))) {
