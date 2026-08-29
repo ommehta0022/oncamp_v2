@@ -15,6 +15,23 @@ def test_v2_semver_maps_to_android_version_code() -> None:
     assert native_update_v2._version_code("2.3.4") == 20304
 
 
+def test_v2_authorization_payload_is_deterministic() -> None:
+    payload = native_update_v2._authorization_payload(
+        version="1.7.0",
+        version_code=10700,
+        sha256="a" * 64,
+        size=12345678,
+    )
+    assert payload == (
+        b"oncampus-update-v2\n"
+        b"version=1.7.0\n"
+        b"versionCode=10700\n"
+        + f"sha256={'a' * 64}\n".encode()
+        + b"size=12345678\n"
+        b"package=com.oncampus.app\n"
+    )
+
+
 def test_production_registers_native_v2_routes() -> None:
     source = text("production_server.py")
     assert "native_update_v2_router" in source
@@ -27,11 +44,16 @@ def test_production_registers_native_v2_routes() -> None:
         assert route in source
 
 
-def test_v2_backend_is_first_party_resumable_and_observable() -> None:
+def test_v2_backend_is_first_party_resumable_authorized_and_observable() -> None:
     source = text("native_update_v2.py")
     assert 'transport": "native-apk"' in source
     assert '"requireSameSigningCertificate": True' in source
     assert '"requireHigherVersionCode": True' in source
+    assert '"releaseAuthorization": AUTH_ALGORITHM' in source
+    assert '"releaseAuthorizationSignature": True' in source
+    assert "ota_updates._sign_manifest(payload)" in source
+    assert '"keyId": ota_updates.SIGNING_KEY_ID' in source
+    assert 'AUTH_ALGORITHM = "rsa-v1_5-sha256"' in source
     assert 'headers["Range"] = requested_range' in source
     assert 'upstream.status_code != 206' in source
     assert '"Accept-Ranges"' in source
@@ -55,10 +77,15 @@ def test_final_android_binary_disables_legacy_expo_remote_ota() -> None:
     assert "NativeOtaStartupGuard" not in layout
 
 
-def test_v2_native_client_verifies_hash_package_version_and_signer() -> None:
+def test_v2_native_client_verifies_authorization_hash_package_version_and_signer() -> None:
     source = text("frontend/android/app/src/main/java/com/oncampus/app/OnCampusApkInstallerModule.kt")
+    certificate = text("frontend/android/app/src/main/res/raw/oncampus_update_authorization_certificate.pem")
     assert "DownloadManager" in source
     assert 'uri.path == "/v1/updates/v2/apk/$targetVersion"' in source
+    assert "verifyReleaseAuthorization(" in source
+    assert "SHA256withRSA" in source
+    assert "R.raw.oncampus_update_authorization_certificate" in source
+    assert "UNTRUSTED_AUTHORIZATION" in source
     assert "APK checksum verification failed" in source
     assert "getPackageArchiveInfo" in source
     assert "archive.packageName != reactContext.packageName" in source
@@ -71,6 +98,7 @@ def test_v2_native_client_verifies_hash_package_version_and_signer() -> None:
     assert "fun getStatus(" in source
     assert "reconcileInstalledTarget()" in source
     assert "github.com" not in source
+    assert "-----BEGIN CERTIFICATE-----" in certificate
 
 
 def test_v2_ui_and_polling_do_not_depend_on_expo_updates() -> None:
@@ -80,6 +108,9 @@ def test_v2_ui_and_polling_do_not_depend_on_expo_updates() -> None:
     assert "prefetchLatestOta" not in gate
     assert "/updates/v2/latest" in gate
     assert "/updates/v2/telemetry" in gate
+    assert 'AUTH_KEY_ID = "oncampus-main"' in gate
+    assert 'AUTH_ALGORITHM = "rsa-v1_5-sha256"' in gate
+    assert "release.authorization?.signature" in gate
     assert "nativeInstaller.getStatus()" in gate
     assert "nativeInstaller.startInstall(" in gate
     assert "expo-updates" not in coordinator
