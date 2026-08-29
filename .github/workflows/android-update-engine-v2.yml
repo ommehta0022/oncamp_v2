@@ -157,7 +157,7 @@ jobs:
           grep -F 'lib/arm64-v8a/' apk-files.txt >/dev/null
           grep -F 'lib/x86_64/' apk-files.txt >/dev/null
           grep -E '(^|/)assets/(index\.android\.bundle|.*\.hbc)$' apk-files.txt >/dev/null
-          unzip -Z1 "$APK" | grep -F 'res/raw/oncampus_update_authorization_certificate.pem' >/dev/null
+          "$BUILD_TOOLS/aapt" dump resources "$APK" | grep -F 'oncampus_update_authorization_certificate' >/dev/null
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' apk-signature.txt | head -1 | tr 'A-F' 'a-f')
           PREVIOUS_CERT=$(node -e "try{process.stdout.write(String(require('./APK_RELEASE_STATUS.json').signingCertificateSha256||''))}catch{}")
           if [ -n "$PREVIOUS_CERT" ] && [ "$CERT_SHA" != "$PREVIOUS_CERT" ]; then
