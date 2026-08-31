@@ -1,0 +1,165 @@
+name: Studio Advanced Live Smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify production API data flow and latency
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://oncampus-backend-production.up.railway.app/v1'
+          WEB='https://institution-studio-web-production.up.railway.app'
+
+          curl --retry 5 --retry-delay 2 --retry-all-errors -fsS "$API/health" >/tmp/health.json
+          for page in /studio/login /studio /studio/profile /studio/content /studio/media /studio/operations /studio/governance; do
+            code=$(curl --retry 3 --retry-all-errors -sS -L -o /dev/null -w '%{http_code}' "$WEB$page")
+            test "$code" = '200'
+          done
+
+          bad=$(curl -sS -o /tmp/bad.json -w '%{http_code}' -X POST "$API/auth/institution/otp/start" -H 'Content-Type: application/json' --data '{"identifier":"9900000999"}')
+          test "$bad" = '404'
+
+          curl -fsS -X POST "$API/auth/institution/otp/start" -H 'Content-Type: application/json' --data '{"identifier":"9900000002"}' >/tmp/start.json
+          curl -fsS -X POST "$API/auth/institution/otp/verify" -H 'Content-Type: application/json' --data '{"identifier":"9900000002","code":"123456","platform":"web"}' >/tmp/session.json
+          TOKEN=$(python - <<'PY'
+          import json
+          d=json.load(open('/tmp/session.json'))
+          print(d.get('accessToken') or '')
+          PY
+          )
+          test -n "$TOKEN"
+          printf '%s' "$TOKEN" >/tmp/token
+
+          endpoints=(
+            '/campus/institution/studio'
+            '/campus/institution/studio/analytics'
+            '/campus/institution/studio/groups'
+            '/campus/institution/departments'
+            '/campus/institution/events'
+            '/campus/institution/studio/opportunities'
+            '/campus/institution/studio/places'
+            '/campus/institution/announcements'
+            '/campus/institution/broadcasts'
+            '/campus/institution/storage'
+            '/campus/institution/backups'
+            '/campus/institution/webhooks'
+            '/campus/institution/integrations'
+          )
+          : >/tmp/times.txt
+          for ep in "${endpoints[@]}"; do
+            result=$(curl -fsS -o /tmp/body.json -w '%{http_code} %{time_total}' "$API$ep" -H "Authorization: Bearer $TOKEN")
+            code=${result%% *}; secs=${result##* }
+            test "$code" = '200'
+            echo "$secs $ep" | tee -a /tmp/times.txt
+          done
+          python - <<'PY'
+          import statistics
+          vals=[]
+          for line in open('/tmp/times.txt'):
+            vals.append(float(line.split()[0]))
+          med=statistics.median(vals)
+          p95=sorted(vals)[max(0, int(len(vals)*.95)-1)]
+          print(f'Studio API median={med*1000:.0f}ms p95={p95*1000:.0f}ms')
+          assert med < 2.5, f'median Studio API latency too high: {med:.3f}s'
+          assert p95 < 5.0, f'p95 Studio API latency too high: {p95:.3f}s'
+          PY
+
+          # Idempotent write checks: patch existing values back to themselves.
+          curl -fsS "$API/campus/institution/studio/groups" -H "Authorization: Bearer $TOKEN" >/tmp/groups.json
+          curl -fsS "$API/campus/institution/departments" -H "Authorization: Bearer $TOKEN" >/tmp/depts.json
+          python - <<'PY'
+          import json
+          g=json.load(open('/tmp/groups.json'))[0]
+          d=json.load(open('/tmp/depts.json'))[0]
+          open('/tmp/gid','w').write(str(g['id']))
+          open('/tmp/featured','w').write('true' if g.get('featured') else 'false')
+          open('/tmp/did','w').write(str(d['id']))
+          open('/tmp/sort','w').write(str(d.get('sort_order') or 0))
+          PY
+          GID=$(cat /tmp/gid); FEATURED=$(cat /tmp/featured); DID=$(cat /tmp/did); SORT=$(cat /tmp/sort)
+          curl -fsS -X PATCH "$API/campus/institution/studio/groups/$GID" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data "{\"featured\":$FEATURED}" >/tmp/group-write.json
+          curl -fsS -X PATCH "$API/campus/institution/studio/departments/$DID" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data "{\"sortOrder\":$SORT}" >/tmp/dept-write.json
+          echo 'Studio idempotent write data flow: PASS'
+
+          curl -fsS -X POST "$API/auth/otp/start" -H 'Content-Type: application/json' --data '{"phone":"9900000001","action":"login"}' >/tmp/student-start.json
+          curl -fsS -X POST "$API/auth/otp/verify-code" -H 'Content-Type: application/json' --data '{"phone":"9900000001","code":"123456","platform":"android"}' >/tmp/student-session.json
+          STUDENT=$(python - <<'PY'
+          import json
+          print(json.load(open('/tmp/student-session.json')).get('accessToken') or '')
+          PY
+          )
+          test -n "$STUDENT"
+          curl -fsS "$API/campus/directory/institutions" -H "Authorization: Bearer $STUDENT" >/tmp/directory.json
+          curl -fsS "$API/campus/directory/institutions/seed-inst-iit-bombay" -H "Authorization: Bearer $STUDENT" >/tmp/profile.json
+          python - <<'PY'
+          import json
+          rows=json.load(open('/tmp/directory.json'))
+          if isinstance(rows,dict): rows=rows.get('items') or rows.get('institutions') or rows.get('data') or []
+          assert len(rows)==1
+          assert rows[0]['name']=='OnCampus University'
+          p=json.load(open('/tmp/profile.json'))
+          inst=p.get('institution') or p
+          assert inst['name']=='OnCampus University'
+          assert len(p.get('groups') or [])>=5
+          print('Student Discover -> institution profile data flow: PASS')
+          PY
+
+      - name: Verify Chrome zoom-equivalent layouts do not page-overflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pw && cd /tmp/pw
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+          TOKEN=$(cat /tmp/token)
+          export TOKEN
+          cat > smoke.mjs <<'JS'
+          import { chromium } from 'playwright';
+          const web='https://institution-studio-web-production.up.railway.app';
+          const token=process.env.TOKEN;
+          const widths=[2880,1920,1440,1200,1029]; // approx 50%, 75%, 100%, 120%, 140% on common desktop screens
+          const routes=['/studio','/studio/profile','/studio/content','/studio/media','/studio/operations#groups','/studio/operations#events','/studio/operations#people','/studio/operations#campus','/studio/governance'];
+          const browser=await chromium.launch({headless:true});
+          const failures=[];
+          for (const width of widths) {
+            const context=await browser.newContext({viewport:{width,height:1000}});
+            await context.addInitScript((t)=>localStorage.setItem('institution_studio_token',t),token);
+            const page=await context.newPage();
+            for (const route of routes) {
+              await page.goto(web+route,{waitUntil:'networkidle',timeout:45000});
+              await page.waitForTimeout(250);
+              const result=await page.evaluate(()=>{
+                const root=document.documentElement;
+                const body=document.body;
+                const pageOverflow=Math.max(root.scrollWidth,body.scrollWidth)-root.clientWidth;
+                const offenders=[...document.querySelectorAll('main button, main input, main select, main textarea, main section')]
+                  .filter(el=>{
+                    const r=el.getBoundingClientRect();
+                    const style=getComputedStyle(el);
+                    if(style.position==='fixed') return false;
+                    return r.right>innerWidth+4 || r.left<-4;
+                  })
+                  .slice(0,10)
+                  .map(el=>({tag:el.tagName, text:(el.textContent||'').trim().slice(0,60), rect:el.getBoundingClientRect().toJSON()}));
+                return {pageOverflow,offenders};
+              });
+              if(result.pageOverflow>4 || result.offenders.length) failures.push({width,route,...result});
+              console.log(`layout ${width}px ${route}: overflow=${result.pageOverflow.toFixed(0)} offenders=${result.offenders.length}`);
+            }
+            await context.close();
+          }
+          await browser.close();
+          if(failures.length){ console.error(JSON.stringify(failures,null,2)); process.exit(1); }
+          console.log('Chrome 50%-140% zoom-equivalent responsive checks: PASS');
+          JS
+          node smoke.mjs
